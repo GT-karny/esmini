@@ -21,7 +21,7 @@
   これは**型ではなく名前**の一致で探す。名前を "VD" などにすると
   テレメトリが黙ってゼロ件になり、バッチは「no VirtualDriver telemetry captured」
   で落ちる（挙動は正常なのに計測だけが消える）。この落とし穴は
-  docs/virtualdriver/domain_split_ownership.md の積み残しに記録してある。
+  docs/virtualdriver/design/domain_split_ownership.md の積み残しに記録してある。
 
   現在の実測 (f7_curve_onset.xodr, 8s, fixed_timestep 0.05):
 
@@ -47,7 +47,7 @@
   総取りしていた**。宣言順を入れ替えると総取りする側が変わるだけで、
   順序を選んでも救えなかった (MD→VD なら横は VD、VD→MD なら横は MD)。
 
-  現在の実装 (docs/virtualdriver/domain_split_ownership.md):
+  現在の実装 (docs/virtualdriver/design/domain_split_ownership.md):
     S1 GT 側の所有台帳。upstream 欠陥A により Controller::GetActiveDomains() は
        調停に使えないため、(object, domain) → 直近の主張者 を GT が持つ。
     S2 出力ゲート。積分器を1つに絞る (縦の所有者、無ければ横の所有者)。

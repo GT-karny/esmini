@@ -13,7 +13,8 @@ description: プロジェクト知識グラフ（GT_esmini/docs/knowledge）の�
   - **ノードカタログ**（各名前空間の source_of_truth）: `signal_catalog.yaml`（観測可能量・
     exposure/state 付き）/ `gate_catalog.yaml`（常設ゲート・covers/blocking 付き）/
     `claim_domains.yaml`（§2 行列の行定義）/ `function_catalog_vd_ad.yaml`（FUNC-001..075）/
-    `requirements_vd_ad.yaml` / `scene_catalog_vd_ad.yaml`
+    `requirements_vd_ad.yaml` / `scene_catalog_vd_ad.yaml` /
+    `component_catalog_vd.yaml`（VD 実装ユニット＝ITrafficPolicy 以外。policy 名前空間と排他）
   - 設計は同ディレクトリ README.md、**検証スパイン・命名規約は `capability_model.md`（§1/§4-§7.1）**。
 - Pythonは常に `DriverScript/.venv/Scripts/python.exe`。
 - **裸のIDは信用しない**: `P<n>`は5系統、`CORE-<n>`/`R<n>`等も多重定義。参照は必ず `名前空間:ローカルID`。
@@ -63,17 +64,26 @@ kg スキルは記帳作法。**「何を結線すれば検証可能な機能に
    **ブリーフの内容をプロンプトへ手書き転記しない**（腐る）— セッション冒頭で再実行する。
 2. **命名（§7.1・lint が機械強制）**: 新資産・新IDに**序数・工程名を使わない**
    （`phase2_*`/`wave3_*` 不可、内容slugで）。恒久資産の由来は名前でなく `origin:` メタデータ。
-3. **凍結の罠**: `scenario-variant` / `req-vd-ad` / `vd-func` 等の既存序数体系は
+3. **該当する「ノード型」が無いとき（凍結の罠とは別物）**: 既存の枠に押し込まず、
+   **新名前空間の新設を提案して AskUserQuestion で承認を取る。保留にしない**。
+   判断材料として「その型の実体が他に何件あるか」を数えて示すこと（前例: `vd-component` は
+   RouteLanePlan 1件に見えたが、`by:` の擬似ID 6件＋未登録の VD 実装層で計9件あった）。
+   凍結ルールは**既存体系への新ID追加**の話で、**型そのものの不在**は新設で解く。
+4. **要求の粒度**: 「達成/未達」の2値でしか書けない粒度で要求を書かない。**受入基準を段で書く**
+   （`requirements_vd_ad.yaml` の `acceptance_ladder`）。粗い要求は途中まで進んだ実装を全て
+   "未達" に見せ、正直に記帳するほど成果が消える。辺に partial を足すのは症状への絆創膏で、
+   要求を割るか段で書くのが根治（前例: REQ-AD-016 の 016/017 分割）。
+5. **凍結の罠**: `scenario-variant` / `req-vd-ad` / `vd-func` 等の既存序数体系は
    「新IDを足さない」凍結（check_knowledge_graph.py の OPAQUE_LEGACY 側）。**新IDが必要なら
    実装前に AskUserQuestion で例外承認を取る**（FUNC-075 の前例）。新しいID*体系*の
    序数パターン新設は lint が拒否する（規約4）。
-4. **結線**（graph.yaml、縦串3辺＋既存辺）: 刺激資産→ `stimulated-by`、matcher→ `observes` →signal、
+6. **結線**（graph.yaml、縦串3辺＋既存辺）: 刺激資産→ `stimulated-by`、matcher→ `observes` →signal、
    req/matcher→ `sustained-by` →gate、実装→ `realizes`、matcher→ `verifies`。
    新しい観測量は `signal_catalog.yaml` に exposure/state 付きで起こす（on-demand、
    canonical は OSI/HVD 面）。新しい常設ゲートは `gate_catalog.yaml`（covers/not_covers を正直に）。
    **新しい matcher / policy は namespaces.yaml の列挙 id_pattern と count の更新が必須**
    （列挙型名前空間のため。更新しないと lint が新IDの辺を拒否する。削除時も同様 — 前例 G5）。
-5. **確認**: lint + `--render` グリーン → `--spine-report` の件数が意図どおり動いたか
+7. **確認**: lint + `--render` グリーン → `--spine-report` の件数が意図どおり動いたか
    （辺を張ったのに減らない＝結線の書き方が台帳の数え方と合っていない）。
 
 ## 運用手順

@@ -1,0 +1,60 @@
+scenario: overtake_declined_before_route_branch
+category: 08_overtake
+# vd-func:FUNC-056 (overtake maneuver) / req-vd-ad:REQ-AD-024 acceptance
+# ladder step b: the route-budget GUARD (design doc section 2) correctly
+# declines an overtake that would miss the exit-ramp branch. See the .xosc
+# file's header comment for the full distance-budget derivation
+# (required=496.667 m against a dist_to_connection=400.0 m budget -- a
+# clear 96.667 m shortfall, deliberately NOT borderline).
+#
+# UNMEASURED (authored before the C++ overtake implementation existed).
+# This file's most important assertion is expect_considered: true --
+# design doc section 9-4's explicit warning is that "両立しない配置は
+# 「そもそも検討していないから緑」になる" (a guard-blocked scenario where
+# the trigger never even fires would be a false pass). Every must entry
+# below works together to rule that out.
+must:
+  - event: overtake_decision_holds
+    expect_considered: true
+    reason: >
+      The overtake trigger conditions (delta_v=12.0 m/s, t_pass=4.83s,
+      SlowLead constrained-gap) are IDENTICAL to the sibling
+      overtake_slow_lead_on_two_lane_road scenario -- only
+      dist_to_connection differs. considered must still become true here;
+      if it never does, this scenario is not testing the guard at all, it
+      is testing an unrelated absence of the trigger (a false pass per the
+      design doc's own warning above).
+  - event: overtake_decision_holds
+    expect_blocked_reason: route_budget
+    reason: >
+      Confirms the SPECIFIC reason the maneuver did not proceed is the
+      route-budget guard (design doc section 2's
+      d_out+d_pass+d_back+d_route+reserve <= dist_to_connection check), not
+      some other blocked_reason (gap / oncoming / no_passing_lane /
+      suppressed) that would indicate a different defect entirely.
+  - event: overtake_decision_holds
+    forbid_phases: [signal_out, out, pass, signal_back, back]
+    reason: >
+      The state machine (design doc section 5) must never leave idle: the
+      IDLE -> SIGNAL_OUT transition requires BOTH the trigger AND the
+      guard (section 5-1), so a guard failure must keep every subsequent
+      phase from ever being observed.
+  - event: overtake_decision_holds
+    expect_cleared_lead: false
+    reason: >
+      Complements forbid_phases from the other observable this design adds
+      (section 9-1): if the maneuver never leaves idle, SlowLead is never
+      even attempted to be passed, so cleared_lead must stay false for the
+      whole run.
+notes: >
+  UNVERIFIED (no simulation run). Unlike overtake_aborted_for_route_branch
+  (a razor's-edge margin whose outcome this author could not confirm
+  without measurement), this scenario's shortfall (96.667 m) is
+  deliberately large so the guard's PASS/FAIL classification should not be
+  sensitive to any of the modeling approximations flagged elsewhere in this
+  batch (e.g. whether "v" inside the various sub-formulas is the static
+  v_pass or Ego's real, IDM-throttled speed -- see
+  overtake_aborted_for_route_branch.xosc's CONFIDENCE note for why that
+  ambiguity matters there but should not matter here). The parent session
+  should still run this once GT_esminiLib.dll has the overtake feature
+  before treating it as a settled baseline.

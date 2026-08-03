@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 05_anticipation / junction_turn_signal_long_connector
+  req-vd-ad:REQ-AD-021 / indicator_leads_junction_turn matcher, defect-1 regression guard
+  (docs/virtualdriver/design/junction_turn_signal.md #1, defect 1: a connecting road whose
+  own length alone exceeds the old lookahead could never trigger the indicator).
+
+  Road: t_junction__a90 (resources/scenario_authoring/road_catalog/generated), a T-junction
+  (junction id=100) with two colinear through arms (road 0 east-bound, road 1 west-bound,
+  joined by the straight connector road 100, length 40) and one stem arm (road 2, heading
+  north) reached from either through arm by a long curved connector: road 101 (from road 0,
+  length ~33.205 m) or road 102 (from road 1, length ~33.205 m).
+
+  This scenario drives road 0 (lane -1) -> connecting road 101 (lane -1) -> road 2 (lane 1),
+  i.e. RIGHT turn (derived from the xodr geometry, not assumed; see the expectations file's
+  "reason" for the heading-delta derivation). The connector is deliberately the long (33.2 m)
+  one: the pre-fix RouteLookaheadJunctionTurnDirection required "distance to junction entry +
+  connecting-road length < lookahead" to detect a direction at all, so a connector this long
+  never lit the indicator regardless of approach distance (defect 1, junction_turn_signal.md
+  #1 row 1). Post-fix, direction comes from the connector's own geometry (heading-delta at
+  entry, independent of connector length), so this scenario must light >= 29.5 m before
+  entering road 101.
+
+  Ego starts at road 0 s=20, giving 80 m of straight approach to the junction entry (road 0's
+  end, s=100), well over the design doc's ~60 m minimum runway (junction_turn_signal.md
+  #4-3 / task instructions), so the indicator's 30 m trigger point is reached at cruise, not
+  while still accelerating from a stationary Init teleport.
+  Cruise speed is a running Story Event (NOT Init) for VirtualDriver visibility (see other
+  05_anticipation scenarios / verification_v2 notes).
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-08-04T10:00:00"
+               description="VirtualDriver verification: indicator lights >=30 m before a long junction connector (defect 1 regression guard)"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../scenario_authoring/road_catalog/generated/t_junction__a90.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-1" offset="0" s="20"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-1" offset="0" s="20"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="101" laneId="-1" offset="0" s="16.6"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="1" offset="0" s="50"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="AnticipationStory">
+         <Act name="AnticipationAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="30" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

@@ -34,6 +34,30 @@ def _frame(t, speed, x=0.0, y=0.0, lane=-1, track=1, **ego_extra):
     return {"sim_time": t, "ego": ego}
 
 
+def _rl_frame(t, **route_lane_overrides):
+    """A frame carrying a "route_lane" block (RouteLanePlan telemetry -- see
+    VirtualDriverTelemetryJson.cpp), defaulted to a clean/on-target state.
+    Override individual fields per test, e.g. _rl_frame(0.0, diagnostic="invalid_route").
+    """
+    fr = _frame(t, 10.0)
+    fr["route_lane"] = {
+        "valid": True,
+        "road_id": 0,
+        "ego_lane": -4,
+        "ego_lane_raw": -4,
+        "target_lanes": [-4],
+        "on_target_lane": True,
+        "dist_to_connection": 50.0,
+        "deviation_count": 0,
+        "last_deviation_road_id": -1,
+        "rerouted": False,
+        "diagnostic": "",
+        "reason": "",
+    }
+    fr["route_lane"].update(route_lane_overrides)
+    return fr
+
+
 def _write_telemetry(run_dir, frames):
     run_dir.mkdir(parents=True, exist_ok=True)
     lines = [json.dumps(fr) for fr in frames]
@@ -202,6 +226,108 @@ def test_min_obb_separation_fallback_dims_inconclusive():
     r = eval_must({"event": "min_obb_separation_above", "threshold": 0.3}, [fr])
     assert r["status"] == "skip"
     assert "inconclusive" in r["detail"]
+
+
+def test_route_lane_plan_holds_missing_block_is_skip():
+    # No "route_lane" key at all -- stale GT_esminiLib.dll (predates RouteLanePlan
+    # telemetry) or the feature isn't wired into this run. Must not silently pass.
+    r = eval_must(
+        {"event": "route_lane_plan_holds", "expect_diagnostic": ""}, [_frame(0.0, 10.0)]
+    )
+    assert r["status"] == "skip"
+    assert "route_lane" in r["detail"]
+
+
+def test_route_lane_plan_holds_no_keys_named_is_skip():
+    # A must entry naming NONE of the expect_*/min_deviations keys checks
+    # nothing and must not report pass (reversed-detector guard).
+    r = eval_must({"event": "route_lane_plan_holds"}, [_rl_frame(0.0)])
+    assert r["status"] == "skip"
+    assert "checks nothing" in r["detail"]
+
+
+def test_route_lane_plan_holds_pass_all_checks():
+    frames = [
+        _rl_frame(0.0, deviation_count=0),
+        _rl_frame(1.0, deviation_count=1),
+    ]
+    must = {
+        "event": "route_lane_plan_holds",
+        "expect_diagnostic": "",
+        "expect_rerouted": False,
+        "expect_target_lanes": [-4],
+        "expect_on_target_lane": True,
+        "min_deviations": 1,
+    }
+    r = eval_must(must, frames)
+    assert r["status"] == "pass"
+
+
+def test_route_lane_plan_holds_target_lanes_compares_sorted():
+    r = eval_must(
+        {"event": "route_lane_plan_holds", "expect_target_lanes": [-1, -4, -2]},
+        [_rl_frame(0.0, target_lanes=[-2, -4, -1])],
+    )
+    assert r["status"] == "pass"
+
+
+def test_route_lane_plan_holds_window_gates_frames():
+    frames = [_rl_frame(0.0, diagnostic="invalid_route"), _rl_frame(5.0, diagnostic="")]
+    r = eval_must(
+        {
+            "event": "route_lane_plan_holds",
+            "expect_diagnostic": "",
+            "window": [5.0, 5.0],
+        },
+        frames,
+    )
+    assert r["status"] == "pass"
+
+
+# The remaining tests each deliberately construct VIOLATING telemetry -- proof
+# the matcher actually fires "fail" rather than merely never having been
+# exercised (project discipline: a reversed/no-op detector is worse than none).
+
+
+def test_route_lane_plan_holds_fail_diagnostic_mismatch():
+    r = eval_must(
+        {"event": "route_lane_plan_holds", "expect_diagnostic": ""},
+        [_rl_frame(0.0, diagnostic="invalid_route")],
+    )
+    assert r["status"] == "fail"
+    assert r["idx"] == 0
+
+
+def test_route_lane_plan_holds_fail_rerouted_mismatch():
+    r = eval_must(
+        {"event": "route_lane_plan_holds", "expect_rerouted": False},
+        [_rl_frame(0.0, rerouted=True)],
+    )
+    assert r["status"] == "fail"
+
+
+def test_route_lane_plan_holds_fail_target_lanes_never_observed():
+    r = eval_must(
+        {"event": "route_lane_plan_holds", "expect_target_lanes": [-4]},
+        [_rl_frame(0.0, target_lanes=[-1, -2])],
+    )
+    assert r["status"] == "fail"
+
+
+def test_route_lane_plan_holds_fail_on_target_lane_never_observed():
+    r = eval_must(
+        {"event": "route_lane_plan_holds", "expect_on_target_lane": False},
+        [_rl_frame(0.0, on_target_lane=True)],
+    )
+    assert r["status"] == "fail"
+
+
+def test_route_lane_plan_holds_fail_min_deviations_not_met():
+    r = eval_must(
+        {"event": "route_lane_plan_holds", "min_deviations": 1},
+        [_rl_frame(0.0, deviation_count=0)],
+    )
+    assert r["status"] == "fail"
 
 
 def test_unknown_event_skips():

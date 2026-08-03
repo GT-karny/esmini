@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 06_route_lane / lane_change_to_exit_ramp_at_constant_speed
+
+  vd-func:FUNC-061 (indicator pre-signal before lane-change initiation) /
+  req-vd-ad:REQ-AD-018 (法定タイミング要求 - JP Road Traffic Act Enforcement
+  Order Art. 21 para 1: signal at least 3 seconds before the maneuver). This
+  scenario isolates ladder step b ("定速で法定3秒のリードを満たす") from the
+  two existing lane_change_to_exit_ramp*.xosc scenarios in this directory,
+  neither of which can show a clean steady-state lead: both start Ego in a
+  lane requiring n_remaining=3 hops (-1 or -2 to reach -4), for which
+  required_m = 3*max(v*lane_change_lead_time_s, lane_change_min_lead_distance_m)
+  + lane_change_reserve_distance_m = 3*(13.889*6.0)+20 = 270 m exceeds the
+  190 m of road-0 travel available (road 0 is 200 m long, Ego starts at
+  s=10) - so the first lane change is already decided on frame 1, before
+  any lead measurement is possible (see the sibling files' header comments).
+
+  This scenario instead starts Ego in lane -3 (not -1/-2), one hop from the
+  target band: junction 1 connection id=3's <laneLink> covers ONLY "-4" of
+  road 0 (measured fact, see lane_change_initiation.md section 3), so lane
+  -3 needs exactly ONE lane change, -3 -> -4, i.e. n_remaining=1. At
+  EgoSpeed=9.0 m/s (see the "WHY EgoSpeed IS 9.0 m/s" paragraph below for
+  why this scenario does NOT use the sibling scenarios' 13.889 m/s),
+  required_m = 1*max(9.0*6.0, 40)+20 = 74 m, comfortably inside the 190 m
+  budget, so the hop arms partway through road 0 instead of at t=0 - the
+  pre-signal and the arm both happen mid-run, where they can actually be
+  measured apart.
+
+  Route/road facts otherwise match the sibling scenarios exactly: same xodr
+  (highway_example_with_merge_and_split.xodr), same junction 1 / connecting
+  road 4, same explicit road-4 Waypoint (REQUIRED for Route::IsValid()==true
+  - dropping it reproduces merge_required_for_exit_ramp.xosc's
+  invalid_route case instead; see lane_change_to_exit_ramp.xosc's header
+  comment for the full Route::IsValid()/RoadPath::Calculate explanation).
+
+  CONSTANT SPEED, NOT A STORY RAMP: Ego's speed is set ONCE, in Init, via a
+  step (instantaneous) SpeedAction - the same PrivateAction pattern this
+  directory's lane_change_to_exit_ramp_with_traffic.xosc uses for its
+  AdjacentTraffic entity - placed BEFORE the ControllerAction so the engine
+  applies it while it still owns the LONG domain (see
+  ControllerVirtualDriver.cpp's ResolveTargetSpeed: once no Story SpeedAction
+  is ever observed running, the resolved target speed snaps to and stays at
+  the last action's target forever). No Story Event touches Ego's speed at
+  all (see Story/Act below: an empty ManeuverGroup, the same shape
+  01_vehicle_model/straight_constant_speed.xosc uses). This deliberately
+  avoids the sibling scenarios' 3.0s linear acceleration ramp, which is
+  exactly the transient step c (req-vd-ad:REQ-AD-017) needs to be measured
+  separately from (see lane_change_to_exit_ramp.expectations.yaml's must #3
+  reason: for how that ramp compresses the measured lead to 0.40s).
+
+  WHY EgoSpeed IS 9.0 m/s, NOT 13.889 m/s (2026-08-03, parent session, real
+  post-fix Release build with the forward-projection indicator rule
+  (section 11-11) wired in): the value of the speed itself carries no
+  meaning for this scenario - what matters is pushing the decision instant
+  (t_arm) out past the point where the driver model's speed-tracking
+  transient has actually settled. At 13.889 m/s the -3 -> -4 hop decides at
+  t_sig~=3.25 / t_arm~=6.20, which sits in the MIDDLE of that transient:
+  measured d(ego.speed)/dt at those times was still +0.0241 m/s^2 at t=3.0,
+  +0.0079 m/s^2 at t=6.0, only reaching +0.0009 m/s^2 at t=10.0 and
+  +0.00003 m/s^2 at t=15.0. Deciding mid-transient is why 13.889 m/s
+  measured a lead of 2.95s instead of the clean 3.00s this scenario exists
+  to demonstrate - not quantization, not a rule defect. Lowering EgoSpeed to
+  9.0 m/s pushes both thresholds later (t_sig~=9.9s, t_arm~=12.9s, both
+  past t=10s where a<0.001 m/s^2), so the hop is decided against a speed
+  that has already converged, i.e. genuinely constant for the purposes of
+  the two-threshold rule.
+
+  EXPECTED (arithmetic, confirmed by measurement - see this file's
+  expectations.yaml) at EgoSpeed=9.0 m/s: n_remaining=1, lane_change_lead_
+  time_s=6.0, lane_change_min_lead_distance_m=40, lane_change_reserve_
+  distance_m=20, lane_change_indicator_lead_time_s=3.0, dist_to_connection
+  at the s=10 teleport = 190 m (road 0 is 200 m long):
+    required_m = 1 * max(9.0*6.0, 40) + 20 = 54 + 20 = 74 m
+    signal threshold = required_m + v*3.0 = 74 + 27 = 101 m
+      -> t_sig = (190-101)/9.0 = 9.9 s
+    arm threshold    = required_m = 74 m
+      -> t_arm = (190-74)/9.0 = 12.9 s
+    lead = t_arm - t_sig = 3.0 s exactly (3v/v = 3.0s, the same "closing
+    rate is exactly v" degeneracy as before, now measured with a converged
+    speed instead of a mid-transient one) - see the with-traffic sibling's
+    expectations.yaml notes for the same derivation shape.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-08-03T10:00:00"
+               description="VirtualDriver verification: AD-initiated lane change to reach a junction exit ramp at constant speed, isolating the steady-state 3.0s indicator lead"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="9.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/highway_example_with_merge_and_split.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-3" offset="0" s="10"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <!--
+                 Constant speed, set ONCE here (step / 0.0s time), BEFORE the
+                 ControllerAction below hands the LONG domain to
+                 VirtualDriverController - see the file-level header comment
+                 for why the ordering matters. No Story Event ever touches
+                 Ego's speed (see the empty ManeuverGroup below), so this is
+                 the only speed command Ego ever receives.
+               -->
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <!--
+                             Start Waypoint matches the TeleportAction above: lane -3,
+                             one hop from the target band {-4} (junction 1 connection
+                             id=3 covers only "-4" of road 0 - see the file-level
+                             header comment). n_remaining=1, unlike the -1/-2 starts
+                             of the sibling scenarios in this directory.
+                           -->
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-3" offset="0" s="10"/>
+                              </Position>
+                           </Waypoint>
+                           <!--
+                             Explicit connecting-road Waypoint (junction 1, connection
+                             id=3) - required for Route::IsValid()==true. See
+                             lane_change_to_exit_ramp.xosc's header comment.
+                           -->
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="4" laneId="-1" offset="0" s="50"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="-1" offset="0" s="40"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <!--
+        Deliberately empty ManeuverGroup - same shape as
+        01_vehicle_model/straight_constant_speed.xosc. No Maneuver/Event
+        means no Story-level action ever runs against Ego's speed, so
+        ControllerVirtualDriver::ResolveTargetSpeed never observes a RUNNING
+        LONG_SPEED action after Init and snaps to (and stays at) the Init
+        step action's target for the whole run - i.e. truly constant speed,
+        not merely "no additional ramp on top of one". See the file-level
+        header comment.
+      -->
+      <Story name="RouteLaneStory">
+         <Act name="RouteLaneAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoGroup">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="28" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

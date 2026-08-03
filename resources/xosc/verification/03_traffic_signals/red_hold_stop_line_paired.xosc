@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 03_traffic_signals / red_hold_stop_line_paired
+  Discriminator for the stop-line pairing feature (design/stop_line_stop_target.md),
+  TrafficLightAware side. UPDATED 2026-08-02 for the stop-line-anchor redesign
+  (uncommitted at authoring time; see SignalJunctionResolver.hpp / the
+  junction_id field on RouteSignalScan::ScannedSignal): the pairing anchor
+  moved from the governing head itself to the ENTRY of the junction that head
+  governs. The original asset (signalized_short_block__b12_sl4, stop line 4 m
+  before the HEAD at s=92, giving s=88) put the stop line 12 m before junction
+  A's ENTRY (s=100), past tl_stop_line_window's default 10 m, so pairing now
+  MISSES on that asset and this scenario silently reverted to the pre-feature
+  defect (see red_hold_stop_line_paired.expectations.yaml's notes, the "12 m"
+  entry). Replaced with signalized_short_block__b12_hs4_sl8 (head-setback=4,
+  stop-line-setback-a=8): the stop-line-to-ENTRY distance (the invariant
+  that now matters) is 8 m, comfortably inside the window, and head_setback is
+  lowered from the 8.0 default to 4.0 for this ONE asset only (an explicit CLI
+  override, not a change to the generator's default; signalized_short_block__
+  b12 and everything junction_not_blocked.xosc depends on are unaffected) so
+  the stop-line-based and head-based targets stay far enough apart (about 4 m)
+  to discriminate cleanly; see the expectations.yaml notes for why a smaller,
+  in-window setback (e.g. keeping head_setback=8 and using
+  stop-line-setback-a=4) was tried and rejected (a real, reproducible
+  scan-retention edge case, not just a smaller margin; see this scenario's own
+  expectations.yaml notes).
+
+  Road signalized_short_block__b12_hs4_sl8 (resources/scenario_authoring/
+  road_catalog, gen_signalized_short_block.py, head-setback=4,
+  stop-line-setback-a=8): road 0 carries the junction-A head (id=0, s=96)
+  AND a paired stop-line signal (id=2, type=294, country=OpenDRIVE, s=92, 8 m
+  before junction A's entry at s=100, within tl_stop_line_window's default
+  10 m). The margin-based (head) and stop-line-based stop targets land at
+  different s: head_s minus margin = 93 (no pairing) vs line_s minus margin =
+  89 (paired, kill switch ON, the default), roughly 4 m apart once the
+  planner's stop_band is folded in (measured, see expectations.yaml notes).
+
+  The signal (id=0) stays RED for the whole run; the ego cruises toward it and
+  must stop and REMAIN stopped (no scripted stop; TrafficLightAware policy).
+  Signal id=1 (light_junction_b, on road 2) is included in the controller only
+  because it exists in the shared road asset; the ego never reaches it.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-08-02T10:00:00"
+               description="VirtualDriver verification: stop-line pairing swaps the TrafficLightAware stop target from the head margin to the paired stop line"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../scenario_authoring/road_catalog/generated/signalized_short_block__b12_hs4_sl8.xodr"/>
+      <TrafficSignals>
+         <TrafficSignalController name="MainController" delay="0">
+            <Phase name="red" duration="60">
+               <TrafficSignalState trafficSignalId="0" state="on;off;off"/>
+               <TrafficSignalState trafficSignalId="1" state="on;off;off"/>
+            </Phase>
+         </TrafficSignalController>
+      </TrafficSignals>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-1" offset="0" s="10"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-1" offset="0" s="10"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="100" laneId="-1" offset="0" s="8.0"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="-1" offset="0" s="6"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="SignalStory">
+         <Act name="SignalAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="25" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

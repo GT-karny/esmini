@@ -138,7 +138,7 @@ struct IndicatorSnapshot
     bool right_on = false;
 };
 
-// feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md
+// feature:F7 resume-merge (docs/virtualdriver/design/resume_merge_trajectory_design.md
 // section 8-6). Controller-owned merge state-machine snapshot -- deliberately
 // NOT part of ShortPlannerSnapshot above (that one is the cross-session
 // contract this feature must not touch; see this file's header comment).
@@ -187,6 +187,108 @@ struct FrontBumperSnapshot
     bool   valid   = false; // false if localization failed (off-road / no road loaded)
 };
 
+// RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) telemetry -- per-frame
+// "is the ego on a lane that still leads to the route's destination" diagnostic.
+// That layer answers a gap Route::AddWaypoint leaves open: a route can report
+// success while requiring a lane change its own target lane never actually
+// receives (see RouteLanePlan.hpp's header comment for the RoadPath::Calculate
+// detail this recovers from).
+//
+// Deliberately typed with plain int (not id_t) so this header keeps its
+// engine-independent, header-only property (see this file's own header comment
+// above) -- the controller converts RouteLanePlan.hpp's id_t fields into these
+// when it populates the snapshot (-1 stands in for id_t's ID_UNDEFINED).
+//
+// valid/road_id/ego_lane*/target_lanes/on_target_lane/dist_to_connection mirror
+// a single frame's RouteLaneStatus match against the plan; diagnostic/rerouted
+// mirror the RouteLanePlan itself (rebuilt only when the route actually
+// changes, not every frame); deviation_count/last_deviation_road_id are the
+// controller's OWN running tally of "left a road while off its target lane(s)"
+// events -- neither pure function produces those, since counting requires
+// state that persists across frames.
+struct RouteLanePlanSnapshot
+{
+    bool             valid                  = false;
+    int              road_id                = -1;
+    int              ego_lane               = 0;     // current lane, normalized to the connecting end
+    int              ego_lane_raw           = 0;      // before normalization
+    std::vector<int> target_lanes;                    // lanes the ego must occupy on the current road
+    bool             on_target_lane         = false;
+    double           dist_to_connection     = -1.0;   // [m] to the next connection point; -1 = unknown
+    int              deviation_count        = 0;      // cumulative "left road off-target" events
+    int              last_deviation_road_id = -1;     // road the most recent deviation occurred on
+    bool             rerouted               = false;  // plan resolved via the LaneIndependentRouter recovery pass
+    std::string      diagnostic;                      // plan-side diagnosis; "" = normal
+    std::string      reason;                          // match-side reason; "" = normal
+};
+
+// vd-func:FUNC-055 AD lane-change initiation
+// (docs/virtualdriver/design/lane_change_initiation.md section 7's telemetry minimum: armed /
+// target lane / this hop's direction / gap-acceptance verdict+reason / decision distance vs
+// current dist_to_connection). Additive top-level block; consumers that predate it ignore it.
+// All defaults (false/0/-1/empty) while lane_change_initiation_enabled is false, mirroring
+// ResumeMergeSnapshot's own all-zero-while-disabled convention.
+struct LaneChangeInitiationSnapshot
+{
+    bool        armed               = false;  // an AD-initiated hop is in progress this frame
+    int         target_track_id     = -1;     // road id this hop is on (-1 = ID_UNDEFINED stand-in)
+    int         target_lane_id      = 0;      // the ONE adjacent lane this hop is moving into
+    int         direction           = 0;      // +1 left / -1 right (indicator convention), latched at arm
+    int         n_remaining         = 0;      // hop count from current lane to the nearest route target lane
+    double      required_m          = 0.0;    // this frame's decision-distance threshold (design doc section 3)
+    double      dist_to_connection  = -1.0;   // mirrors route_lane.dist_to_connection; -1 = unknown/n.a.
+    bool        gap_accepted        = false;  // last-evaluated gap-acceptance verdict
+    std::string gap_reason;                   // "" = accepted; else "lead_gap" | "rear_gap" | "rear_ttc"
+    bool        signal_active       = false;  // AD-LC path is requesting the indicator (pre-signal or armed) -- design doc section 11-8
+};
+
+// vd-func:FUNC-056 AD overtake maneuver
+// (docs/virtualdriver/design/overtake_maneuver.md section 9-1's telemetry minimum). Additive
+// top-level block; consumers that predate it ignore it. All defaults (idle/false/0/-1/empty)
+// while overtake_enabled is false, mirroring LaneChangeInitiationSnapshot's own convention.
+//
+// `considered` is the field to read first: it means "a same-lane lead satisfying section 3's
+// speed/constraint gates was present THIS FRAME", independent of whether the maneuver actually
+// proceeded -- a frame the route-budget guard blocked can still have considered==true. A run
+// where `considered` never goes true is a FALSE PASS (nothing was ever attempted), not evidence
+// the guard works (design doc section 9-1).
+struct OvertakeSnapshot
+{
+    std::string phase           = "idle";  // OvertakePhaseName(OvertakePhase) -- fixed vocabulary
+    bool        considered      = false;   // section 3's trigger was satisfied this frame (see struct doc above)
+    int         lead_id         = -1;      // the lead vehicle EvaluateOvertakeTrigger was run against; -1 = none
+    int         lead_osi_id     = -1;      // same vehicle in the OSI id space (control/common/OsiIdentity.hpp);
+                                           // this is the one that joins against an OSI GroundTruth recording,
+                                           // lead_id is the scenario entity index. -1 = none
+    double      delta_v_mps     = 0.0;     // v_desired_mps - v_lead_mps; 0 when considered is false
+    double      t_pass_s        = 0.0;     // estimated time to draw clear of the lead
+    double      required_m      = 0.0;     // section 2's d_out+d_pass+d_back+d_route+reserve
+    double      route_budget_m  = -1.0;    // mirrors route_lane.dist_to_connection; -1 = unknown/n.a.
+    // Fixed vocabulary (section 9-1): "" (not blocked) / "route_budget" / "gap" / "oncoming" /
+    // "no_passing_lane" / "suppressed".
+    std::string blocked_reason;
+    bool        cleared_lead    = false;   // HasClearedLead fired for the current pass (section 5-1)
+};
+
+// req-vd-ad:REQ-AD-021 / vd-func:FUNC-061 junction-turn indicator pre-arm
+// (docs/virtualdriver/design/junction_turn_signal.md section 3-4). Mirrors the raw
+// JunctionTurnLookahead result (control/common/JunctionTurn.hpp) the controller's
+// DetectJunctionTurn path computed this frame, independent of whether that result
+// ended up winning the indicator decision this frame (an active lane change can
+// still be the one lighting the indicator -- see ControllerVirtualDriver::Step()).
+// This is the ONLY telemetry field that exposes "is this road junction-owned" --
+// without on_connector a distance-based verifier cannot machine-detect "entered the
+// junction" at all (the design doc's whole reason for adding this block). All
+// fields stay at their struct defaults while a lane change owns the indicator this
+// frame (junction-turn detection is not evaluated then, same as before this
+// feature's fix).
+struct JunctionTurnSnapshot
+{
+    int    dir             = 0;      // +1 = left, -1 = right, 0 = none (JunctionTurnLookahead::dir)
+    double dist_to_entry_m = -1.0;   // [m] to the connector entry; 0.0 while on the connector; -1.0 = not detected
+    bool   on_connector    = false;  // true while ego itself is on a junction-owned road
+};
+
 // Aggregate telemetry, exposed via GT_GetVirtualDriverTelemetry().
 struct VirtualDriverTelemetry
 {
@@ -219,7 +321,7 @@ struct VirtualDriverTelemetry
     // field in this struct is frozen at its last-active-frame value once the
     // controller is torn down. true only between a completed setup and the
     // next teardown; false before the first activation and after any
-    // teardown. See docs/virtualdriver/scenario_control_handoff_design.md §5.1.4.
+    // teardown. See docs/virtualdriver/design/scenario_control_handoff_design.md §5.1.4.
     bool vd_active = false;
 
     // feature:F7 S2 — true while this controller is the object's designated
@@ -380,8 +482,12 @@ struct VirtualDriverTelemetry
     MidLongPlannerSnapshot midlong;   // Phase 2+
     TrafficPolicySnapshot  policy;    // Phase 3+
     IndicatorSnapshot      indicator;
+    JunctionTurnSnapshot   junction_turn; // req-vd-ad:REQ-AD-021: JunctionTurn.hpp RouteLookaheadJunctionTurn snapshot
     FrontBumperSnapshot    front_bumper;  // F5: leading-edge road localization
     ResumeMergeSnapshot    resume_merge;  // feature:F7 resume-merge state machine
+    RouteLanePlanSnapshot  route_lane;    // RouteLanePlan.hpp: route-lane conformance diagnostic
+    LaneChangeInitiationSnapshot lane_change;  // LaneChangeInitiation.hpp: vd-func:FUNC-055 state
+    OvertakeSnapshot       overtake;      // OvertakeManeuver.hpp: vd-func:FUNC-056 state
 };
 
 }  // namespace gt_esmini

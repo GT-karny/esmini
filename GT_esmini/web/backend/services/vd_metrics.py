@@ -776,7 +776,7 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         # feature:F7 S4 — asserts a per-domain split is actually holding:
         # lateral driven by one controller, longitudinal by the other, with a
         # single physics integrator underneath
-        # (docs/virtualdriver/domain_split_ownership.md).
+        # (docs/virtualdriver/design/domain_split_ownership.md).
         #
         # Three checks, and all three are needed. The first two attribute the
         # two domains in OPPOSITE directions, so neither controller can satisfy
@@ -910,7 +910,7 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         )
 
     if kind == "vd_control_relinquished":
-        # feature:F7 scenario-driven handover (docs/virtualdriver/
+        # feature:F7 scenario-driven handover (docs/virtualdriver/design/
         # scenario_control_handoff_design.md §5.1). Asserts the ego's
         # VirtualDriverController actually gave up control at some point in
         # the run and never resumed it. Reads the top-level telemetry.vd_active
@@ -1515,6 +1515,799 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             )
             return res("fail", detail, i0)
         detail = f"no AEB emergency constraint over {len(gated)} frames -> pass"
+        return res("pass", detail)
+
+    if kind == "route_lane_plan_holds":
+        # vd-func:FUNC-050 (レーンレベル経路計画) / RouteLanePlan.hpp conformance.
+        # Reads telemetry.route_lane (VirtualDriverTelemetryJson.cpp's additive
+        # "route_lane" block: valid/road_id/ego_lane/ego_lane_raw/target_lanes/
+        # on_target_lane/dist_to_connection/deviation_count/
+        # last_deviation_road_id/rerouted/diagnostic/reason -- see
+        # docs/virtualdriver/design/route_lane_plan_design.md). Every expect_*
+        # key below is independently OPTIONAL -- same "check only what the
+        # caller asked for" contract as domain_split_holds above -- so a must
+        # entry naming NONE of them is refused (skip, not pass): a matcher
+        # that checks nothing must never report pass (this is the same
+        # discipline as the "nothing evaluated is not a pass" F7 hardening on
+        # assert_expectations, below, one layer further down / per-signal
+        # rather than per-scenario).
+        #
+        #   expect_diagnostic     str  : every gated frame's diagnostic == this
+        #   expect_rerouted       bool : every gated frame's rerouted == this
+        #   expect_target_lanes   list : >=1 gated frame's target_lanes,
+        #                                sorted, == sorted(this)
+        #   expect_on_target_lane bool : >=1 gated frame's on_target_lane == this
+        #   min_deviations        int  : LAST gated frame's deviation_count >= this
+        #   max_deviations         int  : LAST gated frame's deviation_count <= this
+        #                                (vd-func:FUNC-055 / lane_change_initiation
+        #                                 design doc §7 -- the success-side
+        #                                 counterpart to min_deviations; a value of 0
+        #                                 asserts the ego reached its target lane band
+        #                                 without ever crossing off-plan)
+        #   window: [t0, t1]           : optional sim_time gate (default: all frames)
+        window = must.get("window")
+        if window is not None:
+            t0, t1 = float(window[0]), float(window[1])
+            gated = [i for i in range(len(frames)) if t0 <= frames[i]["sim_time"] <= t1]
+        else:
+            gated = list(range(len(frames)))
+        if not gated:
+            return res("skip", "no frames in time window")
+
+        # route_lane is an additive telemetry block that postdates this
+        # scenario's baseline captures: a frame dict simply omits the key on a
+        # DLL built before RouteLanePlan was wired in. Absence must surface as
+        # needs-review (via skip -> the assert_expectations rollup), never as
+        # a silent pass -- the same "zero evaluated is not a pass" discipline
+        # as the F7 hardening below, applied per-signal instead of
+        # per-scenario.
+        with_block = [i for i in gated if isinstance(frames[i].get("route_lane"), dict)]
+        if not with_block:
+            return res(
+                "skip",
+                "no frame in the gated window carries a route_lane block -- "
+                "stale GT_esminiLib.dll (predates RouteLanePlan telemetry) or "
+                "the feature is not wired into this run",
+            )
+
+        checks = [
+            k
+            for k in (
+                "expect_diagnostic",
+                "expect_rerouted",
+                "expect_target_lanes",
+                "expect_on_target_lane",
+                "min_deviations",
+                "max_deviations",
+            )
+            if k in must
+        ]
+        if not checks:
+            return res(
+                "skip",
+                "must entry names none of expect_diagnostic/expect_rerouted/"
+                "expect_target_lanes/expect_on_target_lane/min_deviations/"
+                "max_deviations -- a matcher that checks nothing must not "
+                "report pass",
+            )
+
+        # 1. diagnostic is plan-level and must hold on EVERY gated frame that
+        # carries the block (it is a static property of the cached plan, not a
+        # per-frame match outcome).
+        if "expect_diagnostic" in must:
+            want = must["expect_diagnostic"]
+            offenders = [
+                i
+                for i in with_block
+                if frames[i]["route_lane"].get("diagnostic") != want
+            ]
+            if offenders:
+                i0 = offenders[0]
+                got = frames[i0]["route_lane"].get("diagnostic")
+                return res(
+                    "fail",
+                    f"diagnostic == {got!r} at t={frames[i0]['sim_time']:.2f} "
+                    f"(want {want!r} on every frame)",
+                    i0,
+                )
+
+        # 2. rerouted is likewise plan-level: every gated frame must agree.
+        if "expect_rerouted" in must:
+            want = bool(must["expect_rerouted"])
+            offenders = [
+                i
+                for i in with_block
+                if bool(frames[i]["route_lane"].get("rerouted")) != want
+            ]
+            if offenders:
+                i0 = offenders[0]
+                got = bool(frames[i0]["route_lane"].get("rerouted"))
+                return res(
+                    "fail",
+                    f"rerouted == {got} at t={frames[i0]['sim_time']:.2f} "
+                    f"(want {want} on every frame)",
+                    i0,
+                )
+
+        # 3. target_lanes is the band for whichever road the ego is currently
+        # matched against, so it legitimately varies frame to frame (a new
+        # road -> a new band, or no band at all off-plan) -- an EXISTS check,
+        # not an ALL check.
+        if "expect_target_lanes" in must:
+            want = sorted(must["expect_target_lanes"])
+            found = any(
+                sorted(frames[i]["route_lane"].get("target_lanes") or []) == want
+                for i in with_block
+            )
+            if not found:
+                i0 = with_block[-1]
+                got = sorted(frames[i0]["route_lane"].get("target_lanes") or [])
+                return res(
+                    "fail",
+                    f"no gated frame had target_lanes (sorted) == {want}; "
+                    f"last observed {got} at t={frames[i0]['sim_time']:.2f}",
+                    i0,
+                )
+
+        # 4. on_target_lane: likewise an EXISTS check (it tracks target_lanes,
+        # which varies with the matched road).
+        if "expect_on_target_lane" in must:
+            want = bool(must["expect_on_target_lane"])
+            found = any(
+                bool(frames[i]["route_lane"].get("on_target_lane")) == want
+                for i in with_block
+            )
+            if not found:
+                i0 = with_block[-1]
+                got = bool(frames[i0]["route_lane"].get("on_target_lane"))
+                return res(
+                    "fail",
+                    f"no gated frame observed on_target_lane == {want} "
+                    f"(last observed {got} at t={frames[i0]['sim_time']:.2f})",
+                    i0,
+                )
+
+        # 5. deviation_count is a cumulative counter (ControllerVirtualDriver's
+        # route_lane_deviations_) -- only the LAST gated frame's value is
+        # meaningful; it is a running total, not a per-frame condition.
+        if "min_deviations" in must:
+            want = int(must["min_deviations"])
+            i0 = with_block[-1]
+            got = int(frames[i0]["route_lane"].get("deviation_count", 0))
+            if got < want:
+                return res(
+                    "fail",
+                    f"final deviation_count = {got} at t={frames[i0]['sim_time']:.2f} "
+                    f"(want >= {want})",
+                    i0,
+                )
+
+        # 6. max_deviations mirrors min_deviations (same cumulative counter,
+        # same "only the LAST gated frame is meaningful" reasoning) with the
+        # comparison reversed: this is the success-side assertion (§7 of
+        # lane_change_initiation.md) -- e.g. max_deviations: 0 asserts the ego
+        # never crossed off-plan before reaching its target lane band.
+        if "max_deviations" in must:
+            want = int(must["max_deviations"])
+            i0 = with_block[-1]
+            got = int(frames[i0]["route_lane"].get("deviation_count", 0))
+            if got > want:
+                return res(
+                    "fail",
+                    f"final deviation_count = {got} at t={frames[i0]['sim_time']:.2f} "
+                    f"(want <= {want})",
+                    i0,
+                )
+
+        detail = (
+            f"route_lane_plan_holds: {len(checks)} check(s) held over "
+            f"{len(with_block)}/{len(gated)} gated frame(s)"
+        )
+        return res("pass", detail)
+
+    if kind == "indicator_leads_lane_change":
+        # vd-func:FUNC-055 pre-signal timing (docs/virtualdriver/design/lane_change_initiation.md
+        # section 11-9). Unlike route_lane_plan_holds just above -- which section 7 deliberately
+        # did NOT extend with a new matcher because it added no new OBSERVED quantity -- this DOES
+        # observe a new quantity (the indicator lamp, telemetry.indicator.left/right) alongside the
+        # new telemetry.lane_change.signal_active (section 11-8), so section 11-9 calls for a
+        # dedicated matcher rather than folding this into route_lane_plan_holds's route_lane-only
+        # reads.
+        #
+        #   min_lead_s   float (required) : t_arm - t_sig must be >= this
+        #   window: [t0, t1]     (optional): sim_time gate (default: all frames)
+        if "min_lead_s" not in must:
+            return res(
+                "skip",
+                "must entry names no min_lead_s -- a matcher that checks nothing must not "
+                "report pass",
+            )
+        min_lead_s = float(must["min_lead_s"])
+
+        window = must.get("window")
+        if window is not None:
+            t0, t1 = float(window[0]), float(window[1])
+            gated = [i for i in range(len(frames)) if t0 <= frames[i]["sim_time"] <= t1]
+        else:
+            gated = list(range(len(frames)))
+        if not gated:
+            return res("skip", "no frames in time window")
+
+        # Same "absence is needs-review, not silent pass" discipline as route_lane_plan_holds
+        # above: a frame dict simply omits "lane_change" on a DLL built before LaneChangeInitiation
+        # was wired in, and omits "signal_active" within it on a DLL built before section 11's
+        # pre-signal telemetry landed even if lane_change itself is present.
+        with_lc = [i for i in gated if isinstance(frames[i].get("lane_change"), dict)]
+        if not with_lc:
+            return res(
+                "skip",
+                "no frame in the gated window carries a lane_change block -- stale "
+                "GT_esminiLib.dll (predates LaneChangeInitiation telemetry) or the feature is "
+                "not wired into this run",
+            )
+        with_signal_key = [
+            i for i in with_lc if "signal_active" in frames[i]["lane_change"]
+        ]
+        if not with_signal_key:
+            return res(
+                "skip",
+                "no gated frame's lane_change block carries signal_active -- stale "
+                "GT_esminiLib.dll (predates the design doc section 11 pre-signal telemetry)",
+            )
+
+        # 3. First frame signal_active goes true.
+        sig_idx = next(
+            (
+                i
+                for i in with_signal_key
+                if frames[i]["lane_change"].get("signal_active")
+            ),
+            None,
+        )
+        if sig_idx is None:
+            return res(
+                "fail",
+                "lane_change.signal_active never became true in the gated window -- the "
+                "indicator never pre-signaled the lane change",
+            )
+        t_sig = frames[sig_idx]["sim_time"]
+
+        # 4. First frame armed goes true (searched over the same with_lc set -- armed does not
+        # require the signal_active key to be present, only lane_change itself).
+        arm_idx = next(
+            (i for i in with_lc if frames[i]["lane_change"].get("armed")), None
+        )
+        if arm_idx is None:
+            return res(
+                "fail",
+                f"lane_change.armed never became true (signal_active first true at "
+                f"t={t_sig:.2f}) -- the lane change never initiated, so the lead cannot be "
+                f"measured",
+            )
+        t_arm = frames[arm_idx]["sim_time"]
+
+        # 5. Lead requirement.
+        lead = t_arm - t_sig
+        if lead < min_lead_s:
+            return res(
+                "fail",
+                f"indicator led the lane change by only {lead:.2f}s (t_sig={t_sig:.2f}, "
+                f"t_arm={t_arm:.2f}; want >= {min_lead_s}s)",
+                arm_idx,
+            )
+
+        # 6. Indicator lamp must stay lit (left or right) for the WHOLE [t_sig, t_arm] window --
+        # the intent (signal_active) reaching the lamp (indicator.left/right), per section 11-8's
+        # "matcher は両方を見る".
+        lit_window = [i for i in gated if t_sig <= frames[i]["sim_time"] <= t_arm]
+        with_indicator = [
+            i for i in lit_window if isinstance(frames[i].get("indicator"), dict)
+        ]
+        if not with_indicator:
+            return res(
+                "skip",
+                "no frame in [t_sig, t_arm] carries an indicator block -- stale "
+                "GT_esminiLib.dll or the feature is not wired into this run",
+            )
+        dark = [
+            i
+            for i in with_indicator
+            if not (
+                frames[i]["indicator"].get("left")
+                or frames[i]["indicator"].get("right")
+            )
+        ]
+        if dark:
+            i0 = dark[0]
+            return res(
+                "fail",
+                f"indicator was dark at t={frames[i0]['sim_time']:.2f}, inside "
+                f"[t_sig={t_sig:.2f}, t_arm={t_arm:.2f}] -- the pre-signal intent never reached "
+                f"the lamp",
+                i0,
+            )
+
+        # 7. Lit side must agree with the hop's direction at t_arm (lane_change.direction: +1 left
+        # / -1 right, only meaningful once armed -- see VirtualDriverTypes.hpp).
+        arm_direction = frames[arm_idx]["lane_change"].get("direction")
+        arm_indicator = frames[arm_idx].get("indicator") or {}
+        lit_left = bool(arm_indicator.get("left"))
+        lit_right = bool(arm_indicator.get("right"))
+        direction_ok = (arm_direction == 1 and lit_left) or (
+            arm_direction == -1 and lit_right
+        )
+        if not direction_ok:
+            return res(
+                "fail",
+                f"at t_arm={t_arm:.2f} lane_change.direction={arm_direction} but indicator "
+                f"left={lit_left} right={lit_right} -- the lit side does not match the hop's "
+                f"direction",
+                arm_idx,
+            )
+
+        detail = (
+            f"indicator led the lane change by {lead:.2f}s (t_sig={t_sig:.2f}, "
+            f"t_arm={t_arm:.2f}, want >= {min_lead_s}s)"
+        )
+        return res("pass", detail)
+
+    if kind == "indicator_leads_junction_turn":
+        # req-vd-ad:REQ-AD-021 (docs/virtualdriver/design/junction_turn_signal.md section 4).
+        # Sibling of indicator_leads_lane_change just above, same skip/fail discipline, but this
+        # one measures a DISTANCE lead rather than a time lead: the legal requirement here
+        # ("30 m before the junction") is distance-based (section 2-2), unlike the lane-change
+        # side's 3-second rule. Reads the new telemetry.junction_turn block (section 3-4):
+        # {dir: +1 left/-1 right/0 none, dist_to_entry_m, on_connector}, alongside the existing
+        # telemetry.indicator.left/right lamp state.
+        #
+        #   min_distance_m float (required unless expect_dir == "none")
+        #   expect_dir      "left" | "right" | "none" (required; "none" is the negative check
+        #                   for a straight pass-through -- checks 1-5 below do not apply to it)
+        #   window: [t0, t1]     (optional): sim_time gate (default: all frames)
+        if "expect_dir" not in must:
+            return res(
+                "skip",
+                "must entry names no expect_dir -- a matcher that checks nothing must not "
+                "report pass",
+            )
+        expect_dir = str(must["expect_dir"]).lower()
+        if expect_dir not in ("left", "right", "none"):
+            return res(
+                "skip", f"expect_dir must be left/right/none, got {expect_dir!r}"
+            )
+
+        window = must.get("window")
+        if window is not None:
+            t0, t1 = float(window[0]), float(window[1])
+            gated = [i for i in range(len(frames)) if t0 <= frames[i]["sim_time"] <= t1]
+        else:
+            gated = list(range(len(frames)))
+        if not gated:
+            return res("skip", "no frames in time window")
+
+        # Same "absence is needs-review, not silent pass" discipline as indicator_leads_lane_change:
+        # a frame dict simply omits "junction_turn" on a DLL built before this telemetry block
+        # landed (it is being added by a parallel change at the same time as this matcher).
+        with_jt = [i for i in gated if isinstance(frames[i].get("junction_turn"), dict)]
+        if not with_jt:
+            return res(
+                "skip",
+                "no frame in the gated window carries a junction_turn block -- stale "
+                "GT_esminiLib.dll (predates the junction turn signal telemetry) or the feature "
+                "is not wired into this run",
+            )
+
+        # --- expect_dir == "none": negative check for a straight pass-through -----------------
+        # Checked two ways, both independently sufficient to catch a regression: (a) the
+        # geometry classifier itself must never call this a turn (dir stays 0), and (b) the
+        # lamp must never light while junction_turn telemetry is present at all -- (b) does not
+        # assume anything about how dir feeds the lamp condition internally, so it still catches
+        # a lamp lit via some other path (e.g. on_connector alone) that (a) could miss.
+        if expect_dir == "none":
+            bad_dir = [
+                i
+                for i in with_jt
+                if int(frames[i]["junction_turn"].get("dir") or 0) != 0
+            ]
+            if bad_dir:
+                i0 = bad_dir[0]
+                got = frames[i0]["junction_turn"].get("dir")
+                return res(
+                    "fail",
+                    f"junction_turn.dir == {got} at t={frames[i0]['sim_time']:.2f} (frame {i0}), "
+                    f"expected 0 throughout -- expect_dir: none asserts a straight pass-through "
+                    f"is never classified as a turn",
+                    i0,
+                )
+            with_indicator = [
+                i for i in with_jt if isinstance(frames[i].get("indicator"), dict)
+            ]
+            lit = [
+                i
+                for i in with_indicator
+                if frames[i]["indicator"].get("left")
+                or frames[i]["indicator"].get("right")
+            ]
+            if lit:
+                i0 = lit[0]
+                return res(
+                    "fail",
+                    f"indicator lit at t={frames[i0]['sim_time']:.2f} (frame {i0}) while "
+                    f"junction_turn telemetry was present -- expected dark throughout for a "
+                    f"straight pass-through",
+                    i0,
+                )
+            return res(
+                "pass",
+                f"junction_turn.dir stayed 0 and the indicator stayed dark over "
+                f"{len(with_jt)} gated frame(s) -- no spurious turn-signal on a straight "
+                f"pass-through",
+            )
+
+        # --- expect_dir in (left, right): positive distance-lead check ------------------------
+        if "min_distance_m" not in must:
+            return res(
+                "skip",
+                "must entry names no min_distance_m -- a matcher that checks nothing must not "
+                "report pass",
+            )
+        min_distance_m = float(must["min_distance_m"])
+        want_dir_sign = 1 if expect_dir == "left" else -1
+
+        with_indicator = [
+            i for i in with_jt if isinstance(frames[i].get("indicator"), dict)
+        ]
+        if not with_indicator:
+            return res(
+                "skip",
+                "no frame in the gated window carries an indicator block -- stale "
+                "GT_esminiLib.dll or the feature is not wired into this run",
+            )
+
+        def _lit_for_dir(i: int) -> bool:
+            ind = frames[i]["indicator"]
+            return (
+                bool(ind.get("left")) if want_dir_sign == 1 else bool(ind.get("right"))
+            )
+
+        # 1. rising frame where the indicator is lit on the expected side WHILE junction_turn.dir
+        # already reports that same side -- an indicator lit for some unrelated reason (e.g. a
+        # concurrent lane change) must not be credited to this maneuver.
+        sig_idx = next(
+            (
+                i
+                for i in with_indicator
+                if int(frames[i]["junction_turn"].get("dir") or 0) == want_dir_sign
+                and _lit_for_dir(i)
+            ),
+            None,
+        )
+        if sig_idx is None:
+            return res(
+                "fail",
+                f"indicator never lit for junction_turn.dir == {want_dir_sign} ({expect_dir}) "
+                f"in the gated window -- the turn signal never anticipated the {expect_dir} "
+                f"junction turn",
+            )
+        t_sig = frames[sig_idx]["sim_time"]
+
+        # 2. first frame at/after sig_idx where junction_turn.on_connector becomes true.
+        junc_idx = next(
+            (
+                i
+                for i in with_jt
+                if i >= sig_idx and bool(frames[i]["junction_turn"].get("on_connector"))
+            ),
+            None,
+        )
+        if junc_idx is None:
+            return res(
+                "fail",
+                f"junction_turn.on_connector never became true after t_sig={t_sig:.2f} (frame "
+                f"{sig_idx}) -- the ego never reached the connecting road, so the lead distance "
+                f"cannot be measured",
+                sig_idx,
+            )
+        t_junc = frames[junc_idx]["sim_time"]
+
+        # 3. distance requirement -- frame-to-frame Euclidean sum over [sig_idx, junc_idx], the
+        # same technique domain_split_holds uses above (robust to a captured-frame time-
+        # duplicate at the batch tail, unlike speed * dt).
+        span = [i for i in gated if sig_idx <= i <= junc_idx]
+        dist = 0.0
+        for a, b in zip(span, span[1:]):
+            dist += math.hypot(
+                float(frames[b]["ego"]["x"]) - float(frames[a]["ego"]["x"]),
+                float(frames[b]["ego"]["y"]) - float(frames[a]["ego"]["y"]),
+            )
+        if dist < min_distance_m:
+            return res(
+                "fail",
+                f"indicator led the junction turn by only {dist:.2f} m (t_sig={t_sig:.2f} frame "
+                f"{sig_idx}, t_junc={t_junc:.2f} frame {junc_idx}; want >= {min_distance_m} m)",
+                junc_idx,
+            )
+
+        # 4. no dark frame within [sig_idx, junc_idx] -- the pre-signal intent must hold all the
+        # way to junction entry, not flicker.
+        with_indicator_span = [
+            i for i in span if isinstance(frames[i].get("indicator"), dict)
+        ]
+        dark = [
+            i
+            for i in with_indicator_span
+            if not (
+                frames[i]["indicator"].get("left")
+                or frames[i]["indicator"].get("right")
+            )
+        ]
+        if dark:
+            i0 = dark[0]
+            return res(
+                "fail",
+                f"indicator was dark at t={frames[i0]['sim_time']:.2f} (frame {i0}), inside "
+                f"[t_sig={t_sig:.2f}, t_junc={t_junc:.2f}] -- the pre-signal did not hold "
+                f"through junction entry",
+                i0,
+            )
+
+        # 5. defect-3 regression guard (junction_turn_signal.md section 1, row 3: "曲り終わる前
+        # に消える" -- extinguished before the turn finishes). The indicator must stay lit for
+        # as long as junction_turn.on_connector stays true, i.e. through the frame right before
+        # on_connector returns to false.
+        on_connector_span = [i for i in gated if i >= junc_idx]
+        off_idx = next(
+            (
+                i
+                for i in on_connector_span
+                if not bool(frames[i]["junction_turn"].get("on_connector"))
+            ),
+            None,
+        )
+        hold_span = (
+            on_connector_span
+            if off_idx is None
+            else [i for i in on_connector_span if i < off_idx]
+        )
+        with_indicator_hold = [
+            i for i in hold_span if isinstance(frames[i].get("indicator"), dict)
+        ]
+        dark_on_connector = [
+            i
+            for i in with_indicator_hold
+            if not (
+                frames[i]["indicator"].get("left")
+                or frames[i]["indicator"].get("right")
+            )
+        ]
+        if dark_on_connector:
+            i0 = dark_on_connector[0]
+            return res(
+                "fail",
+                f"indicator went dark at t={frames[i0]['sim_time']:.2f} (frame {i0}) while "
+                f"junction_turn.on_connector was still true -- defect-3 regression (the signal "
+                f"must stay lit until the maneuver is complete, not just for "
+                f"indicator_min_on_time)",
+                i0,
+            )
+        if off_idx is None:
+            end_idx = hold_span[-1] if hold_span else junc_idx
+            return res(
+                "fail",
+                f"junction_turn.on_connector never returned to false by the end of the gated "
+                f"window (last checked frame {end_idx}, t={frames[end_idx]['sim_time']:.2f}) -- "
+                f"cannot confirm the signal held through the whole maneuver",
+                end_idx,
+            )
+
+        # 6. lit side agrees with expect_dir at junction entry (re-checked explicitly here, on
+        # top of the sig_idx/junc_idx search already requiring it, for a clear failure message
+        # if the lamp flipped sides mid-maneuver).
+        junc_indicator = frames[junc_idx].get("indicator") or {}
+        lit_left = bool(junc_indicator.get("left"))
+        lit_right = bool(junc_indicator.get("right"))
+        direction_ok = (want_dir_sign == 1 and lit_left) or (
+            want_dir_sign == -1 and lit_right
+        )
+        if not direction_ok:
+            return res(
+                "fail",
+                f"at t_junc={t_junc:.2f} (frame {junc_idx}) expected {expect_dir} "
+                f"(junction_turn.dir={want_dir_sign}) but indicator left={lit_left} "
+                f"right={lit_right}",
+                junc_idx,
+            )
+
+        detail = (
+            f"indicator led the junction turn ({expect_dir}) by {dist:.2f} m (t_sig={t_sig:.2f} "
+            f"frame {sig_idx}, t_junc={t_junc:.2f} frame {junc_idx}, want >= {min_distance_m} m); "
+            f"held lit through on_connector until t={frames[off_idx]['sim_time']:.2f} "
+            f"(frame {off_idx})"
+        )
+        return res("pass", detail)
+
+    if kind == "overtake_decision_holds":
+        # vd-func:FUNC-056 (overtake maneuver, docs/virtualdriver/design/overtake_maneuver.md
+        # section 9-2). Reads the new telemetry.overtake block (section 9-1, additive): phase /
+        # considered / lead_id / delta_v_mps / t_pass_s / required_m / route_budget_m /
+        # blocked_reason / cleared_lead. Unlike route_lane_plan_holds above (section 7 of
+        # lane_change_initiation.md deliberately did NOT add a matcher there because no new
+        # observed quantity existed) this DOES observe new quantities, hence a dedicated matcher
+        # -- the design doc's own section 9-2 reasoning for why.
+        #
+        #   expect_considered    bool  : considered==true on >=1 gated frame (want True); on
+        #                                EVERY gated frame when want False (mirrors the "never
+        #                                even happened" negative check). This is the "偽PASS
+        #                                検知の要" the design doc calls out: a scenario where the
+        #                                overtake decision was never evaluated at all must never
+        #                                be reported as "the guard held" -- see
+        #                                overtake_declined_before_route_branch.expectations.yaml.
+        #                                The want=False semantics ("never true on any gated
+        #                                frame", mirrored below for expect_cleared_lead too) is
+        #                                an interpretation this author chose because the design
+        #                                doc only specified the want=True case explicitly --
+        #                                CONFIRMED by the coordinating session (2026-08-04): this
+        #                                is the correct, final semantics, not a placeholder.
+        #   expect_blocked_reason str   : blocked_reason == this value on >=1 gated frame
+        #   expect_phases         list  : this exact order of phase values must appear as a
+        #                                SUBSEQUENCE of the gated frames' phase readings (not
+        #                                necessarily contiguous -- a phase that persists across
+        #                                many frames, e.g. a long PASS while gap-waiting, must
+        #                                not break the match)
+        #   forbid_phases         list  : none of these phase values ever appear on any gated
+        #                                frame
+        #   expect_cleared_lead   bool  : cleared_lead==true on >=1 gated frame (want True), or
+        #                                on EVERY gated frame when want False (same "never
+        #                                happened" mirroring as expect_considered)
+        #   window: [t0, t1]            : optional sim_time gate (default: all frames)
+        #
+        # Same "checks nothing -> skip, not pass" discipline as route_lane_plan_holds /
+        # indicator_leads_lane_change above, applied per-signal: a must entry naming none of the
+        # five expect_*/forbid_phases keys is refused.
+        checks = [
+            k
+            for k in (
+                "expect_considered",
+                "expect_blocked_reason",
+                "expect_phases",
+                "forbid_phases",
+                "expect_cleared_lead",
+            )
+            if k in must
+        ]
+        if not checks:
+            return res(
+                "skip",
+                "must entry names none of expect_considered/expect_blocked_reason/"
+                "expect_phases/forbid_phases/expect_cleared_lead -- a matcher that checks "
+                "nothing must not report pass",
+            )
+
+        window = must.get("window")
+        if window is not None:
+            t0, t1 = float(window[0]), float(window[1])
+            gated = [i for i in range(len(frames)) if t0 <= frames[i]["sim_time"] <= t1]
+        else:
+            gated = list(range(len(frames)))
+        if not gated:
+            return res("skip", "no frames in time window")
+
+        # overtake is an additive telemetry block that postdates this scenario's baseline
+        # captures, same reasoning as route_lane / lane_change above: a frame dict simply omits
+        # the key on a DLL built before OvertakeManeuver was wired in.
+        with_block = [i for i in gated if isinstance(frames[i].get("overtake"), dict)]
+        if not with_block:
+            return res(
+                "skip",
+                "no frame in the gated window carries an overtake block -- stale "
+                "GT_esminiLib.dll (predates OvertakeManeuver telemetry) or the feature is not "
+                "wired into this run",
+            )
+
+        # 1. expect_considered.
+        if "expect_considered" in must:
+            want = bool(must["expect_considered"])
+            considered_true = [
+                i for i in with_block if bool(frames[i]["overtake"].get("considered"))
+            ]
+            if want and not considered_true:
+                return res(
+                    "fail",
+                    f"overtake.considered never became true over {len(with_block)} gated "
+                    f"frame(s) -- the overtake decision was never evaluated (a 'guard held' "
+                    f"green here would be a false pass)",
+                )
+            if not want and considered_true:
+                i0 = considered_true[0]
+                return res(
+                    "fail",
+                    f"overtake.considered == true at t={frames[i0]['sim_time']:.2f} (frame "
+                    f"{i0}) (want false on every gated frame)",
+                    i0,
+                )
+
+        # 2. expect_blocked_reason: EXISTS check (>=1 gated frame).
+        if "expect_blocked_reason" in must:
+            want_reason = str(must["expect_blocked_reason"])
+            found = [
+                i
+                for i in with_block
+                if frames[i]["overtake"].get("blocked_reason") == want_reason
+            ]
+            if not found:
+                i0 = with_block[-1]
+                got = frames[i0]["overtake"].get("blocked_reason")
+                return res(
+                    "fail",
+                    f"no gated frame had blocked_reason == {want_reason!r}; last observed "
+                    f"{got!r} at t={frames[i0]['sim_time']:.2f} (frame {i0})",
+                    i0,
+                )
+
+        # 3. expect_phases: SUBSEQUENCE match over the gated frames' phase readings, in time
+        # order.
+        if "expect_phases" in must:
+            want_seq = list(must["expect_phases"])
+            observed = [frames[i]["overtake"].get("phase") for i in with_block]
+            pos = 0
+            for ph in observed:
+                if pos < len(want_seq) and ph == want_seq[pos]:
+                    pos += 1
+            if pos < len(want_seq):
+                observed_preview = (
+                    observed
+                    if len(observed) <= 40
+                    else (observed[:20] + ["..."] + observed[-20:])
+                )
+                return res(
+                    "fail",
+                    f"expect_phases {want_seq} not observed as a subsequence (matched "
+                    f"{pos}/{len(want_seq)} entries); observed phase sequence: "
+                    f"{observed_preview}",
+                    with_block[-1],
+                )
+
+        # 4. forbid_phases: none of these ever observed.
+        if "forbid_phases" in must:
+            forbidden = set(must["forbid_phases"])
+            offenders = [
+                i for i in with_block if frames[i]["overtake"].get("phase") in forbidden
+            ]
+            if offenders:
+                i0 = offenders[0]
+                got = frames[i0]["overtake"].get("phase")
+                return res(
+                    "fail",
+                    f"overtake.phase == {got!r} at t={frames[i0]['sim_time']:.2f} (frame {i0}) "
+                    f"-- forbidden (forbid_phases={sorted(forbidden)})",
+                    i0,
+                )
+
+        # 5. expect_cleared_lead.
+        if "expect_cleared_lead" in must:
+            want = bool(must["expect_cleared_lead"])
+            cleared_true = [
+                i for i in with_block if bool(frames[i]["overtake"].get("cleared_lead"))
+            ]
+            if want and not cleared_true:
+                return res(
+                    "fail",
+                    f"overtake.cleared_lead never became true over {len(with_block)} gated "
+                    f"frame(s)",
+                )
+            if not want and cleared_true:
+                i0 = cleared_true[0]
+                return res(
+                    "fail",
+                    f"overtake.cleared_lead == true at t={frames[i0]['sim_time']:.2f} (frame "
+                    f"{i0}) (want false on every gated frame)",
+                    i0,
+                )
+
+        detail = (
+            f"overtake_decision_holds: {len(checks)} check(s) held over "
+            f"{len(with_block)}/{len(gated)} gated frame(s)"
+        )
         return res("pass", detail)
 
     return {

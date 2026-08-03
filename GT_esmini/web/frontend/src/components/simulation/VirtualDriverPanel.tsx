@@ -31,13 +31,24 @@ const EDITABLE_KEYS = [
   // feature:F7 AD resume-merge trajectory. Default ON since 2026-07-28.
   'resume_merge_enabled', 'resume_merge_a_lat_comfort', 'resume_merge_duration_min_s',
   'resume_merge_duration_max_s', 'resume_merge_min_offset_m',
+  // vd-func:FUNC-055 AD-initiated lane change (REQ-AD-017 step c). Default OFF.
+  'lane_change_initiation_enabled', 'lane_change_lead_time_s', 'lane_change_min_lead_distance_m',
+  'lane_change_reserve_distance_m', 'lane_change_gap_min_m', 'lane_change_gap_headway_lead_s',
+  'lane_change_gap_headway_rear_s', 'lane_change_gap_ttc_min_s', 'lane_change_lateral_accel_comfort',
+  'lane_change_indicator_lead_time_s',
+  // vd-func:FUNC-056 AD overtake maneuver (docs/virtualdriver/design/overtake_maneuver.md). Default OFF.
+  'overtake_enabled', 'overtake_use_opposing_lane_enabled', 'overtake_max_pass_time_s',
+  'overtake_oncoming_lookahead_m', 'overtake_oncoming_safety_factor',
   'control_point_offset', 'control_point_min_speed',
   'indicator_lead_time', 'indicator_min_on_time',
   'idm_time_headway', 'idm_min_gap', 'idm_max_accel', 'idm_comfort_decel', 'idm_desired_speed',
   'idm_lookahead', 'idm_lateral_tol', 'idm_target_horizon',
   'tl_lookahead', 'tl_yellow_decel', 'tl_stop_margin',
+  'tl_junction_guard_enabled', 'tl_junction_clearance',
+  'tl_stop_line_aware_enabled', 'tl_stop_line_window',
   'sign_lookahead', 'stop_hold_time', 'stop_detect_speed', 'stop_line_tol',
   'creep_speed', 'creep_advance', 'yield_creep_speed', 'sign_stop_margin',
+  'sign_stop_line_aware_enabled', 'sign_stop_line_window',
   'conflict_lookahead', 'conflict_step', 'conflict_lane_margin', 'conflict_standoff',
   'conflict_release_buffer', 'conflict_pet', 'conflict_nominal_speed',
   'conflict_min_cross_angle_deg', 'conflict_other_min_speed', 'conflict_area_eps',
@@ -226,6 +237,20 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <NumberInput label="Lookahead (m)" step={1} value={cfg.tl_lookahead} onChange={setNum('tl_lookahead')} />
           <NumberInput label="Yellow decel (m/s²)" step={0.1} value={cfg.tl_yellow_decel} onChange={setNum('tl_yellow_decel')} />
           <NumberInput label="Stop margin (m)" step={0.1} value={cfg.tl_stop_margin} onChange={setNum('tl_stop_margin')} />
+          <NumberInput label="Junction clearance (m)" step={0.5} value={cfg.tl_junction_clearance} onChange={setNum('tl_junction_clearance')} />
+          <NumberInput label="Stop-line pairing window (m)" step={0.5} value={cfg.tl_stop_line_window} onChange={setNum('tl_stop_line_window')} />
+        </div>
+        <div className="mt-3 space-y-2">
+          <ToggleSwitch
+            label="Junction guard (don't block the box)"
+            checked={Boolean(cfg.tl_junction_guard_enabled)}
+            onChange={(v) => set('tl_junction_guard_enabled', v)}
+          />
+          <ToggleSwitch
+            label="Stop-line aware (pair the junction-entry/head anchor with a stop-line signal)"
+            checked={Boolean(cfg.tl_stop_line_aware_enabled)}
+            onChange={(v) => set('tl_stop_line_aware_enabled', v)}
+          />
         </div>
       </section>
 
@@ -241,6 +266,14 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           <NumberInput label="Creep advance (m)" step={0.1} value={cfg.creep_advance} onChange={setNum('creep_advance')} />
           <NumberInput label="Yield creep speed (m/s)" step={0.1} value={cfg.yield_creep_speed} onChange={setNum('yield_creep_speed')} />
           <NumberInput label="Sign stop margin (m)" step={0.1} value={cfg.sign_stop_margin} onChange={setNum('sign_stop_margin')} />
+          <NumberInput label="Stop-line pairing window (m)" step={0.5} value={cfg.sign_stop_line_window} onChange={setNum('sign_stop_line_window')} />
+        </div>
+        <div className="mt-3 space-y-2">
+          <ToggleSwitch
+            label="Stop-line aware (pair STOP signs with a stop-line signal)"
+            checked={Boolean(cfg.sign_stop_line_aware_enabled)}
+            onChange={(v) => set('sign_stop_line_aware_enabled', v)}
+          />
         </div>
       </section>
 
@@ -361,7 +394,9 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
             <div>
               <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">Indicator</h4>
               <div className="grid grid-cols-2 gap-3">
-                <NumberInput label="Lead time (s)" step={0.1} value={cfg.indicator_lead_time} onChange={setNum('indicator_lead_time')} />
+                <NumberInput label="Lead time (s)" step={0.1}
+                  title="交差点の右左折で方向指示器を先行点灯させる先読み秒数。車線変更用の Indicator lead time（AD Lane Change Initiation セクション、既定3.0）とは別のキー。法定の根拠も別で、右左折は「30メートル手前」（道路交通法施行令第21条第1項）。"
+                  value={cfg.indicator_lead_time} onChange={setNum('indicator_lead_time')} />
                 <NumberInput label="Min on time (s)" step={0.1} value={cfg.indicator_min_on_time} onChange={setNum('indicator_min_on_time')} />
               </div>
             </div>
@@ -706,6 +741,171 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           instead of steering back by the shortest path. The comfort
           lateral-accel limit shapes the maneuver, but the AD Steering Safety
           Envelope above remains the hard cap regardless.
+        </p>
+      </section>
+
+      {/* AD Lane Change Initiation — vd-func:FUNC-055 (REQ-AD-017 step c).
+          When the route requires a lane the ego is not on, commits to a
+          lane-change-like trajectory toward the target lane one hop at a
+          time, once the connection deadline nears, gated by gap acceptance
+          against the target lane's lead/rear neighbors. Default OFF — see
+          docs/virtualdriver/design/lane_change_initiation.md (§12 for the
+          Timing/Gap/Comfort grouping below). */}
+      <section>
+        <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
+          AD Lane Change Initiation
+        </h3>
+        <div className="mb-3">
+          <ToggleSwitch
+            label="Enable lane change initiation"
+            checked={Boolean(cfg.lane_change_initiation_enabled)}
+            onChange={(v) => set('lane_change_initiation_enabled', v)}
+          />
+        </div>
+
+        <div className="mb-3">
+          <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">
+            Timing — when it starts moving
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <NumberInput label="Lead time (s)" step={0.1}
+              title="1ホップあたりの決断距離を自車速度から決める秒数。LC実行そのもの（実測約3.5秒）より大きく取ってあり、ギャップ待ちの時間を含む。大きいほど早く動き出す。"
+              value={cfg.lane_change_lead_time_s ?? 6.0}
+              onChange={setNum('lane_change_lead_time_s')} />
+            <NumberInput label="Min lead distance (m)" step={1}
+              title="決断距離の下限。低速では v×lead_time_s が小さくなりすぎるため、発起が遅れすぎないよう床を設ける。"
+              value={cfg.lane_change_min_lead_distance_m ?? 40.0}
+              onChange={setNum('lane_change_min_lead_distance_m')} />
+            <NumberInput label="Reserve distance (m)" step={1}
+              title="決断距離の式に加える固定の余裕距離。締切ぎりぎりでの発起を避けるためのバッファ。"
+              value={cfg.lane_change_reserve_distance_m ?? 20.0}
+              onChange={setNum('lane_change_reserve_distance_m')} />
+            <NumberInput label="Indicator lead time (s)" step={0.1}
+              title="発起しきい値より何秒ぶん手前で方向指示器を点灯させるか。既定3.0は道路交通法施行令第21条第1項（進路変更は3秒前）。交差点旋回用のIndicator lead time（既定2.0）とは別のキー。"
+              value={cfg.lane_change_indicator_lead_time_s ?? 3.0}
+              onChange={setNum('lane_change_indicator_lead_time_s')} />
+          </div>
+          <p className="text-[10px] text-text-tertiary mt-2 leading-tight font-mono">
+            required = hops × max(v × lead_time, min_lead_distance) + reserve_distance
+          </p>
+        </div>
+
+        <div className="mb-3">
+          <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">
+            Gap acceptance — whether it may enter
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <NumberInput label="Min gap (m)" step={0.5}
+              title="隣接レーンに入るために必要な前後ギャップの下限。低速で車間時間だけから判定すると近すぎる値になるのを防ぐ床。"
+              value={cfg.lane_change_gap_min_m ?? 8.0}
+              onChange={setNum('lane_change_gap_min_m')} />
+            <NumberInput label="Lead gap headway (s)" step={0.1}
+              title="前方ギャップの必要車間を自車速度から決める秒数。gap_lead >= max(min_gap, v_ego×この値) で判定する。"
+              value={cfg.lane_change_gap_headway_lead_s ?? 1.2}
+              onChange={setNum('lane_change_gap_headway_lead_s')} />
+            <NumberInput label="Rear gap headway (s)" step={0.1}
+              title="後方ギャップの要求車間を後続車の速度から決める秒数。自車速度ではない。隙間を詰めているのは後続車だから。"
+              value={cfg.lane_change_gap_headway_rear_s ?? 1.0}
+              onChange={setNum('lane_change_gap_headway_rear_s')} />
+            <NumberInput label="Rear TTC min (s)" step={0.1}
+              title="後続車が自車より速く接近しているときに必要な最小到達余裕秒数。後続車が自車に追いつくまでの時間がこれを下回ると入らない。"
+              value={cfg.lane_change_gap_ttc_min_s ?? 3.0}
+              onChange={setNum('lane_change_gap_ttc_min_s')} />
+          </div>
+          <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+            Rear gap and TTC are judged against the FOLLOWER's speed, not the ego's.
+          </p>
+        </div>
+
+        <div>
+          <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">
+            Comfort
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <NumberInput label="Comfort lateral accel (m/s²)" step={0.1}
+              title="車線変更の軌道生成が目標とする快適横加速度。軌道は ResumeMergeProfile を流用するが設定は別インスタンスなので、上の Resume Merge（車線復帰）の値とは独立に効く。AD Steering Safety Envelope の上限が常に優先される。"
+              value={cfg.lane_change_lateral_accel_comfort ?? 1.5}
+              onChange={setNum('lane_change_lateral_accel_comfort')} />
+          </div>
+        </div>
+
+        <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+          Default OFF. When enabled, the ego self-corrects toward the route's
+          required lane one hop at a time instead of only diagnosing the
+          mismatch. If no gap opens before the connection deadline, it
+          crosses off-plan without lane-changing (unchanged deviation
+          recording) — this does not add a stop-and-wait behavior.
+        </p>
+      </section>
+
+      {/* AD Overtake Maneuver — vd-func:FUNC-056. Builds on AD Lane Change Initiation's
+          1-hop mechanism, run twice (out, then back), with a slow lead as the motive
+          instead of a route deadline. A route connection is never sacrificed for a pass:
+          the required distance to go out, pass, and come back must fit within
+          dist_to_connection before signaling. Default OFF, independent of
+          lane_change_initiation_enabled — see
+          docs/virtualdriver/design/overtake_maneuver.md. */}
+      <section>
+        <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
+          AD Overtake Maneuver
+        </h3>
+        <div className="mb-3">
+          <ToggleSwitch
+            label="Enable overtake maneuver"
+            checked={Boolean(cfg.overtake_enabled)}
+            onChange={(v) => set('overtake_enabled', v)}
+          />
+        </div>
+
+        <div className="mb-3">
+          <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">
+            Trigger — how slow counts as "slow"
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <NumberInput label="Max pass time (s)" step={0.5}
+              title="追い抜きに要る時間の上限。これを超える速度差でしか追い抜けない先行車は対象にしない。既定10.0はAASHTOの追い越し視距モデルの左車線占有時間t2（設計速度により9.3〜11.3秒）の中央付近。実測値ではなく方針値。"
+              value={cfg.overtake_max_pass_time_s ?? 10.0}
+              onChange={setNum('overtake_max_pass_time_s')} />
+          </div>
+          <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+            There is no separate "how much slower" threshold — it is derived every frame from
+            gap, vehicle lengths, and this time limit. A slow lead is only considered once
+            LeadVehicleAware's own "not free flow" gap threshold is crossed.
+          </p>
+        </div>
+
+        <div className="mb-3">
+          <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">
+            Opposing lane (single-lane-each-way roads)
+          </h4>
+          <ToggleSwitch
+            label="Allow using the opposing lane"
+            checked={Boolean(cfg.overtake_use_opposing_lane_enabled)}
+            onChange={(v) => set('overtake_use_opposing_lane_enabled', v)}
+          />
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <NumberInput label="Oncoming scan distance (m)" step={10}
+              title="対向車の探索距離。これは見通し距離（視界が通っていることの保証）ではなく、単なるスキャン範囲。既定400.0はAASHTOの追い越し視距（設計速度60km/h相当）。"
+              value={cfg.overtake_oncoming_lookahead_m ?? 400.0}
+              onChange={setNum('overtake_oncoming_lookahead_m')} />
+            <NumberInput label="Oncoming safety factor" step={0.1}
+              title="対向車ギャップの必要量に掛ける安全率。追い抜き所要時間の見積り誤差を吸収するための工学的余裕であり、実測値ではない。"
+              value={cfg.overtake_oncoming_safety_factor ?? 1.5}
+              onChange={setNum('overtake_oncoming_safety_factor')} />
+          </div>
+          <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+            Default OFF, independently of the maneuver's own toggle above. vd-func:FUNC-030
+            (passing-prohibition-zone / solid-line awareness) is not yet implemented, so
+            enabling this ignores no-passing markings.
+          </p>
+        </div>
+
+        <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+          Default OFF. Reuses the Lane Change Initiation gap-acceptance and decision-distance
+          settings above (return clearance = its Min gap, route-guard margin = its Reserve
+          distance, signal dwell = its Indicator lead time) — nothing new to tune there.
+          If the route connection deadline is reached mid-pass, the maneuver abandons the
+          pass and returns to the route lane instead of missing the connection.
         </p>
       </section>
 

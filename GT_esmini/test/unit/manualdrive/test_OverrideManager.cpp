@@ -216,7 +216,7 @@ TEST(OverrideManagerTest, ResumeIsNoOpWhenAlreadyAuto)
 }
 
 // --- feature:F7 scenario-driven handover — RequestAutoMode() direct API ----
-// (docs/virtualdriver/scenario_control_handoff_design.md R-2). Unlike the
+// (docs/virtualdriver/design/scenario_control_handoff_design.md R-2). Unlike the
 // RESUME button path above (driven through Update() on a rising edge),
 // ControllerVirtualDriver::TearDownControlOutputs() calls this API directly,
 // once, outside of any Update() call — since Step()/Update() do not run at

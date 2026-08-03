@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS projects (
 -- VirtualDriver verification: registry of recorded runs (top-level GUI/CLI runs and
 -- batch-nested runs), bridging on-disk results/ into the DB so the annotation UI can
 -- list, filter, and join human labels. Populated by annotation_store.scan_registry()
--- (pull-based idempotent upsert). See GT_esmini/docs/virtualdriver/verification_environment.md.
+-- (pull-based idempotent upsert). See GT_esmini/docs/virtualdriver/design/verification_environment.md.
 CREATE TABLE IF NOT EXISTS verification_runs (
     run_id          TEXT PRIMARY KEY,   -- 'vd_basic' | 'batch/<batch_id>/<stem>'
     source          TEXT NOT NULL,      -- 'toplevel' | 'batch' | 'gui'

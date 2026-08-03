@@ -189,6 +189,10 @@ param(
     [string]$HandoffBatch = "resources/xosc/verification/scenario_handoff_batch.yaml",
     [string]$HandoffOutDir = "test_results/regression/scenario_handoff",
     [string]$HandoffBaseline = "GT_esmini/test/regression_baseline/scenario_handoff_expected.yaml",
+    [switch]$SkipStopLine,
+    [string]$StopLineBatch = "resources/xosc/verification/stop_line_pairing_batch.yaml",
+    [string]$StopLineOutDir = "test_results/regression/stop_line_pairing",
+    [string]$StopLineBaseline = "GT_esmini/test/regression_baseline/stop_line_pairing_expected.yaml",
     [string]$Dll = ""
 )
 
@@ -319,6 +323,17 @@ if (-not $SkipBehavioral) {
 # recorded as a known red in the baseline). The DEVIATION vs baseline is the gate.
 # ----------------------------------------------------------------------------
 function Invoke-BehavioralBatch {
+    # CAUTION (2026-08-03 incident: -FailOnBehavioral could never turn the gate
+    # red): this function's return value is consumed as a boolean by the caller
+    # via `if (-not (Invoke-BehavioralBatch ...))`. If a native command inside
+    # this function is invoked WITHOUT capturing/redirecting its stdout, that
+    # stdout is emitted on this function's own output stream and gets
+    # concatenated with the `return` value -- turning the return into a
+    # multi-element array (e.g. @("...stdout...", $false)). PowerShell casts
+    # any non-empty array to $true regardless of its last element, so
+    # `-not (...)` is always $false and the failing branch silently never
+    # runs -- the gate stays green even on a real deviation. Route every
+    # native call's stdout through Write-Host (never leave it unredirected).
     param(
         [string]$Label,
         [string]$BatchPath,
@@ -332,7 +347,7 @@ function Invoke-BehavioralBatch {
     $argList = @($Harness, "batch", $BatchPath, "--out", $OutPath)
     if (-not [string]::IsNullOrWhiteSpace($Dll)) { $argList += @("--dll", $DllPath) }
     Write-Host "${Label}: $PyExe $($argList -join ' ')" -ForegroundColor Cyan
-    & $PyExe @argList
+    & $PyExe @argList 2>&1 | ForEach-Object { Write-Host $_ }
 
     $verdictFile = Join-Path $OutPath "batch_verdict.json"
     $verdictText = "(no batch_verdict.json)"
@@ -413,7 +428,7 @@ function Invoke-BehavioralBatch {
     $checker = Resolve-RepoPath "scripts/check_regression_baseline.py"
     $regArgs = @($checker, "--batch-out", $OutPath, "--baseline", $BaselinePath, "--max-age-seconds", "1800")
     Write-Host "${Label}: $PyExe $($regArgs -join ' ')" -ForegroundColor Cyan
-    & $PyExe @regArgs
+    & $PyExe @regArgs 2>&1 | ForEach-Object { Write-Host $_ }
     $reg = $LASTEXITCODE
 
     if ($reg -eq 0) {
@@ -708,7 +723,7 @@ if ($SkipBehavioral) {
 # Same recipe as Steps 2 / 2.6 / 2.7 (shared Invoke-BehavioralBatch) on a
 # SEPARATE manifest + baseline (design doc Fact M: this must not touch the
 # existing 3 pairs). Covers feature:F7 scenario-driven handover
-# (docs/virtualdriver/scenario_control_handoff_design.md): an
+# (docs/virtualdriver/design/scenario_control_handoff_design.md): an
 # ActivateControllerAction lateral="false" longitudinal="false" mid-run must
 # make VirtualDriverController actually relinquish control (telemetry.vd_active
 # false) and never resume it on its own. No OSI capture needed (osi:false).
@@ -738,6 +753,52 @@ if ($SkipBehavioral) {
         foreach ($m in $handoffMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
     } else {
         if (-not (Invoke-BehavioralBatch -Label "Step 2.8" -BatchPath $handoffBatchPath -OutPath $handoffOutPath -BaselinePath (Resolve-RepoPath $HandoffBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
+            $overallOk = $false
+        }
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Step 2.9 - Stop-line pairing batch (reported gate, skippable)
+#
+# Same recipe as Steps 2 / 2.6 / 2.7 / 2.8 (shared Invoke-BehavioralBatch) on a
+# SEPARATE manifest + baseline. Covers the stop-line pairing discriminator
+# (docs/virtualdriver/design/stop_line_stop_target.md sec13): TrafficLightAware
+# and StopYieldSignAware must swap their margin-based stop target for a paired
+# stop-line signal (type=294) when one is found within the configured window
+# (tl_stop_line_window / sign_stop_line_window, both default ON). Both
+# scenarios here run at DEFAULT config; the falsifying kill-switch-OFF
+# measurement is recorded in each expectations.yaml's notes, not reachable
+# through this manifest (policies:[] only enables the policy, not the kill
+# switch -- same structural reason Steps 2.6/2.7/2.8 exist as separate steps
+# rather than more scenarios in Step 2: a red here names the broken claim
+# without opening the report).
+# ----------------------------------------------------------------------------
+if ($SkipBehavioral) {
+    Write-Host "==== Step 2.9: Stop-line pairing batch - SKIPPED (-SkipBehavioral) ====" -ForegroundColor Yellow
+} elseif ($SkipStopLine) {
+    Write-Host "==== Step 2.9: Stop-line pairing batch - SKIPPED (-SkipStopLine) ====" -ForegroundColor Yellow
+} else {
+    Write-Host "==== Step 2.9: Stop-line pairing batch (gt_sim_test) ====" -ForegroundColor Cyan
+
+    # Same prerequisites as Steps 2 / 2.6 / 2.7 / 2.8 (venv + Release DLL); reuse resolution.
+    $stopLineBatchPath = Resolve-RepoPath $StopLineBatch
+    $stopLineOutPath = Resolve-RepoPath $StopLineOutDir
+
+    $stopLineMissing = @()
+    if ([string]::IsNullOrWhiteSpace($pyExe) -or -not (Test-Path $pyExe)) {
+        $stopLineMissing += "verification venv python (DriverScript/.venv or GT_esmini/web/.venv)"
+    }
+    if (-not (Test-Path $dllPath)) {
+        $stopLineMissing += "GT_esminiLib.dll at $dllPath (requires a completed $Config build)"
+    }
+    if (-not (Test-Path $stopLineBatchPath)) { $stopLineMissing += "batch manifest $stopLineBatchPath" }
+
+    if ($stopLineMissing.Count -gt 0) {
+        Write-Host "Step 2.9: SKIPPED - prerequisites missing:" -ForegroundColor Yellow
+        foreach ($m in $stopLineMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
+    } else {
+        if (-not (Invoke-BehavioralBatch -Label "Step 2.9" -BatchPath $stopLineBatchPath -OutPath $stopLineOutPath -BaselinePath (Resolve-RepoPath $StopLineBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
             $overallOk = $false
         }
     }

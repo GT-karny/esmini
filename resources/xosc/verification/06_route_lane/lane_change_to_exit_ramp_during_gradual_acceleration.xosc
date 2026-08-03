@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 06_route_lane / lane_change_to_exit_ramp_during_gradual_acceleration
+
+  vd-func:FUNC-061 (indicator pre-signal before lane-change initiation) /
+  req-vd-ad:REQ-AD-018 (法定タイミング要求 - JP Road Traffic Act Enforcement
+  Order Art. 21 para 1: signal at least 3 seconds before the maneuver). This
+  scenario isolates ladder step c ("加速中もリードが縮まないこと") using a
+  MILD, SUSTAINED acceleration, deliberately different from both existing
+  scenarios in this directory's 3.0s linear ramp: that ramp is short enough
+  relative to a~3.9 m/s^2 that the sibling lane_change_to_exit_ramp.xosc's
+  hop is decided on frame 1 (n_remaining=3 saturates required_m before
+  accel finishes - see that file's expectations.yaml must #3 reason:), so
+  neither existing scenario can show a lane change actually being INITIATED
+  while acceleration is still in progress. This scenario's ramp is stretched
+  to 20.0s (a ~= 13.889/20.0 ~= 0.694 m/s^2) specifically so the hop's arm
+  time falls inside the ramp window instead of before or after it.
+
+  Same road/junction/Route shape as the constant-speed sibling in this
+  directory (lane_change_to_exit_ramp_at_constant_speed.xosc) and the same
+  reason for starting Ego in lane -3 rather than -1/-2: junction 1
+  connection id=3's <laneLink> covers ONLY "-4" of road 0 (measured fact,
+  see lane_change_initiation.md section 3), so lane -3 needs exactly ONE
+  lane change, -3 -> -4 (n_remaining=1), required_m = 1*(13.889*6.0)+20 =
+  103.3 m at cruise speed. See that sibling file's header comment for the
+  full n_remaining=1-vs-3 rationale and the explicit road-4 Waypoint
+  requirement (Route::IsValid()==true).
+
+  EXPECTED (arithmetic, to be confirmed by measurement - see this file's
+  expectations.yaml): unlike the constant-speed sibling, required_m is NOT
+  flat here - it grows with v while the ramp is in progress (required_m =
+  1*max(v*6.0,40)+20), so the closing rate between dist_to_connection and
+  required_m is LESS than the naive v*3.0 the two-threshold rule assumes
+  (see lane_change_initiation.md section 11-3's known limitation under
+  acceleration). The parent's calculation places the hop's initiation at
+  t ~= 16.9s, i.e. still inside the 0-20s ramp window (not after it
+  completes) - the scenario is deliberately calibrated so acceleration is
+  still live at the moment of initiation, which is the whole point of this
+  file over the sibling's 3.0s ramp (too short to still be running at
+  initiation) or the constant-speed sibling (no ramp at all). Two
+  irreconcilable lead figures exist for this same event, and this file does
+  NOT pick between them - see the expectations.yaml must entry's reason:
+  for both and why the choice is left to the parent's post-measurement
+  analysis: the CURRENT (pre-fix) distance-only two-threshold rule is
+  expected to yield lead ~= 2.03s (compressed, same mechanism as the
+  no-traffic sibling's 0.40s, just less severe because acceleration here is
+  much milder); a forward-projected rule (using a_ego to anticipate where
+  required_m is heading, not just its instantaneous value) is expected to
+  yield lead ~= 2.98s instead. This scenario file and its Route/speed
+  profile do not change between the two - only the C++ indicator-lead
+  logic does, which is out of scope for this file (GT_esmini/ is untouched
+  here; see this directory's batch-level policies: injection mechanism for
+  how lane_change_initiation_enabled is turned on without editing config/).
+
+  STOP TRIGGER: 40s, not the sibling scenarios' 28s. The ramp alone takes
+  20.0s, initiation is expected mid-ramp (~17s), and the lane change itself
+  plus post-junction settling need room after that - 28s does not leave
+  enough margin. See route_lane_batch.yaml's per-scenario max_time override
+  for this entry and its comment for why defaults.max_time (30.0, shared by
+  the other three scenarios) was left unchanged rather than raised.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-08-03T11:00:00"
+               description="VirtualDriver verification: AD-initiated lane change to reach a junction exit ramp during a mild, sustained acceleration, isolating initiation-while-accelerating from the steady-state lead"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/highway_example_with_merge_and_split.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-3" offset="0" s="10"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <!--
+                             Start Waypoint matches the TeleportAction above: lane -3,
+                             one hop from the target band {-4}. See the file-level
+                             header comment (n_remaining=1, same as the constant-speed
+                             sibling).
+                           -->
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-3" offset="0" s="10"/>
+                              </Position>
+                           </Waypoint>
+                           <!--
+                             Explicit connecting-road Waypoint (junction 1, connection
+                             id=3) - required for Route::IsValid()==true. See
+                             lane_change_to_exit_ramp.xosc's header comment.
+                           -->
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="4" laneId="-1" offset="0" s="50"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="-1" offset="0" s="40"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="RouteLaneStory">
+         <Act name="RouteLaneAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <!--
+                                Mild, sustained ramp: 0 -> 13.889 m/s over 20.0s
+                                (a ~= 0.694 m/s^2), NOT the sibling scenarios' 3.0s
+                                ramp (a ~= 4.6 m/s^2). See the file-level header
+                                comment for why 20.0s was chosen: short enough that
+                                Ego reaches cruise speed well inside the StopTrigger
+                                window, long enough that the lane-change hop is
+                                expected to initiate WHILE this ramp is still running
+                                (~17s in), not before or after it.
+                              -->
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="20.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <!--
+        40s, not the sibling scenarios' 28s - see the file-level header
+        comment's STOP TRIGGER paragraph.
+      -->
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="40" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

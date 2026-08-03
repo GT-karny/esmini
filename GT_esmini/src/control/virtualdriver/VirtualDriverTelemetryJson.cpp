@@ -155,6 +155,13 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"heading_error\":" << t.driver.heading_error << ",\"speed_error\":" << t.driver.speed_error
        << ",\"lookahead\":" << t.driver.lookahead_dist << ",\"valid\":" << b(t.driver.valid) << "}"
        << ",\"indicator\":{\"left\":" << b(t.indicator.left_on) << ",\"right\":" << b(t.indicator.right_on) << "}"
+       // req-vd-ad:REQ-AD-021 / vd-func:FUNC-061 junction-turn pre-arm (design doc
+       // junction_turn_signal.md section 3-4). Additive block; consumers that
+       // predate it simply ignore it. on_connector is the field to read first --
+       // it is the only telemetry signal that "this road is junction-owned".
+       << ",\"junction_turn\":{\"dir\":" << t.junction_turn.dir
+       << ",\"dist_to_entry_m\":" << t.junction_turn.dist_to_entry_m
+       << ",\"on_connector\":" << b(t.junction_turn.on_connector) << "}"
        << ",\"preview\":{\"dt\":" << t.short_plan.dt << ",\"valid\":" << b(t.short_plan.valid) << ",\"points\":[";
     for (size_t i = 0; i < t.short_plan.preview.size(); ++i)
     {
@@ -232,7 +239,65 @@ std::string ToJson(const VirtualDriverTelemetry& t)
         if (i) os << ",";
         os << "\"" << t.policy.detail[i].first << "\":\"" << t.policy.detail[i].second << "\"";
     }
-    os << "}}}";
+    os << "}}";
+
+    // RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) -- route-lane
+    // conformance diagnostic. Additive top-level block; consumers that predate it
+    // simply ignore it. diagnostic/reason are the two fields to read first ("" ==
+    // normal on both).
+    os << ",\"route_lane\":{\"valid\":" << b(t.route_lane.valid)
+       << ",\"road_id\":" << t.route_lane.road_id
+       << ",\"ego_lane\":" << t.route_lane.ego_lane
+       << ",\"ego_lane_raw\":" << t.route_lane.ego_lane_raw
+       << ",\"target_lanes\":[";
+    for (size_t i = 0; i < t.route_lane.target_lanes.size(); ++i)
+    {
+        if (i) os << ",";
+        os << t.route_lane.target_lanes[i];
+    }
+    os << "]"
+       << ",\"on_target_lane\":" << b(t.route_lane.on_target_lane)
+       << ",\"dist_to_connection\":" << t.route_lane.dist_to_connection
+       << ",\"deviation_count\":" << t.route_lane.deviation_count
+       << ",\"last_deviation_road_id\":" << t.route_lane.last_deviation_road_id
+       << ",\"rerouted\":" << b(t.route_lane.rerouted)
+       << ",\"diagnostic\":\"" << t.route_lane.diagnostic << "\""
+       << ",\"reason\":\"" << t.route_lane.reason << "\"}";
+
+    // vd-func:FUNC-055 AD lane-change initiation (LaneChangeInitiation.hpp). Additive top-level
+    // block; consumers that predate it simply ignore it. gap_reason is the field to read first
+    // for "why hasn't it armed yet" ("" == last evaluated gap was accepted, or nothing evaluated).
+    os << ",\"lane_change\":{\"armed\":" << b(t.lane_change.armed)
+       << ",\"target_track_id\":" << t.lane_change.target_track_id
+       << ",\"target_lane_id\":" << t.lane_change.target_lane_id
+       << ",\"direction\":" << t.lane_change.direction
+       << ",\"n_remaining\":" << t.lane_change.n_remaining
+       << ",\"required_m\":" << t.lane_change.required_m
+       << ",\"dist_to_connection\":" << t.lane_change.dist_to_connection
+       << ",\"gap_accepted\":" << b(t.lane_change.gap_accepted)
+       << ",\"gap_reason\":\"" << t.lane_change.gap_reason << "\""
+       << ",\"signal_active\":" << b(t.lane_change.signal_active) << "}";
+
+    // vd-func:FUNC-056 AD overtake maneuver (OvertakeManeuver.hpp). Additive top-level block;
+    // consumers that predate it simply ignore it. `considered` is the field to read first --
+    // design doc overtake_maneuver.md section 9-1's false-PASS guard: a run where it never goes
+    // true never actually attempted an overtake, regardless of how green everything else looks.
+    os << ",\"overtake\":{\"phase\":\"" << t.overtake.phase << "\""
+       << ",\"considered\":" << b(t.overtake.considered)
+       << ",\"lead_id\":" << t.overtake.lead_id
+       // The same vehicle in the OSI id space -- the field to join on when
+       // correlating this record with an OSI GroundTruth recording. Additive next
+       // to lead_id, which stays the scenario entity index the maneuver itself
+       // uses internally to re-find the lead.
+       << ",\"lead_osi_id\":" << t.overtake.lead_osi_id
+       << ",\"delta_v_mps\":" << t.overtake.delta_v_mps
+       << ",\"t_pass_s\":" << t.overtake.t_pass_s
+       << ",\"required_m\":" << t.overtake.required_m
+       << ",\"route_budget_m\":" << t.overtake.route_budget_m
+       << ",\"blocked_reason\":\"" << t.overtake.blocked_reason << "\""
+       << ",\"cleared_lead\":" << b(t.overtake.cleared_lead) << "}";
+
+    os << "}";
 
     return os.str();
 }

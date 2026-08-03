@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:42f574ec863f47bf -->
+<!-- generated-from: sha256:cdb8d24563399b2c -->
 
-ノード 176・辺 182（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 206・辺 218（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -149,8 +149,18 @@ flowchart LR
     n_vd_func_FUNC_038["FUNC-038"]
     n_vd_func_FUNC_029["FUNC-029"]
     n_vd_func_FUNC_001["FUNC-001"]
+    n_vd_func_FUNC_049["FUNC-049"]
+    n_vd_func_FUNC_050["FUNC-050"]
+    n_vd_func_FUNC_055["FUNC-055"]
+    n_vd_func_FUNC_052["FUNC-052"]
+    n_vd_func_FUNC_054["FUNC-054"]
+    n_vd_func_FUNC_061["FUNC-061"]
+    n_vd_func_FUNC_076["FUNC-076"]
+    n_vd_func_FUNC_077["FUNC-077"]
+    n_vd_func_FUNC_078["FUNC-078"]
     n_vd_func_FUNC_002["FUNC-002"]
     n_vd_func_FUNC_075["FUNC-075"]
+    n_vd_func_FUNC_056["FUNC-056"]
   end
   subgraph sg_req_vd_ad["req-vd-ad｜VirtualDriver 自動運転/ADAS 対応シーン要求（機能軸 安全/快適/法規遵守/譲り合い）"]
     n_req_vd_ad_REQ_AD_001["REQ-AD-001"]
@@ -159,12 +169,21 @@ flowchart LR
     n_req_vd_ad_REQ_AD_004["REQ-AD-004"]
     n_req_vd_ad_REQ_AD_005["REQ-AD-005"]
     n_req_vd_ad_REQ_AD_006["REQ-AD-006"]
+    n_req_vd_ad_REQ_AD_016["REQ-AD-016"]
+    n_req_vd_ad_REQ_AD_017["REQ-AD-017"]
     n_req_vd_ad_REQ_AD_013["REQ-AD-013"]
+    n_req_vd_ad_REQ_AD_021["REQ-AD-021"]
+    n_req_vd_ad_REQ_AD_018["REQ-AD-018"]
+    n_req_vd_ad_REQ_AD_019["REQ-AD-019"]
+    n_req_vd_ad_REQ_AD_020["REQ-AD-020"]
+    n_req_vd_ad_REQ_AD_022["REQ-AD-022"]
     n_req_vd_ad_REQ_AD_010["REQ-AD-010"]
     n_req_vd_ad_REQ_AD_011["REQ-AD-011"]
     n_req_vd_ad_REQ_AD_012["REQ-AD-012"]
     n_req_vd_ad_REQ_AD_014["REQ-AD-014"]
     n_req_vd_ad_REQ_AD_015["REQ-AD-015"]
+    n_req_vd_ad_REQ_AD_023["REQ-AD-023"]
+    n_req_vd_ad_REQ_AD_024["REQ-AD-024"]
   end
   subgraph sg_matcher["matcher｜検証matcher（vd_metrics event語彙）"]
     n_matcher_maintained_following_distance["maintained_following_distance"]
@@ -173,6 +192,9 @@ flowchart LR
     n_matcher_min_obb_separation_above["min_obb_separation_above"]
     n_matcher_impact_speed_below["impact_speed_below"]
     n_matcher_no_emergency_without_conflict["no_emergency_without_conflict"]
+    n_matcher_route_lane_plan_holds["route_lane_plan_holds"]
+    n_matcher_indicator_leads_junction_turn["indicator_leads_junction_turn"]
+    n_matcher_indicator_leads_lane_change["indicator_leads_lane_change"]
     n_matcher_deceleration_profile_smooth["deceleration_profile_smooth"]
     n_matcher_speed_above["speed_above"]
     n_matcher_speed_below["speed_below"]
@@ -182,6 +204,12 @@ flowchart LR
     n_matcher_speed_reduction_before_landmark["speed_reduction_before_landmark"]
     n_matcher_steer_not_saturated["steer_not_saturated"]
     n_matcher_no_constraint_kind["no_constraint_kind"]
+    n_matcher_overtake_decision_holds["overtake_decision_holds"]
+  end
+  subgraph sg_vd_component["vd-component｜VirtualDriver 実装ユニット（ITrafficPolicy 以外の層）"]
+    n_vd_component_route_lane_plan["route-lane-plan"]
+    n_vd_component_lane_change_initiation["lane-change-initiation"]
+    n_vd_component_overtake_maneuver["overtake-maneuver"]
   end
   subgraph sg_scenario_variant["scenario-variant｜生成シナリオ変体（NN_topic__pNNN）"]
     n_scenario_variant_09_crosswalk_pedestrian__p005["09_crosswalk_pedestrian__p005"]
@@ -199,6 +227,10 @@ flowchart LR
     n_signal_object_poses["object_poses"]
     n_signal_obb_separation["obb_separation"]
     n_signal_aeb_trigger_flag["aeb_trigger_flag"]
+    n_signal_route_lane_conformance["route_lane_conformance"]
+    n_signal_lane_change_signal_timing["lane_change_signal_timing"]
+    n_signal_junction_turn_signal_distance["junction_turn_signal_distance"]
+    n_signal_overtake_decision["overtake_decision"]
   end
   subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
     n_gate_vd_behavior_regression["vd-behavior-regression"]
@@ -310,6 +342,11 @@ flowchart LR
   n_vd_func_FUNC_027 -->|realizes| n_req_vd_ad_REQ_AD_005
   n_vd_func_FUNC_038 -->|realizes| n_req_vd_ad_REQ_AD_006
   n_vd_func_FUNC_029 -->|realizes| n_req_vd_ad_REQ_AD_006
+  n_vd_func_FUNC_049 -->|realizes| n_req_vd_ad_REQ_AD_016
+  n_vd_func_FUNC_050 -->|realizes| n_req_vd_ad_REQ_AD_017
+  n_vd_func_FUNC_055 -->|realizes| n_req_vd_ad_REQ_AD_017
+  n_vd_func_FUNC_052 -->|realizes| n_req_vd_ad_REQ_AD_017
+  n_vd_func_FUNC_054 -->|realizes| n_req_vd_ad_REQ_AD_017
   n_matcher_maintained_following_distance -->|verifies| n_req_vd_ad_REQ_AD_002
   n_matcher_stopped_at_signal -->|verifies| n_req_vd_ad_REQ_AD_003
   n_matcher_stopped_at_stop_sign -->|verifies| n_req_vd_ad_REQ_AD_004
@@ -317,6 +354,23 @@ flowchart LR
   n_matcher_min_obb_separation_above -->|verifies| n_req_vd_ad_REQ_AD_001
   n_matcher_impact_speed_below -->|verifies| n_req_vd_ad_REQ_AD_001
   n_matcher_no_emergency_without_conflict -->|verifies| n_req_vd_ad_REQ_AD_013
+  n_vd_component_route_lane_plan -->|realizes| n_vd_func_FUNC_050
+  n_vd_component_lane_change_initiation -->|realizes| n_vd_func_FUNC_055
+  n_vd_component_lane_change_initiation -->|realizes| n_vd_func_FUNC_061
+  n_matcher_route_lane_plan_holds -->|verifies| n_req_vd_ad_REQ_AD_017
+  n_matcher_indicator_leads_junction_turn -->|verifies| n_req_vd_ad_REQ_AD_021
+  n_matcher_indicator_leads_lane_change -->|verifies| n_req_vd_ad_REQ_AD_018
+  n_vd_func_FUNC_061 -->|realizes| n_req_vd_ad_REQ_AD_021
+  n_vd_func_FUNC_061 -->|realizes| n_req_vd_ad_REQ_AD_018
+  n_matcher_route_lane_plan_holds -->|verifies| n_req_vd_ad_REQ_AD_016
+  n_vd_func_FUNC_076 -->|realizes| n_req_vd_ad_REQ_AD_019
+  n_vd_func_FUNC_077 -->|realizes| n_req_vd_ad_REQ_AD_020
+  n_req_vd_ad_REQ_AD_019 -. concerns .-> n_openx_Domain_Parking
+  n_req_vd_ad_REQ_AD_020 -. concerns .-> n_openx_Domain_Parking
+  n_req_vd_ad_REQ_AD_020 -. concerns .-> n_openx_Domain_MoveBackward
+  n_vd_func_FUNC_078 -->|realizes| n_req_vd_ad_REQ_AD_022
+  n_req_vd_ad_REQ_AD_022 -. concerns .-> n_openx_Domain_Parking
+  n_req_vd_ad_REQ_AD_022 -. concerns .-> n_openx_Domain_MoveBackward
   n_req_vd_ad_REQ_AD_002 -. concerns .-> n_openx_Domain_FollowRoadUser
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P12
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P11
@@ -365,6 +419,9 @@ flowchart LR
   n_matcher_impact_speed_below -->|observes| n_signal_obb_separation
   n_matcher_impact_speed_below -->|observes| n_signal_object_poses
   n_matcher_no_emergency_without_conflict -->|observes| n_signal_aeb_trigger_flag
+  n_matcher_route_lane_plan_holds -->|observes| n_signal_route_lane_conformance
+  n_matcher_indicator_leads_lane_change -->|observes| n_signal_lane_change_signal_timing
+  n_matcher_indicator_leads_junction_turn -->|observes| n_signal_junction_turn_signal_distance
   n_matcher_speed_above -->|sustained-by| n_gate_vd_behavior_regression
   n_matcher_speed_below -->|sustained-by| n_gate_vd_behavior_regression
   n_matcher_min_speed_above -->|sustained-by| n_gate_vd_behavior_regression
@@ -378,6 +435,7 @@ flowchart LR
   n_req_vd_ad_REQ_AD_013 -->|sustained-by| n_gate_aeb_safety_regression
   n_matcher_deceleration_profile_smooth -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_speed_reduction_before_landmark -->|sustained-by| n_gate_anticipation_driving_regression
+  n_matcher_indicator_leads_junction_turn -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_lane_keep -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_steer_not_saturated -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_no_constraint_kind -->|sustained-by| n_gate_anticipation_driving_regression
@@ -397,6 +455,16 @@ flowchart LR
   n_proposal_P18 -->|depends-on| n_feature_F7
   n_feature_F7 -->|complements| n_vd_func_FUNC_075
   n_feature_F7 -->|sustained-by| n_gate_unit_ctest
+  n_vd_func_FUNC_056 -->|realizes| n_req_vd_ad_REQ_AD_023
+  n_vd_func_FUNC_056 -->|realizes| n_req_vd_ad_REQ_AD_024
+  n_vd_component_overtake_maneuver -->|realizes| n_vd_func_FUNC_056
+  n_vd_component_overtake_maneuver -->|depends-on| n_vd_component_lane_change_initiation
+  n_vd_component_overtake_maneuver -->|realizes| n_vd_func_FUNC_061
+  n_matcher_overtake_decision_holds -->|observes| n_signal_overtake_decision
+  n_matcher_overtake_decision_holds -->|verifies| n_req_vd_ad_REQ_AD_023
+  n_matcher_overtake_decision_holds -->|verifies| n_req_vd_ad_REQ_AD_024
+  n_matcher_indicator_leads_lane_change -->|verifies| n_req_vd_ad_REQ_AD_023
+  n_req_vd_ad_REQ_AD_024 -->|depends-on| n_req_vd_ad_REQ_AD_017
 ```
 
 ## 辺の一覧（type別）
@@ -409,7 +477,7 @@ flowchart LR
 | `gate:fork-sync` | `gate:fork-census` | INBOUND（上流未取込）と OUTBOUND（フォーク会計）の対。どちらもLHTの*正しさ*は見ない |
 | `feature:F7` | `vd-func:FUNC-075` | 運転主体遷移の隣接スコープ・非重複（F7=切替そのもの、FUNC-075=手動運転中のADAS並行稼働）。混同防止で明記 |
 
-### concerns (61)
+### concerns (66)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -473,9 +541,14 @@ flowchart LR
 | `proposal:P13` | `openx:Domain#EnvironmentalCondition` | ODDカバレッジ台帳の環境軸はOpenX傘構造（ISO 34503整合）を土台にする方針 |
 | `proposal:P13` | `openx:Domain#RoadTopologyAndTrafficInfrastructure` | 同・道路トポロジー軸 |
 | `proposal:P13` | `openx:Domain#TrafficParticipantAndBehavior` | 同・交通参加者/行動軸 |
+| `req-vd-ad:REQ-AD-019` | `openx:Domain#Parking` | 駐車枠の探索・選定が対象とするODD軸。scene:SCN-014 と同じ openx 概念を共有 |
+| `req-vd-ad:REQ-AD-020` | `openx:Domain#Parking` | 駐車マヌーバ実行が対象とするODD軸。scene:SCN-014 と同じ openx 概念を共有 |
+| `req-vd-ad:REQ-AD-020` | `openx:Domain#MoveBackward` | バック駐車（後退を含むマヌーバ）が対象とするODD軸 |
+| `req-vd-ad:REQ-AD-022` | `openx:Domain#Parking` | 出庫マヌーバの実行が対象とするODD軸。scene:SCN-014・REQ-AD-019/020 と同じ openx 概念を共有 |
+| `req-vd-ad:REQ-AD-022` | `openx:Domain#MoveBackward` | 前進入庫状態からの後退出庫（段b）が対象とするODD軸 |
 | `req-vd-ad:REQ-AD-002` | `openx:Domain#FollowRoadUser` | 先行車追従のODD軸 |
 
-### depends-on (24)
+### depends-on (26)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -503,6 +576,8 @@ flowchart LR
 | `gate:odr-conformance-schema-ci` | `gate:fork-census` | schema層のみの CI 起動でも census は走る（同上） |
 | `proposal:P17` | `feature:F7` | TORトリガ実験（DiL束）はAD⇄手動切替の実基盤が前提。F7がその土台を提供 |
 | `proposal:P18` | `feature:F7` | 被験者応答テレメトリの反応時間計測は切替イベント（manual/auto_transition エッジ）が基準点 |
+| `vd-component:overtake-maneuver` | `vd-component:lane-change-initiation` | 追い越しは車線変更の「動機」を1つ足す層であり、ホップ機構 （ArmLaneChangeHop / ArmResumeMerge / ScanAdjacentLaneGap / EvaluateGapAcceptance / RequiredLaneChangeDistance / ShouldSignalLaneChangeHop）を丸ごと借りている。 ただし**enable フラグは独立**（overtake_enabled と lane_change_initiation_enabled）。 同居させると「経路追従の車線変更だけ欲しい」利用者が追い越しまで有効化してしまうため。 安全弁が ShouldAttemptLaneChangeHop / ShouldSignalLaneChangeHop を呼ぶときだけ cfg.enabled=true に上書きしたコピーを渡す（両関数が enabled を内部で見るため）。 |
+| `req-vd-ad:REQ-AD-024` | `req-vd-ad:REQ-AD-017` | 経路ガードは RouteLanePlan が出す target_lanes / dist_to_connection にそのまま依存する。 **現在バンドの target_lanes には下流の要求が既に畳み込まれている**（BuildRouteLanePlan が 最終ウェイポイントから後ろ向きに伝播させるため）ので、追い越しガードは次のバンドを 先読みする必要が無い。REQ-AD-017 段 a/b が成立していなければこのガードは成立しない。 |
 
 ### merged-into (3)
 
@@ -512,7 +587,7 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### observes (20)
+### observes (24)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -536,8 +611,12 @@ flowchart LR
 | `matcher:impact_speed_below` | `signal:obb_separation` | OBB 接触判定と接近速度の組み合わせ |
 | `matcher:impact_speed_below` | `signal:object_poses` | 相手の位置・方位・速度 |
 | `matcher:no_emergency_without_conflict` | `signal:aeb_trigger_flag` | policy.constraints[].source == "aeb"（負matcher＝誤作動ゼロ） |
+| `matcher:route_lane_plan_holds` | `signal:route_lane_conformance` | vd_metrics.py:1520-1677 の route_lane_plan_holds 分岐が frames[i]["route_lane"] （VirtualDriverTelemetryJson.cpp 由来の route_lane ブロック）を読む。target_lanes/ on_target_lane/dist_to_connection/deviation_count/diagnostic の各チェックは呼び出し側の must が指定したものだけ評価する（何もチェックしない must は skip 扱い＝「何も評価しない ものを pass にしない」規律、domain_split_holds と同型）。 |
+| `matcher:indicator_leads_lane_change` | `signal:lane_change_signal_timing` | vd_metrics.py:1708-1836 の indicator_leads_lane_change 分岐が、frames[i]["lane_change"] の signal_active/armed/direction と frames[i]["indicator"] の left/right を**両方**読む。 片方だけでは判定にならない（lane_change_initiation.md §11-8）: signal_active だけだと 意図が AutoIndicatorPolicy に握り潰されていても真になり、indicator だけだと DetectJunctionTurn の交差点旋回による点灯と区別できない。両ブロックとも欠けていれば skip（「何も評価しないものを pass にしない」規律、route_lane_plan_holds と同型）。 |
+| `matcher:indicator_leads_junction_turn` | `signal:junction_turn_signal_distance` | vd_metrics.py:1838- の indicator_leads_junction_turn 分岐が、frames[i]["junction_turn"] の dir/dist_to_entry_m/on_connector と frames[i]["indicator"] の left/right を**両方**読む。 **on_connector が無いと成立しない**: テレメトリ単体では road id から junction 所属を 判定できず、検証ハーネスは xodr を読めないため、「交差点に進入したフレーム」を 機械判定する手段が他に無い（junction_turn_signal.md §3-4）。 距離は ego.x/y のフレーム間ユークリッド距離の積算で測る（domain_split_holds と同型。 speed×dt の積分より頑健で、バッチ末尾の同一 sim_time 重複フレームにも耐える）。 どちらのブロックも欠けていれば skip（「何も評価しないものを pass にしない」規律）。 |
+| `matcher:overtake_decision_holds` | `signal:overtake_decision` | vd_metrics.py の overtake_decision_holds 分岐が frames[i]["overtake"] を読む。 must で指定されたキー（expect_considered / expect_blocked_reason / expect_phases / forbid_phases / expect_cleared_lead）だけを評価し、**何も指定しない must は skip** （route_lane_plan_holds / indicator_leads_lane_change と同じ「何も評価しないものを pass にしない」規律）。overtake ブロックを持つフレームが窓に1つも無ければ skip＝ 古い DLL の検出。 |
 
-### realizes (23)
+### realizes (40)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -558,12 +637,29 @@ flowchart LR
 | `vd-func:FUNC-027` | `req-vd-ad:REQ-AD-005` | 横断歩道の歩行者優先が歩行者衝突回避要求を充足 |
 | `vd-func:FUNC-038` | `req-vd-ad:REQ-AD-006` | 非制御交差点の譲りが交差点譲り要求を充足 |
 | `vd-func:FUNC-029` | `req-vd-ad:REQ-AD-006` | 交差点優先権規則が交差点譲り要求を充足 |
+| `vd-func:FUNC-049` | `req-vd-ad:REQ-AD-016` | 目的地ルーティング（road/lane 列の導出と保持）が経路導出要求の中核 |
+| `vd-func:FUNC-050` | `req-vd-ad:REQ-AD-017` | レーンレベル経路計画が段 a/b（目標レーンの算出と逸脱検出）を充足 |
+| `vd-func:FUNC-055` | `req-vd-ad:REQ-AD-017` | 自発的な車線変更の発起が段 c（接続点までに目標レーンへ移る）を充足。 2026-08-02 実装済み（vd-component:lane-change-initiation、既定 OFF） |
+| `vd-func:FUNC-052` | `req-vd-ad:REQ-AD-017` | ルート維持・逸脱復帰が段 d を充足。未実装 |
+| `vd-func:FUNC-054` | `req-vd-ad:REQ-AD-017` | 到達判定・ミッション終了が段 e（終点で安全に停車する）を充足。未実装 |
+| `vd-component:route-lane-plan` | `vd-func:FUNC-050` | 目標レーン帯の算出と逸脱・ルート解決失敗の可視化。FUNC-050 の実現範囲は診断までで、 寄せる動作（自発的な車線変更）は vd-func:FUNC-055 のスコープ |
+| `vd-component:lane-change-initiation` | `vd-func:FUNC-055` | route-lane-plan の目標レーン帯へ自発的に寄せる実装。決断距離（残ホップ数比例）・ ギャップ受容（隣接レーンの前後車）・軌道（ResumeMergeProfile 流用、アンカーを 目標レーンへ）・優先順位（storyboard LC > resume-merge > AD発起）を担う。 FUNC-055 のうち**経路要求を動機とする発起のみ**を実現し、遅い先行車・専用レーン 回避を動機とする発起は範囲外（追い越しは vd-func:FUNC-056） |
+| `vd-component:lane-change-initiation` | `vd-func:FUNC-061` | 発起した車線変更に方向指示器を同期させる（DetectManeuverDir を storyboard LC → AD発起LC → **先行合図** → 0 の4段へ拡張し、発起時に方向をラッチ）。2026-08-03 に 先行合図の判定を前進予測形へ置き換えて REQ-AD-018 段 b/c を達成（§11-11）。 FUNC-055 分はこれで埋まり、**2026-08-04 に vd-func:FUNC-056（追い越し）分も埋まった** （vd-component:overtake-maneuver。往路・復路の2回とも発起前から点灯、実測 2.95 / 3.00 s。 ただしそちらは前進予測形ではなく**合図→ドウェル T 秒→発起のタイマ形**で、 追い越しには締切が無いので待てばよいという別機構）。**残るは出庫・非経路の合流** （旧記載の「FUNC-056..059」は括りが誤っていた。REQ-AD-018 の acceptance 参照）。 |
+| `vd-func:FUNC-061` | `req-vd-ad:REQ-AD-021` | 同じ「方向指示器の自発操作」が右左折側も担う。ただし**法定の次元が違う**（進路変更＝ 3秒前 / 右左折＝交差点手前の側端から 30 m 手前）ため要求は REQ-AD-018 と分けてある。 実装経路も別で、こちらは DetectJunctionTurn（ControllerVirtualDriver.cpp:1897-1905）が `lookahead = max(15.0, v*indicator_lead_time + 10.0)` で前方を走査する側。 2026-08-03 の指摘: `2v+10 >= 30` すなわち v >= 10 m/s (36 km/h) でしか法定 30 m に 届かない。交差点の実運用域はそれ以下なので低速側で不足する（コード読解＋算術。実測は未）。 |
+| `vd-func:FUNC-061` | `req-vd-ad:REQ-AD-018` | 方向指示器の自発操作が段 a/b/c を充足（2026-08-03、§11-11 の前進予測形で段 b/c 達成）。 **段 d は未達**。ただし 2026-08-03 に範囲を切り直しており、以前の 「FUNC-056..059 由来の発起にも同期」は誤った括りだった: FUNC-057（交差点）は右左折であって車線変更でなく req-vd-ad:REQ-AD-021 へ分離、 FUNC-058（発進）は dim:lon の Stop&Go 出口で指示器不要（対象は出庫＝REQ-AD-022）、 FUNC-059（合流）は経路要求として現れる分は既に段 a-c の機構で合図が出る。 段 d に残る実体は vd-func:FUNC-056（追い越し）・出庫・非経路の合流の3つ。 |
+| `vd-func:FUNC-076` | `req-vd-ad:REQ-AD-019` | 駐車枠探索・選定が駐車枠の探索・選定要求を充足。未実装 |
+| `vd-func:FUNC-077` | `req-vd-ad:REQ-AD-020` | 駐車マヌーバ実行が駐車マヌーバの実行要求を充足。未実装 |
+| `vd-func:FUNC-078` | `req-vd-ad:REQ-AD-022` | 出庫マヌーバ実行が出庫マヌーバの実行要求を充足。未実装 |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-010` | 前方AEB→停止先行車回避(CCRs) |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-011` | 前方AEB→等速/制動先行車回避(CCRm/CCRb) |
 | `vd-func:FUNC-002` | `req-vd-ad:REQ-AD-012` | VRU-AEB→横断歩行者/自転車回避(CPNA/CPFA/CBNA) |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-013` | 前方AEB→誤作動抑止(negative, R152) |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-014` | 前方AEB→快適優先の層調停(arbitration) |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-015` | 前方AEB→作動包絡線/応答フロア(regulatory, R152) |
+| `vd-func:FUNC-056` | `req-vd-ad:REQ-AD-023` | 追い越しの発起・完遂が「遅い先行車を追い越して巡航速度へ戻る」を充足。2026-08-04 実装 （vd-component:overtake-maneuver、既定 OFF）。段 a-e まで実測で達成、 段 f（追い越し禁止区間）と段 g（見通し距離）は未達で、それぞれ vd-func:FUNC-030 待ちと 視距モデル不在による。**この辺は要求全体の充足を主張しない** — どの段まで達成したかは 要求側の acceptance_ladder[].verified_by が持つ。 |
+| `vd-func:FUNC-056` | `req-vd-ad:REQ-AD-024` | 同じ実装が「追い越しによって経路上の分岐を逃さない」も担う。要求を2本に割ったのは 要素技術が別（先行車認識＋ギャップ受容 / 経路計画との突き合わせ）で片方だけ完成しうるため。 経路ガードは追い越しレーンから目標レーン帯までのホップ数 n_back を RequiredLaneChangeDistance へ渡す形で、**新しい距離の概念を持ち込んでいない**。 段 a-c は実測で達成、段 d（復路の隙間が空かない場合）は刺激が未整備で未観測。 |
+| `vd-component:overtake-maneuver` | `vd-func:FUNC-056` | 追い越しの純関数層（trigger / 経路ガード / 対向ギャップ / 追い越しレーン選択 / クリア判定 / 合図ドウェル）と、その上のフェーズ状態機械。 **vd-component:lane-change-initiation の1ホップ機構を無改造で2回まわす**構成で、 軌道生成（ResumeMergeProfile）にも指示器経路（lc_signal_dir_）にも新しい経路を作っていない。 DetectManeuverDir への変更は enable ゲート1行のみ。 |
+| `vd-component:overtake-maneuver` | `vd-func:FUNC-061` | 追い越しの往路・復路それぞれに方向指示器を同期させる（req-vd-ad:REQ-AD-018 段 d の **追い越しぶん**）。既存の lc_signal_dir_ に同じ契約で書き込むだけで、 DetectManeuverDir の段構造は変えていない。 **FUNC-055 の前進予測形は流用していない** — あれは dist_to_connection と n_remaining を 引数に取る締切専用の述語で、追い越しには対応する量が存在しない。 追い越しには締切が無いので「合図してから T 秒待って発起する」タイマ形で足り、 法定リードは近似ではなく設計上ちょうど T になる（実測 往路 2.95 s / 復路 3.00 s）。 |
 
 ### shares-design-with (2)
 
@@ -578,7 +674,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `req-vd-ad:REQ-AD-001` | `policy:aeb` | cutin_hard_brake(_curve).xosc が policies:[lead,aeb]（:47,:50）で AebSafety を発火させ、 impact_speed_below(直進, 閾10.0)/min_obb_separation_above(カーブ, 閾0.5) で判定。 判定を担うのは lead ではなく aeb 側 matcher。 ※ requirements_vd_ad.yaml:68 の red_asset は policies:[lead] と記すが陳腐化（実バッチは [lead,aeb]）。 |
 | `req-vd-ad:REQ-AD-013` | `policy:aeb` | 負例3本 normal_following/benign_cutin/parallel_overtake が policies:[lead,aeb]（:58,:61,:64）で AEB パイプラインの各段（ゲート非発火/候補拒否）を狙い撃ち、no_emergency_without_conflict で 誤発火ゼロを判定。正例(001)と同一バッチ・同一ベースライン（sustained-by:aeb-safety-regression 参照）。 |
-| `req-vd-ad:REQ-AD-010` | `policy:aeb` | CCRs 7セル（aeb_c2c_grid/ccrs_ego10..70.xosc, policies:[lead,aeb], osi:true）＝停止先行車への パラメトリック接近（初期ギャップ=閉じ速度x6s）。判定は expectations でなく探索スイープ層の score_aeb_c2c_grid.py（obb_separation/_closing_speed を vd_metrics から流用）で帯分類。 2026-07-24 実測: 全セル avoid(no_aeb)＝AEB は armed だが不発火（min TTC 2.78s > 閾2.5s）、 回避は AD 層（max 3.9 m/s²）。aeb はバックストップとして毎フレーム gt.aeb.* で観測済み。 行列は GT_esmini/docs/virtualdriver/aeb_c2c_grid_matrix.md に固化。 |
+| `req-vd-ad:REQ-AD-010` | `policy:aeb` | CCRs 7セル（aeb_c2c_grid/ccrs_ego10..70.xosc, policies:[lead,aeb], osi:true）＝停止先行車への パラメトリック接近（初期ギャップ=閉じ速度x6s）。判定は expectations でなく探索スイープ層の score_aeb_c2c_grid.py（obb_separation/_closing_speed を vd_metrics から流用）で帯分類。 2026-07-24 実測: 全セル avoid(no_aeb)＝AEB は armed だが不発火（min TTC 2.78s > 閾2.5s）、 回避は AD 層（max 3.9 m/s²）。aeb はバックストップとして毎フレーム gt.aeb.* で観測済み。 行列は GT_esmini/docs/virtualdriver/measurements/aeb_c2c_grid_matrix.md に固化。 |
 | `req-vd-ad:REQ-AD-011` | `policy:aeb` | CCRm 5セル（ccrm_ego30..70_lead20.xosc）＋ CCRb 4セル（ccrb_hw{12,40}_d{2,6}.xosc, NCAP 車間12/40m・制動-2/-6 m/s²）、policies:[lead,aeb]。判定は score_aeb_c2c_grid.py の帯行列。 2026-07-24 実測: 全セル avoid(no_aeb)。ただし ccrb_hw12 系は max 8.6 m/s² の強制動での回避 ＝本物のニアミス（min TTC 2.83s、Claim B「IDM経路は快適天井を迂回」の実証セル）。 avoid/mitigate 境界は本グリッドの外側＝格子細分化/ギャップ短縮が後続課題。 |
 | `req-vd-ad:REQ-AD-002` | `policy:lead` | 06_lead_vehicle/follow_steady.xosc が policies:[lead]（:59）。 maintained_following_distance（min_thw 1.0/max_thw 3.5/percentile 50）で快適車間維持を判定。 |
 | `req-vd-ad:REQ-AD-003` | `policy:traffic_light` | 03_traffic_signals/red_stop_green_go.xosc が policies:[traffic_light]（:25）。 stopped_at_signal(require_red=true, signal_id:1/road_id:3) で停止線手前停止を判定。red_hold も同 policy で補強。 |
@@ -593,7 +689,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (18)
+### sustained-by (19)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -610,6 +706,7 @@ flowchart LR
 | `req-vd-ad:REQ-AD-013` | `gate:aeb-safety-regression` | 負例3シナリオ（SOTIF ミラー）。正負を同一ゲート・同一ベースラインに置くのは、 片方だけを守ると「閾値を下げて正例を通し負例を壊す」取引が素通りするため。 |
 | `matcher:deceleration_profile_smooth` | `gate:anticipation-driving-regression` | decelerate_for_curve / decelerate_for_right_turn / speed_limit_change の3シナリオ。 osi:true で **a=osi の面1直読加速度**（ego_accel_long ●）から bounded decel/jerk を判定。 |
 | `matcher:speed_reduction_before_landmark` | `gate:anticipation-driving-regression` | 4シナリオ（curve/right_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。 |
+| `matcher:indicator_leads_junction_turn` | `gate:anticipation-driving-regression` | 3シナリオ（decelerate_for_right_turn / junction_turn_signal_long_connector / cross_straight_junction）。このバッチは run_regression_gate.ps1 Step 2.7 と CI の vd-behavioral-regression ジョブの**両方**で走るため、新しい gate を起こさずに ⑥常設を満たせる（junction_turn_signal.md §4-3）。 **req-vd-ad:REQ-AD-018 が sustained-by 未結線のまま放置されている状態を再生産しない** ために、matcher の新設と同じサイクルで結線した（あちらの route_lane_batch.yaml は baseline すら無く、ゲートにも CI にも載っていない孤立 matcher になっている）。 |
 | `matcher:lane_keep` | `gate:anticipation-driving-regression` | curve / speed_limit / traffic_lights の3シナリオ。road_id / lane とも面1 lane_map (source_reference) 経由（★2026-07-24 更新: 旧「lane は telemetry＝assigned_lane_id は 別量のため」は 7baf202d の走行レーン由来化と c22aeb5d の lane 面1化で解消。 junction 内 171/15800 フレームのみ telemetry fallback）。 |
 | `matcher:steer_not_saturated` | `gate:anticipation-driving-regression` | decelerate_for_right_turn / traffic_lights_junction。コーナーで操舵飽和なし（面2 driver.steer）。 |
 | `matcher:no_constraint_kind` | `gate:anticipation-driving-regression` | cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。 |
@@ -627,7 +724,7 @@ flowchart LR
 | `fork-patch:10` | `odr-upstream-pr:PR-4` |  |
 | `fork-patch:17` | `odr-upstream-pr:PR-5` |  |
 
-### verifies (11)
+### verifies (18)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -638,10 +735,42 @@ flowchart LR
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-001` | カットイン追突回避=ego-他車OBB分離>0（衝突ゼロ） |
 | `matcher:impact_speed_below` | `req-vd-ad:REQ-AD-001` | 回避不能域の緩和=初回接触の閉じ(衝突)速度が床以下（07_aeb直進, NCAPカラーバンド思想） |
 | `matcher:no_emergency_without_conflict` | `req-vd-ad:REQ-AD-013` | 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本） |
+| `matcher:route_lane_plan_holds` | `req-vd-ad:REQ-AD-017` | route_lane_batch.yaml の4シナリオで検証。段 a/b は merge_required_for_exit_ramp （invalid_route 診断）と route_valid_off_target_lane_for_exit_ramp（目標レーン帯からの 逸脱を検出。route_lane_plan_design.md §4-4 実測）。**段 c** は lane_change_to_exit_ramp（隣接車なし・3ホップ）と lane_change_to_exit_ramp_with_traffic （隣接車あり・2ホップ）で、max_deviations: 0 が「接続点を目標レーン帯に乗ったまま 通過した」ことを判定する（2026-08-02 実測: 前者は -1→-2→-3→-4 と移り road4→road2 へ、 後者は 7.5s ギャップを拒否してから 2 ホップ、いずれも deviation_count=0）。 **REQ-AD-017 の段 a/b/c まで**。段 d/e（逸脱復帰・終点停車）は未実装で検証対象外＝ この辺は要求全体の充足を主張しない。どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。 |
+| `matcher:indicator_leads_junction_turn` | `req-vd-ad:REQ-AD-021` | anticipation_driving_batch.yaml の3本で検証する（junction_turn_signal.md §4-3）。 **接続路長の両極を意図的に取ってある** — 旧実装の故障モードが接続路長に依存して 2つに分かれていたためで、片方だけでは再発を捕まえられない:
+- 正・短い接続路: decelerate_for_right_turn（14.87 m）`min_distance_m: 29.5`,
+  `expect_dir: left`。旧実装ではここが 7.18 m しか出なかった。
+  **資産名は「right」だが幾何は左折である**（同 §5。接続路 road 13 は
+  arc curvature +0.108108・length 14.8696 ＝ heading delta +1.608 rad、東向き→北向き）。
+  名前に合わせて expect_dir を right に「直す」と赤くなる。
+- 正・長い接続路: junction_turn_signal_long_connector（33.2 m）`min_distance_m: 29.5`,
+  `expect_dir: right`。旧実装ではここが**点灯フレーム0**だった（接続路長が単独で
+  lookahead を超え、走査が出口の腕に届かないため構造的に点灯不能）。
+- 負・直進通過: cross_straight_junction `expect_dir: none`。今回の修正は
+  「点きやすくする」方向なので偽陽性が出やすく、負の資産が要る。
+
+min_distance_m の 29.5 は法定 30.0 に対する**フレーム量子化の余裕**であって主張の 緩和ではない（同 §4-2）。コード側は dist<=30.0 の最初のフレームで点灯するので実測は 30.0 を僅かに下回る。§11-9 が法定 3.0 秒に min_lead_s: 2.9 を置いたのと同じ流儀。
+**段 a/b/c のどれを検証済みかは要求側の acceptance_ladder[].verified_by が持つ。** |
+| `matcher:indicator_leads_lane_change` | `req-vd-ad:REQ-AD-018` | route_lane_batch.yaml で lane_change_initiation を有効化する4本で検証。 **REQ-AD-018 の段 a・段 b・段 c**を担う（2026-08-03 に段 b/c を追加）。 段ごとに刺激が違い、min_lead_s の意味も違う:
+- 段 a（先行する）: lane_change_to_exit_ramp `min_lead_s: 2.0`（実測 2.30s）、
+  lane_change_to_exit_ramp_with_traffic `3.0`（実測 7.00s）。後者を測定値の近くに
+  置かないのは、7.00 の大半がギャップ待ち時間で、隣接車の配置を触っただけで
+  赤くなるからである（無関係な変更で鳴る検知器は警報疲れを育てる）。法定値 3.0
+  そのものを下限に置いてある。
+- 段 b（定速で法定3秒）: lane_change_to_exit_ramp_at_constant_speed
+  `min_lead_s: 2.9`（実測 3.05s）。2.9 は法定値を下回るが、これは
+  **フレーム量子化（dt=0.05）のぶんの余裕**であって主張の緩和ではない。
+- 段 c（加速中も縮まない）: lane_change_to_exit_ramp_during_gradual_acceleration
+  `min_lead_s: 2.9`（実測 3.05s）。修正前は同じ刺激で 2.10s だった。
+
+**この matcher だけでは段 b が「定速で」を保証しない。** min_lead_s は秒数しか見ず、 刺激が本当に定速かは検査しない。定速性は t_sig 近傍の加速度を別途実測して示す （2026-08-03 実測 0.00066 m/s²）。刺激の素性を matcher に代弁させないこと。 どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。 |
+| `matcher:route_lane_plan_holds` | `req-vd-ad:REQ-AD-016` | merge_required_for_exit_ramp シナリオの invalid_route 診断が **REQ-AD-016 の段 b のみ**（経路解決の失敗を検出して外へ出す＝沈黙しない）を検証する。 段 a/c（経路の補完・起終点のみからの探索）は検証対象外。 |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-010` | 停止先行車との衝突ゼロ |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-011` | 先行車との衝突ゼロ |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-012` | 歩行者/自転車との衝突ゼロ |
 | `matcher:deceleration_profile_smooth` | `req-vd-ad:REQ-AD-014` | 快適域で滑らかな減速（緊急制動不発火） |
+| `matcher:overtake_decision_holds` | `req-vd-ad:REQ-AD-023` | overtake_batch.yaml の4本で検証。段 a は expect_considered、段 b/c は expect_phases （signal_out → out → pass → signal_back → back → idle の部分列）と expect_cleared_lead、 段 e は同じ判定を対向車線シナリオで。**段 d（指示器）はこの matcher では判定しない** — matcher:indicator_leads_lane_change の担当。段 f/g は未達で検証対象外。 どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。 |
+| `matcher:overtake_decision_holds` | `req-vd-ad:REQ-AD-024` | 段 b は overtake_declined_before_route_branch で **considered=true かつ blocked_reason=route_budget かつ phase が終始 idle** の3点同時成立を判定する （forbid_phases で「一度も合図すらしていない」ことも押さえる）。 considered を落とすと「そもそも検討していないから緑」＝偽 PASS と区別できない。 段 c は overtake_aborted_for_route_branch で **cleared_lead=false（全フレーム）** と blocked_reason=route_budget を判定する。 この2本は完遂側 overtake_slow_lead_on_two_lane_road と**同じフィールドの逆極性**を 主張しており、それによって検知器の両極性が実証されている。 |
+| `matcher:indicator_leads_lane_change` | `req-vd-ad:REQ-AD-023` | **段 d のみ**（往路・復路の両方で進路変更の前から予告する）。追い越しは車線変更が2回なので、 同 matcher を **window で往路・復路に分けて2エントリ**呼ぶ — matcher は窓内の最初の signal_active / armed しか拾わないため（vd_metrics.py の next(...)）。 matcher 自体は変更していない。direction と点灯側の一致検査が入っているので、 復路で左右が反転していることも同時に検査される。 実測 2026-08-04: 往路 t_sig=0.05 / t_arm=3.00 = 2.95 s、復路 t_sig=10.25 / t_arm=13.25 = 3.00 s。 min_lead_s: 2.9 は法定 3.0 s からフレーム量子化（dt=0.05）ぶんを引いた値で主張の緩和ではない。 |
 
 ## OpenX概念 逆引き
 
@@ -671,10 +800,10 @@ curated辺のみ。Issue/コミット言及まで含めた逆引きは `--query 
 | `Domain#MakeATurn` | 右左折（交差点通過） | `scene:SCN-004`, `scene:SCN-005`, `scene:SCN-006` |
 | `Domain#Motorcycle` | 二輪車（PrivateVehicle配下） | `scene:SCN-010` |
 | `Domain#Motorway` | 高速道路 | `scene:SCN-008` |
-| `Domain#MoveBackward` | 後退（LongitudinalActivity） | `scene:SCN-014` |
+| `Domain#MoveBackward` | 後退（LongitudinalActivity） | `req-vd-ad:REQ-AD-020`, `req-vd-ad:REQ-AD-022`, `scene:SCN-014` |
 | `Domain#NightLightingCondition` | 夜間照明条件 | `feature:F6` |
 | `Domain#Overtake` | 追越し（対象後方に始まり前方で終わる、2回の車線変更を伴う） | `scene:SCN-002` |
-| `Domain#Parking` | 駐車場・駐車スペース（Road配下） | `scene:SCN-014` |
+| `Domain#Parking` | 駐車場・駐車スペース（Road配下） | `req-vd-ad:REQ-AD-019`, `req-vd-ad:REQ-AD-020`, `req-vd-ad:REQ-AD-022`, `scene:SCN-014` |
 | `Domain#Pedestrian` | 歩行者 | `scene:SCN-009` |
 | `Domain#PedestrianCrossing` | 横断歩道（歩行者が道路/車線を横断できる特殊構造） | `policy:crosswalk`, `scene:SCN-009` |
 | `Domain#PedestrianZone` | 歩行者専用ゾーン | `scene:SCN-015` |

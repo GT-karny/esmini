@@ -1,0 +1,60 @@
+scenario: stop_sign_stop_line_paired
+category: 04_traffic_signs
+# Discriminator for stop-line pairing (design/stop_line_stop_target.md),
+# StopYieldSignAware side. straight_stop_sign_stop_line.xodr places a paired
+# stop-line signal (type=294, country=OpenDRIVE) 5 m before the STOP sign
+# (id=10, s=200) -- 2 m off sign_stop_margin (3.0), so the margin-based and
+# stop-line-based stop targets land at different s. Pre-pairing (or kill
+# switch off) the ego would rest near road 1 s=195 (sign margin only); with
+# pairing (this scenario's default config) it rests near s=190 (stop-line
+# based). See the notes block for the measured both-arms numbers this
+# s_range was set from.
+must:
+  - event: stopped_at_stop_sign
+    sign_id: 10
+    road_id: 1
+    s_range: [187, 192]
+    min_duration: 1.0
+    stop_speed: 0.3
+    reason: "停止線ペアリングによりSTOP標識基準ではなく停止線基準の位置に完全停止"
+  - event: speed_above
+    threshold: 3.0
+    after: { sim_time: 22.0 }
+    reason: "安全確認後に発進(再加速) -- stop_sign_full_stop と同型の恒常性チェック"
+notes: >
+  Both arms measured on 2026-08-02 (dt 0.05, max-time 45, policies:[stop_yield],
+  GT_esminiLib.dll verified to contain the stop-line pairing strings). The OFF
+  arm is NOT reachable through this manifest (the committed virtual_driver.json
+  kill switch sign_stop_line_aware_enabled defaults true) -- it was run
+  standalone with a ConfigFile override (sign_stop_line_aware_enabled=false)
+  purely to confirm this matcher fails for the intended reason; recorded here,
+  not part of any gate.
+    OFF arm (sign_stop_line_aware_enabled=false): gt.stop_yield.stop_line_used=
+      false, dist_m=5.004 (raw sign distance, unaffected by pairing per design
+      sec10). True dwell bottom (speed exactly 0, phase=approach->dwell) at
+      road 1 s=194.9950 (front_bumper.s=198.8950) -- 3.90 m PAST the stop line
+      at s=195: the defect this feature fixes (this scenario's s_range fails
+      against that arm on stopped_at_stop_sign's position, not on
+      require_sign/duration -- the ego does stop at a real STOP sign, it
+      simply stops in the wrong place relative to the line).
+    ON arm (this scenario's actual default config): gt.stop_yield.
+      stop_line_used=true. True dwell bottom at road 1 s=189.9948
+      (front_bumper.s=193.8948) -- 1.11 m short of the line at s=195 (same
+      planner-standoff order of magnitude as the TrafficLightAware side, see
+      03_traffic_signals/red_hold_stop_line_paired.expectations.yaml notes).
+    Delta (OFF - ON) = 5.0002 m, matching the configured 5 m stop-line offset
+    to within numerical noise -- a clean, non-overlapping discriminator given
+    s_range's ~2 m margin on both sides.
+  Window-boundary study: not independently repeated for this side.
+  FindPairedStopLine (RouteSignalScan.hpp/.cpp) is the SAME caller-agnostic
+  pure function StopYieldSignAware and TrafficLightAware both call with their
+  own window config; the 4/8/12 m boundary sweep recorded in
+  03_traffic_signals/red_hold_stop_line_paired.expectations.yaml's notes
+  validates that shared logic once. This scenario's own 5 m-offset measurement
+  (well inside the shared default window=10.0) confirms StopYieldSignAware's
+  OWN wiring into that function behaves as designed; duplicating the full
+  sweep on this side would re-test logic already covered, not this side's
+  wiring.
+  Conclusion: keep sign_stop_line_window=10.0 as the default, for the same
+  reasons recorded in the TrafficLightAware-side notes (the two keys share the
+  same underlying mechanism and the same absence of contrary evidence).

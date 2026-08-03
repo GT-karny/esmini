@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   VirtualDriver verification scenario 08_handoff / scenario_deactivate_vd
-  feature:F7 scenario-driven handover (docs/virtualdriver/scenario_control_handoff_design.md).
+  feature:F7 scenario-driven handover (docs/virtualdriver/design/scenario_control_handoff_design.md).
 
   Ego starts under VirtualDriverController (Init ActivateControllerAction ON,
   same pattern as 06_lead_vehicle). A Story event fires

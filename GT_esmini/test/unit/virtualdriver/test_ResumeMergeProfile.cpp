@@ -1,7 +1,7 @@
 // feature:F7 unit tests for the pure AUTO_RESUME merge trajectory profile.
 //
 // Background (see ResumeMergeProfile.hpp and
-// docs/virtualdriver/resume_merge_trajectory_design.md sections 8-1..8-7):
+// docs/virtualdriver/design/resume_merge_trajectory_design.md sections 8-1..8-7):
 // on a manual->AUTO_RESUME transition, the reference the safety envelope is
 // handed is a raw step (TrajectoryShortPlanner snaps to the routed lane
 // center every frame, no ramp). This module generates a smooth quintic

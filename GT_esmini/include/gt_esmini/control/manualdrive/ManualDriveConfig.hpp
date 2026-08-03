@@ -268,7 +268,7 @@ struct ManualDriveConfig
             // level is formally RETRACTED and must not be cited: its driver
             // script is not in the repository, so it cannot be reproduced, and
             // a third of its latches came from an unrelated path
-            // (docs/virtualdriver/f7_measurement_plan.md, 2026-07-28 note).
+            // (docs/virtualdriver/measurements/measurement_discipline.md, 2026-07-28 note).
             // If a point value ever needs defending, it needs a reproducible
             // sweep — not this comment.
             double override_residual_threshold          = 0.08;  // axis-fraction

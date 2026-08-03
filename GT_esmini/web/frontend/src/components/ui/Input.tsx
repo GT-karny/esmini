@@ -7,11 +7,12 @@ interface FieldWrapperProps {
   label?: string;
   children: ReactNode;
   className?: string;
+  title?: string;
 }
 
-function FieldWrapper({ label, children, className = '' }: FieldWrapperProps) {
+function FieldWrapper({ label, children, className = '', title }: FieldWrapperProps) {
   return (
-    <div className={className}>
+    <div className={className} title={title}>
       {label && <label className="block text-xs text-text-secondary mb-1">{label}</label>}
       {children}
     </div>
@@ -36,9 +37,9 @@ interface NumberInputProps extends InputHTMLAttributes<HTMLInputElement> {
   wrapperClassName?: string;
 }
 
-export function NumberInput({ label, wrapperClassName, className = '', ...rest }: NumberInputProps) {
+export function NumberInput({ label, wrapperClassName, title, className = '', ...rest }: NumberInputProps) {
   return (
-    <FieldWrapper label={label} className={wrapperClassName}>
+    <FieldWrapper label={label} className={wrapperClassName} title={title}>
       <input type="number" className={`${baseInput} ${className}`} {...rest} />
     </FieldWrapper>
   );

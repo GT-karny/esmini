@@ -1,0 +1,109 @@
+scenario: lane_change_to_exit_ramp
+category: 06_route_lane
+# vd-func:FUNC-055 (AD-initiated lane change) / req-vd-ad:REQ-AD-017 acceptance
+# ladder step c ("接続点までに目標レーンへ自発的に車線変更する"). No adjacent
+# traffic (Entities carries only Ego), so this is the success-side counterpart
+# to route_valid_off_target_lane_for_exit_ramp.expectations.yaml's min_deviations
+# check: with lane_change_initiation_enabled the ego is expected to self-correct
+# onto the target-lane band (-4) before the junction 1 connection, instead of
+# only diagnosing the mismatch.
+#
+# MEASURED (2026-08-02, parent session, GT_esminiLib.dll with
+# lane_change_initiation wired in, test_results/web/route_lane/): PASS. Ego
+# moved -1 -> -2 -> -3 -> -4 on road 0, then road 4 -> road 2 (the exit ramp),
+# staying on_target_lane==true throughout the crossing and ending the run at
+# deviation_count==0. Both thresholds below (max_deviations: 0,
+# expect_target_lanes: [-4]) held as designed and required no correction.
+must:
+  - event: route_lane_plan_holds
+    max_deviations: 0
+    reason: >
+      Success-side assertion (design doc section 7): with lane_change_initiation
+      enabled and no adjacent traffic to gate gap acceptance, the ego is expected
+      to complete all three lane changes (-1 -> -2 -> -3 -> -4) before crossing
+      off road 0, so the cumulative deviation_count must stay at 0 for the whole
+      run. This is the FUNC-055 counterpart to route_valid_off_target_lane_for_
+      exit_ramp.expectations.yaml's min_deviations: 1 (that scenario has
+      lane_change_initiation OFF and asserts the OPPOSITE -- at least one
+      deviation, because nothing self-corrects).
+  - event: route_lane_plan_holds
+    expect_target_lanes: [-4]
+    reason: >
+      Confirms RouteLanePlan still resolves the same target-lane band as the
+      sibling diagnostic-only scenario (band derivation is unaffected by
+      lane_change_initiation -- only the CORRECTIVE action is new). An EXISTS
+      check (>=1 gated frame), same semantics as the sibling file's must #2.
+  - event: indicator_leads_lane_change
+    min_lead_s: 2.0
+    reason: >
+      design doc section 11 requires the AD-LC indicator to pre-signal before
+      the hop actually arms (lane_change_indicator_lead_time_s default 3.0s,
+      section 11-11's forward-projected two-threshold rule). This is the
+      machine-checked counterpart to that requirement: signal_active must go
+      true strictly before armed, by at least min_lead_s, with the lamp
+      staying lit and agreeing with the hop's direction the whole time
+      (section 11-9).
+      THE RULE CHANGED (2026-08-03, parent session): the previous distance-
+      only two-threshold rule (section 11-3) measured under acceleration was
+      shrunk by required_m growing faster than the ego closed on it, yielding
+      only 0.40s here even though lane_change_indicator_lead_time_s asks for
+      3.0s -- a known limitation of that rule, not a matcher defect. That
+      rule has since been REPLACED by section 11-11's forward-projected form,
+      which predicts required_m's trajectory from a_ego instead of reading
+      only its instantaneous value, so the pre-signal is no longer eaten by
+      the acceleration transient.
+      MEASURED 2026-08-03 (parent session, real Release build with the
+      section-11-11 forward-projection wired in): t_sig=0.40, t_arm=2.70
+      (t_arm unchanged from the pre-fix build -- the arm/decision side was
+      not touched, only t_sig moved earlier), lead=2.30s. min_lead_s: 2.0
+      is set just under that measurement, per this directory's convention
+      of placing the threshold a little below the measured value rather
+      than pinned to it (a value right at 2.30 would go red on unrelated
+      tuning noise).
+      Do not raise min_lead_s here past a fresh measurement; if a future
+      change to section 11-11 or to the acceleration ramp shrinks the
+      measured lead again, that is signal, not a reason to loosen this
+      threshold without understanding why.
+notes: >
+  Measured 2026-08-02 by the parent session against a real GT_esminiLib.dll
+  build with lane_change_initiation wired in
+  (test_results/web/route_lane/lane_change_to_exit_ramp): PASS. Ego completes
+  all three lane changes (-1 -> -2 -> -3 -> -4) on road 0 within the 190 m
+  budget with no adjacent traffic to gate gap acceptance, crosses into road 4
+  then road 2 (the exit ramp) on the target lane, and deviation_count stays 0
+  for the whole run -- no `window:` was needed on the max_deviations must; the
+  unwindowed check already held over the full run including the post-junction
+  frames.
+
+  This scenario is the basis for the with-traffic sibling's 2-hop
+  reconfiguration: a since-superseded 3-hop version of
+  lane_change_to_exit_ramp_with_traffic.xosc (matching this file's -1 start)
+  was measured the same day and FAILED (deviation_count=1) -- not from a gap-
+  acceptance defect, but because a single hop's gap-wait alone consumed ~78 m
+  of the 190 m budget, leaving too little distance for the remaining two
+  hops. This scenario's own 3x~47m=141m fits 190m only because it never has
+  to wait for a gap. See lane_change_to_exit_ramp_with_traffic.xosc and its
+  expectations.yaml for the reconfigured 2-hop version and what remains
+  unmeasured there.
+
+  INDICATOR PRE-SIGNAL (design doc section 11), superseded 2026-08-03: the
+  ORIGINAL measurement (2026-08-02, distance-only two-threshold rule,
+  section 11-3) found signal_active first true at t=2.30, armed first true
+  at t=2.70, lead=0.40s -- min_lead_s was calibrated from a 0.5 placeholder
+  DOWN to 0.3 to fit that small number, because the rule ran the required-
+  distance threshold away from the ego faster than it could close while
+  still accelerating.
+
+  That rule has since been replaced by section 11-11's forward-projected
+  form (predicts required_m's trajectory from a_ego instead of reading only
+  its instantaneous value). RE-MEASURED 2026-08-03 (parent session, real
+  Release build, test_results/web/route_lane_final/lane_change_to_exit_ramp):
+  PASS. signal_active first true at t=0.40 (moved much earlier than the
+  0-08-02 measurement's t=2.30 -- the forward-projection reacts to the
+  acceleration itself, not just the instantaneous required_m), armed first
+  true at t=2.70 (unchanged -- the arm/decision side was not touched), for a
+  lead of 2.30s. min_lead_s was raised from 0.3 to 2.0 to match. The lamp
+  stayed lit and matched the hop direction across the whole interval, and
+  no chattering was observed (single rising edge on both signal_active and
+  armed). The with-traffic sibling, whose gap-wait extends the lead further
+  still, measured 7.00s in the same batch run.

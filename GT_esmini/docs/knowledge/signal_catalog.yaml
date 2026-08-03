@@ -243,6 +243,10 @@ signals:
       `MovingObject.future_trajectory` は規格コメントが「被検体に見せるべきでない」と
       明示する GT 側の欄＝流用は GroundTruth の意味を壊す（§2.2）。生の予測は debug に留め、
       予測の当否は挙動から間接検証する。
+      **ただし governing other の「id そのもの」はこの限りではない**（2026-08-04 訂正）:
+      `gt.conflict_point.other_id` は PolicyDetail 経由で HVD custom_detail まで出ており、
+      OSI id 版は signal:interaction_partner_id に分離した。debug 扱いなのは
+      **region span / 予測経路**であって相手の同定ではない。
 
   - id: conflict_pet
     title: 交差点調停の PET（post-encroachment time）
@@ -275,6 +279,31 @@ signals:
       作動しなかったフレームでも出る＝負の判断の診断が可能に。ただし
       **これを読む matcher は現状0件**＝(b)。`gt.aeb.*` は `gt.dbg.*` ではないので
       verdict-trust の対象**内**（命名規約は PolicyDetail.hpp）。
+
+  - id: interaction_partner_id
+    title: VD が反応している相手（車両 / 歩行者 / 横断歩道）の OSI id
+    exposure: [osi, hvd, frame]
+    state: "(b)"
+    emit: >-
+      LeadVehicleAware.cpp `gt.lead_vehicle.lead_osi_id` ／ AebSafety.cpp
+      `gt.aeb.lead_osi_id` ／ ConflictPointResolver.cpp
+      `gt.conflict_point.other_osi_id` ／ CrosswalkPedestrianAware.cpp
+      `gt.crosswalk.ped_osi_id` `gt.crosswalk.object_osi_id` → PolicyDetail →
+      HVD custom_detail。加えて VirtualDriverTelemetryJson.cpp `overtake.lead_osi_id`
+      （PolicyDetail 経由ではないので HVD には載らない＝frame 面のみ）
+    note: >-
+      **id 空間が2つあることが本質**。`Object::GetId()` はシナリオのエンティティ番号、
+      OSI が publish するのは `Object::g_id_`（road object は `RMObject::GetGlobalId()`）で、
+      両者は別の数（実測: Ego=10/Lead=11 に対しエンティティ番号は 0/1）。被検体と突き合わせられるのは
+      後者だけなので、相手を名指す診断は `*_osi_id` を必ず併記する。採番は CommonMini の
+      単一グローバルカウンタ＝moving と stationary で一意だが、**OpenDrive ロード時に
+      リセットされる**ため id の照合は同一 run 内でのみ有効（in-process バッチでは run ごとに振り直し）。
+      既存の `gt.conflict_point.other_id` / `gt.crosswalk.object_id` は
+      エンティティ番号 / ODR object id のまま残す（人が xosc・esmini ログと突き合わせる側の番号）。
+      取得ヘルパは control/common/OsiIdentity.hpp の一点に集約。
+      **これを読む matcher は現状0件**＝(b)。実測の突き合わせは
+      GT_esmini/scripts/verification/verify_osi_id_join.py（OSI GroundTruth と同一フレームで照合。
+      単体テストでは原理的に検証できない＝両側とも実行時採番のため）。
 
   - id: aeb_a_req
     title: AEB の必要減速度 a_req
@@ -568,3 +597,76 @@ signals:
       frame 面には既に届いている（PM 直読 2026-07-25）が、読む matcher が無い＝未配線。
       配線候補: テイクオーバー系 matcher（例: resumed_to_auto_within）を起こすときに observes 辺で結線。
       OSI 側 DriverOverride は未populate（vd-func:FUNC-075 の④と同根）。
+
+  - id: lane_change_signal_timing
+    title: AD発起の車線変更で、合図要求と方向指示器ランプが発起に対していつ立つか
+    exposure: [frame]
+    state: "●"
+    emit: ControllerVirtualDriver.cpp:1068-1099（lc_signal_dir_ 確定）→ :1721（telemetry_.lane_change.signal_active）→ VirtualDriverTelemetryJson.cpp:263-272（lane_change ブロック）／ランプ側は AutoIndicatorPolicy.cpp:6-39 → ControllerVirtualDriver.cpp:1425-1426（ApplyLights）→ VirtualDriverTelemetryJson.cpp:157（indicator ブロック）
+    note: >-
+      matcher:indicator_leads_lane_change が読む。**2つの量の時間関係**が観測対象であり、
+      片方だけでは足りない（lane_change_initiation.md §11-8）: signal_active は「AD-LC 経路が
+      指示器を要求している」という**意図**で、意図が AutoIndicatorPolicy に握り潰されても真に
+      なりうる。indicator.left/right は**ランプの実態**だが、点灯理由が AD-LC の先行合図なのか
+      DetectJunctionTurn の交差点旋回なのかを区別できない。matcher は両方を見て
+      「signal_active の立ち上がりが armed の立ち上がりに先行し、その区間ランプが実際に
+      点いていた」ことを判定する。signal:vehicle_lights とは**別の signal** — あちらは
+      AutoLightController → OSI 経路の灯火であり、canonical 面も emit 経路も異なる。
+      exposure=frame は route_lane_conformance と同じ理由（OSI/HVD に対応概念が無い GT 独自
+      VD テレメトリ）。
+
+  - id: junction_turn_signal_distance
+    title: 交差点の右左折で、方向指示器の点灯開始から接続路進入までの走行距離
+    exposure: [frame]
+    state: "●"
+    emit: ControllerVirtualDriver.cpp:1911-1938（DetectJunctionTurn が JunctionTurnLookahead を1回の走査で算出し、gate 前の生値を out_raw へ）→ :1503（Step のフォールバック段で受ける）→ :1679（telemetry_.junction_turn）→ VirtualDriverTelemetryJson.cpp:162-164（junction_turn ブロック）／ランプ側は AutoIndicatorPolicy.cpp → ControllerVirtualDriver.cpp（ApplyLights）→ VirtualDriverTelemetryJson.cpp:157（indicator ブロック）
+    note: >-
+      matcher:indicator_leads_junction_turn が読む。**距離**が観測対象であり、
+      signal:lane_change_signal_timing（**秒**）とは測る次元が違う（junction_turn_signal.md §4-1）。
+      法定が距離規定（道交法53条1項／施行令21条1項「交差点の手前の側端から 30 m 手前」）である
+      ためで、車線変更の「3秒前」とは根拠から別物。
+      **on_connector が本 signal の要である**: テレメトリには「その road が junction 所属か」を
+      示す情報が他に一切無く（road id だけでは判定できない）、Python 側の検証ハーネスは xodr への
+      アクセス手段を持たない。on_connector が無いと「交差点に進入したフレーム」を機械判定できず、
+      距離を測る matcher が原理的に書けない（同 §3-4）。
+      dir は gate 前の**生**の検出方向である。点灯前から非0になるので、matcher は
+      「dir!=0 を伴うランプの立ち上がり」で車線変更由来の点灯と区別できる。
+      dist_to_entry_m は 2.0 m 刻み走査の量子化を pos.GetS() で補正した値（同 §2-4）。
+      exposure=frame は lane_change_signal_timing と同じ理由（OSI/HVD に対応概念が無い GT 独自
+      VD テレメトリ）。
+
+  - id: route_lane_conformance
+    title: ego が route の要求するレーン帯（目標レーン集合）に居るか
+    exposure: [frame]
+    state: "●"
+    emit: RouteLanePlan.cpp:233,360（BuildRouteLanePlan/EvaluateRouteLaneStatus）→ ControllerVirtualDriver.cpp:1451-1462（telemetry_.route_lane 代入）→ VirtualDriverTelemetryJson.cpp:241-258（route_lane ブロック）
+    note: >-
+      matcher:route_lane_plan_holds が読む（vd_metrics.py:1520-1677）。target_lanes/
+      on_target_lane/dist_to_connection/deviation_count/diagnostic を route_lane 1ブロックに
+      まとめて持つ（route_lane_plan_design.md §4-2）。RouteLanePlan は ITrafficPolicy を
+      経由しない独立層（同 §3-2、policy ではない）のため、policy_constraint_tier /
+      aeb_trigger_flag と同型の「OSI/HVD に対応概念が無い GT 独自 VD テレメトリ専用」
+      exposure=frame。route を持たないエンティティ（AssignRouteAction 未使用シナリオが
+      大半）では diagnostic=="no_route" として現れる（劣化ではなく通常状態、同 §4-5）。
+
+  - id: overtake_decision
+    title: 追い越しの検討・抑止・フェーズ（なぜ追い越したか／なぜ追い越さなかったか）
+    exposure: [frame]
+    state: "●"
+    emit: ControllerVirtualDriver.cpp（overtake フェーズ状態機械が ot_diag_* を確定）→ telemetry_.overtake → VirtualDriverTelemetryJson.cpp（overtake ブロックの phase / considered / lead_id / delta_v_mps / t_pass_s / required_m / route_budget_m / blocked_reason / cleared_lead）
+    note: >-
+      matcher:overtake_decision_holds が読む。exposure=frame は route_lane_conformance と
+      同じ理由（OSI/HVD に対応概念が無い GT 独自の VD テレメトリ）。
+      **この signal は「追い越したか」ではなく「追い越しを検討したか、しなかったならなぜか」を
+      観測対象にしている。** 理由は偽 PASS の排除で、経路ガードの検証では
+      「ガードが効いて追い越さなかった緑」と「そもそも追い越しを検討していないから緑」が
+      外から区別できなければ意味が無い（overtake_maneuver.md §9-1）。
+      `considered` がその判別子で、**ガードで止めたフレームでも true になる**。
+      `blocked_reason` は固定語彙（"" / route_budget / gap / oncoming / no_passing_lane /
+      suppressed）で gap_reason と同じ流儀。
+      **`cleared_lead` は「本当に先行車を抜き切ったか」だけを意味する。** 実装当初は経路の
+      安全弁で戻った場合も true になっており（弁と幾何クリア判定を1フラグに畳んで短絡していた）、
+      「抜かずに諦めた」と「抜いて戻った」が区別できなかった。2026-08-04 修正。
+      戻った理由は blocked_reason 側へ分離してある。
+      検知器の両極性は2本の刺激（完遂側と中断側）が**同じフィールドの逆極性**を主張することで
+      実証してある — 定数のフィールドは何も判別しない。

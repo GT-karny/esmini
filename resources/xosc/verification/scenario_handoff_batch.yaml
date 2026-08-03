@@ -1,6 +1,6 @@
 name: scenario_handoff
 origin: feature:F7   # 由来（工程）はメタデータ。名前には焼き込まない — capability_model.md §7.1 規約2
-# feature:F7 scenario-driven control handover (docs/virtualdriver/
+# feature:F7 scenario-driven control handover (docs/virtualdriver/design/
 # scenario_control_handoff_design.md). No OSI capture needed -- the sole
 # matcher (vd_control_relinquished) reads telemetry.vd_active only. No
 # `baseline:` -- judgment is from VirtualDriver telemetry, same convention as
@@ -34,7 +34,7 @@ scenarios:
   # ManualDrive keeps lateral while VirtualDriver keeps longitudinal, both active
   # at once, for the whole run. The two above assert that a controller let go;
   # this one asserts that two controllers coexist with one domain each and a
-  # single physics integrator underneath (docs/virtualdriver/
+  # single physics integrator underneath (docs/virtualdriver/design/
   # domain_split_ownership.md). It is the only entry here whose matcher checks
   # the travelled/reported speed ratio, because a split is the only shape that
   # can silently merge at the state stage and report a speed the vehicle is not

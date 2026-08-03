@@ -7,6 +7,8 @@
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
 #include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
 #include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
+#include "gt_esmini/control/virtualdriver/LaneChangeInitiation.hpp"
+#include "gt_esmini/control/virtualdriver/OvertakeManeuver.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
@@ -87,6 +89,49 @@ struct VirtualDriverConfig
     double resume_merge_duration_max_s = kResumeMergeDefaultDurationMaxS; // [s]
     double resume_merge_min_offset_m   = kResumeMergeDefaultMinOffsetM;   // [m]
 
+    // --- AD lane-change initiation (vd-func:FUNC-055) ---
+    // Autonomously starts a lane change toward RouteLanePlan's target lane band when the route
+    // requires it (docs/virtualdriver/design/lane_change_initiation.md). Reuses ResumeMergeProfile
+    // for the trajectory itself (a SEPARATE ResumeMergeConfig/State instance -- see
+    // LaneChangeMergeCfg() below and the design doc section 8 tail); lane_change_lateral_accel_comfort
+    // is the only knob that maps into that second instance, the rest (duration_min_s/duration_max_s/
+    // min_offset_m) reuse resume-merge's OWN shipped defaults (kResumeMergeDefault*) rather than
+    // whatever resume_merge_duration_*/resume_merge_min_offset_m above happen to be tuned to --
+    // the two features' trajectory shaping is deliberately NOT coupled to each other's config.
+    // Default OFF (design doc section 8's "設計要件": existing behavior must stay bit-identical
+    // until a scenario opts in).
+    bool   lane_change_initiation_enabled    = false;
+    double lane_change_lead_time_s           = 6.0;   // [s]
+    double lane_change_min_lead_distance_m   = 40.0;  // [m]
+    double lane_change_reserve_distance_m    = 20.0;  // [m]
+    double lane_change_gap_min_m             = 8.0;   // [m]
+    double lane_change_gap_headway_lead_s    = 1.2;   // [s]
+    double lane_change_gap_headway_rear_s    = 1.0;   // [s]
+    double lane_change_gap_ttc_min_s         = 3.0;   // [s]
+    double lane_change_lateral_accel_comfort = 1.5;   // [m/s^2]
+    // Pre-signal lead ahead of the initiation threshold (design doc section 11). SEPARATE key from
+    // indicator_lead_time (2.0, junction-turn pre-arm below) -- different legal basis/dimension
+    // (JP road traffic law: lane change = 3s before, turns = 30m before), so they are deliberately
+    // NOT unified into one knob (design doc section 11-10).
+    double lane_change_indicator_lead_time_s = 3.0;   // [s]
+
+    // --- AD overtake maneuver (vd-func:FUNC-056) ---
+    // Passes a slower same-lane lead when it is comfortably in reach (design doc
+    // docs/virtualdriver/design/overtake_maneuver.md). Reuses lane_change_initiation's 1-hop
+    // mechanism twice (out, then back) via the SAME lc_init_state_/lc_merge_cfg_/lc_merge_state_
+    // instances (section 5) -- NOT a third set of state, since route-request LC and overtake are
+    // mutually exclusive by priority (section 5-3). Also reuses lane_change_gap_min_m (return
+    // clearance g1), lane_change_reserve_distance_m (route-guard margin),
+    // lane_change_indicator_lead_time_s (signal dwell), and lc_merge_cfg_.duration_max_s (hop
+    // ground time) -- see design doc section 8's "再利用するキー" table. Only 5 NEW keys are
+    // introduced; do not add new distance/margin/dwell keys here (section 8's explicit
+    // instruction). Default OFF, independent of lane_change_initiation_enabled.
+    bool   overtake_enabled                    = false;  // [design doc section 8]
+    bool   overtake_use_opposing_lane_enabled  = false;  // second, independent gate (section 7; FUNC-030 not yet built)
+    double overtake_max_pass_time_s            = 10.0;   // [s] AASHTO PSD t2 (section 3-1)
+    double overtake_oncoming_lookahead_m       = 400.0;  // [m] SCAN distance, not a sight-distance claim (section 7-3)
+    double overtake_oncoming_safety_factor     = 1.5;    // unitless margin on the oncoming gap requirement (section 7-3)
+
     // --- Control point (P2 issue 2): lateral reference forward of the origin ---
     // Pure pursuit tracks the vehicle ORIGIN (≈ rear axle in esmini), so on a tight
     // turn the front bumper swings wide and leaves the lane. Shift the lateral
@@ -100,6 +145,16 @@ struct VirtualDriverConfig
     double control_point_min_speed = 1.0;   // [m/s] below this, no shift (stop/reverse)
 
     // --- Indicator ---
+    // req-vd-ad:REQ-AD-021 (docs/virtualdriver/design/junction_turn_signal.md section
+    // 2-2/3-3): junction-turn pre-arm trigger is DISTANCE-first --
+    // max(indicator_min_distance_m, speed * indicator_lead_time) -- because the
+    // legal basis (JP Road Traffic Act Enforcement Order Art. 21 para 1) is a
+    // distance (30 m before the intersection), not a time. indicator_lead_time
+    // only dominates once v * lead_time exceeds the 30 m floor (~15 m/s+).
+    // SEPARATE from lane_change_indicator_lead_time_s above (3.0 s) -- different
+    // legal basis/dimension, deliberately not unified (design doc section 11-10 /
+    // this doc's own section 3-3).
+    double indicator_min_distance_m = 30.0;
     double indicator_lead_time   = 2.0;
     double indicator_min_on_time = 0.3;
 
@@ -136,6 +191,22 @@ struct VirtualDriverConfig
     double tl_lookahead       = 80.0;  // [m]
     double tl_yellow_decel    = 4.0;   // [m/s^2] max decel accepted to stop on yellow
     double tl_stop_margin     = 3.0;   // [m] halt this far before the signal (front at line, stays in scan)
+    // "Don't block the box": keep a light's stop target out of an intersection.
+    // OFF restores the pre-guard behaviour (nearest head governs, target emitted
+    // wherever it lands — including inside a junction). See JunctionStopGuard.hpp.
+    bool   tl_junction_guard_enabled = true;
+    double tl_junction_clearance     = 5.0;  // [m] stand-clear distance past a junction exit
+    // The feasibility question ("can we still stop short of the junction?") is
+    // asked with comfort_decel — the deceleration the mid/long planner will
+    // actually use to shape that approach — so there is no second key for it.
+    // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md):
+    // swaps the governing head's distance for a paired stop-line signal's when
+    // one is found within tl_stop_line_window before the anchor -- min(the
+    // junction entry the head governs, the head itself) when that junction is
+    // resolved and reached by this route, else the head itself. OFF is a kill
+    // switch — restores head_s - tl_stop_margin exactly (see TrafficLightAware.hpp).
+    bool   tl_stop_line_aware_enabled = true;
+    double tl_stop_line_window        = 10.0;  // [m] pairing search window before the anchor (junction entry, or the head as fallback)
     // 3c — stop / yield sign.
     double sign_lookahead     = 80.0;  // [m]
     double stop_hold_time     = 1.5;   // [s] dwell once stopped
@@ -145,6 +216,13 @@ struct VirtualDriverConfig
     double creep_advance      = 4.0;   // [m] how far past the line to creep
     double yield_creep_speed  = 3.0;   // [m/s] YIELD = decelerate only
     double sign_stop_margin   = 3.0;   // [m] halt this far before the sign (front at line, stays in scan)
+    // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): for
+    // each STOP-classified sign, swaps its distance for a paired stop-line signal's
+    // when one is found within sign_stop_line_window before it. YIELD signs are
+    // untouched (design §7). OFF is a kill switch — restores
+    // sign_s - sign_stop_margin exactly (see StopYieldSignAware.hpp).
+    bool   sign_stop_line_aware_enabled = true;
+    double sign_stop_line_window        = 10.0;  // [m] pairing search window before the sign
     // 3d — conflict-corridor resolver (unsignalised crossing yield, space-time
     // occupancy of width-inflated path corridors; see ConflictPointResolver).
     double conflict_lookahead           = 120.0; // [m]   path prediction horizon (ego + others)
@@ -263,6 +341,16 @@ struct VirtualDriverConfig
     PIDPurePursuitConfig           DriverConfig() const;
     AdSteeringEnvelopeConfig        AdEnvelopeConfig() const;
     ResumeMergeConfig              ResumeMergeCfg() const;
+    LaneChangeInitiationConfig     LaneChangeInitiationCfg() const;
+    // The SEPARATE ResumeMergeConfig instance the AD-lane-change layer drives (design doc section
+    // 8 tail: "resume_merge_cfg_/resume_merge_state_ と記憶域を共有しない"). enabled is always
+    // true here -- the outer gate is lane_change_initiation_enabled, checked by the CALLER before
+    // this config's ArmResumeMerge is ever invoked, same as how resume-merge's own arm call sites
+    // are all inside `if (resume_merge_cfg_.enabled)`.
+    ResumeMergeConfig              LaneChangeMergeCfg() const;
+    // vd-func:FUNC-056 (design doc overtake_maneuver.md section 8). Independent of
+    // LaneChangeInitiationCfg() -- overtake_enabled is its OWN gate.
+    OvertakeConfig                 OvertakeCfg() const;
     AutoIndicatorConfig            IndicatorConfig() const;
     LeadVehicleAwareConfig         LeadConfig() const;
     TrafficLightAwareConfig        TrafficLightConfig() const;

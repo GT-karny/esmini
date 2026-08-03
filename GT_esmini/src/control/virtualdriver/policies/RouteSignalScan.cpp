@@ -2,10 +2,13 @@
 
 #include "Entities.hpp"
 #include "RoadManager.hpp"
+#include "gt_esmini/control/virtualdriver/policies/SignalJunctionResolver.hpp"
+#include "gt_esmini/control/virtualdriver/policies/StopLineSignalCatalog.hpp"
 #include "gt_esmini/road/OdrSideModel.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 using namespace scenarioengine;
 
@@ -35,9 +38,21 @@ bool SignalAppliesToLane(const roadmanager::Signal* sig, id_t lane_global_id)
     if (valid.empty()) return true;
     return std::find(valid.begin(), valid.end(), lane_global_id) != valid.end();
 }
+
+// Junction membership of a road, the RAW way: any connecting road belongs to a
+// junction, straight-through ones included. Deliberately not IsTurningConnector
+// (which additionally demands a sharp heading change) — see JunctionStopGuard.hpp.
+id_t JunctionOf(roadmanager::OpenDrive* odr, id_t track)
+{
+    roadmanager::Road* road = odr->GetRoadById(track);
+    return road ? road->GetJunction() : ID_UNDEFINED;
+}
 }  // namespace
 
-std::vector<ScannedSignal> ScanSignalsAhead(Object* ego, double lookahead, double step)
+std::vector<ScannedSignal> ScanSignalsAhead(Object*                         ego,
+                                            double                          lookahead,
+                                            double                          step,
+                                            std::vector<RouteJunctionSpan>* junction_spans)
 {
     std::vector<ScannedSignal> out;
     if (!ego) return out;
@@ -60,6 +75,22 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object* ego, double lookahead, doubl
     // Travel direction (sign of ds) on the current road. Seeded from the ego's
     // heading relative to its road, then tracked from actual s deltas.
     double dir = (std::cos(ego->pos_.GetHRelative()) >= 0.0) ? 1.0 : -1.0;
+
+    // Junction-span bookkeeping. `open_junction` is the junction currently being
+    // spanned (ID_UNDEFINED = none); spans are closed at the exact road-transition
+    // distance, or at +inf if the walk ends inside one.
+    id_t open_junction = ID_UNDEFINED;
+    if (junction_spans != nullptr)
+    {
+        open_junction = JunctionOf(odr, prev_track);
+        if (open_junction != ID_UNDEFINED)
+        {
+            // The walk STARTS on a connecting road: the ego is already in the box.
+            // entry_ahead is 0 (the entry is behind us and this walk cannot see how
+            // far), and ego_inside tells the guard never to try to stop short of it.
+            junction_spans->push_back({0.0, std::numeric_limits<double>::infinity(), open_junction, true});
+        }
+    }
 
     // Test all signals of `road` with s inside [s_from, s_to] (any order), facing
     // travel direction `ds_dir`, applying to lane `lane_g`. `dist_at_s_from` is the
@@ -87,7 +118,17 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object* ego, double lookahead, doubl
             const gt_esmini::odr::OdrSignalExtras* sx = gt_esmini::odr::GetSignalExtras(odr, sig);
             if (sx != nullptr && sx->invalidated) continue;
 
-            out.push_back({sig, std::max(0.0, dist_at_s_from + std::fabs(ss - s_from))});
+            // GetCountry() is already lowercase (XML load normalizes it); no re-normalization here.
+            const std::string country = sig->GetCountry();
+            LoadStopLineCatalog(country);
+            const bool is_stop_line =
+                ClassifyStopLineType(GetStopLineCatalog(), country, sig->GetType(), sig->GetSubType()) == StopLineKind::STOP_LINE;
+
+            // Same ds_dir the orientation filter above just used -- ResolveSignalJunction
+            // only consults its sign for a Signal::Orientation::NONE signal (see its header).
+            const std::optional<std::uint32_t> junction_id = ResolveSignalJunction(odr, sig, ds_dir);
+
+            out.push_back({sig, std::max(0.0, dist_at_s_from + std::fabs(ss - s_from)), is_stop_line, junction_id});
         }
     };
 
@@ -147,6 +188,27 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object* ego, double lookahead, doubl
                 scanSegment(cur_road, entry_s, cur_s, new_dir, cur_lane_g, (traveled - step) + consumed);
                 dir = new_dir;
             }
+
+            // 3) Junction spans open/close at the SAME road transition, and
+            //    `consumed` already puts that boundary at an exact route distance
+            //    rather than a step-quantised one.
+            if (junction_spans != nullptr)
+            {
+                const double boundary  = (traveled - step) + consumed;
+                const id_t   cur_junct = JunctionOf(odr, cur_track);
+                if (cur_junct != open_junction)
+                {
+                    if (open_junction != ID_UNDEFINED && !junction_spans->empty())
+                    {
+                        junction_spans->back().exit_ahead = boundary;
+                    }
+                    if (cur_junct != ID_UNDEFINED)
+                    {
+                        junction_spans->push_back({boundary, std::numeric_limits<double>::infinity(), cur_junct, false});
+                    }
+                    open_junction = cur_junct;
+                }
+            }
         }
 
         prev_track  = cur_track;
@@ -157,6 +219,69 @@ std::vector<ScannedSignal> ScanSignalsAhead(Object* ego, double lookahead, doubl
     std::sort(out.begin(), out.end(),
               [](const ScannedSignal& a, const ScannedSignal& b) { return a.distance_ahead < b.distance_ahead; });
     return out;
+}
+
+std::optional<size_t> FindPairedStopLine(const std::vector<ScannedSignal>& signals, std::size_t anchor_index, double window)
+{
+    if (anchor_index >= signals.size()) return std::nullopt;
+
+    const double anchor_dist = signals[anchor_index].distance_ahead;
+
+    std::optional<size_t> best;
+    double best_dist = -std::numeric_limits<double>::infinity();
+
+    for (std::size_t i = 0; i < signals.size(); ++i)
+    {
+        if (i == anchor_index || !signals[i].is_stop_line) continue;
+
+        const double dist = signals[i].distance_ahead;
+        if (dist > anchor_dist) continue;           // never pair with something farther ahead than the anchor
+        if (anchor_dist - dist > window) continue;  // outside the pairing window
+
+        if (dist > best_dist)  // nearer to the anchor than the current best
+        {
+            best_dist = dist;
+            best      = i;
+        }
+    }
+
+    return best;
+}
+
+// Deliberately NOT implemented by delegating to (or from) FindPairedStopLine
+// above: that one excludes signals[anchor_index] from the candidates, a "self"
+// that only exists because its anchor IS one of signals' own entries. This
+// function's anchor_dist need not be any entry's distance_ahead at all (a
+// junction entry never is), so there is no self to exclude and no natural index
+// to plumb through a delegating call in either direction. The loop below is the
+// same pairing rule with that one exclusion removed.
+std::optional<size_t> FindPairedStopLineByDistance(const std::vector<ScannedSignal>& signals, double anchor_dist, double window)
+{
+    std::optional<size_t> best;
+    double best_dist = -std::numeric_limits<double>::infinity();
+
+    for (std::size_t i = 0; i < signals.size(); ++i)
+    {
+        if (!signals[i].is_stop_line) continue;
+
+        const double dist = signals[i].distance_ahead;
+        if (dist > anchor_dist) continue;           // never pair with something farther ahead than the anchor
+        if (anchor_dist - dist > window) continue;  // outside the pairing window
+
+        if (dist > best_dist)  // nearer to the anchor than the current best
+        {
+            best_dist = dist;
+            best      = i;
+        }
+    }
+
+    return best;
+}
+
+StopLineAnchor ResolveStopLineAnchor(double junction_entry_ahead, double head_dist_ahead)
+{
+    if (junction_entry_ahead <= head_dist_ahead) return {junction_entry_ahead, "junction_entry"};
+    return {head_dist_ahead, "head"};
 }
 
 }  // namespace gt_esmini

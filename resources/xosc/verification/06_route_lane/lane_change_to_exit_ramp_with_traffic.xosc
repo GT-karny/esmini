@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 06_route_lane / lane_change_to_exit_ramp_with_traffic
+
+  vd-func:FUNC-055 (AD-initiated lane change) / req-vd-ad:REQ-AD-017 acceptance
+  ladder step c. Sibling of lane_change_to_exit_ramp.xosc on the SAME road and
+  destination (see that file's header comment for the road/junction facts and
+  why the route needs an explicit road-4 Waypoint), but a DELIBERATELY
+  SHORTER route: Ego starts in lane -2 (not -1), so only TWO lane changes
+  (-2 -> -3 -> -4) are needed instead of three. This scenario exists to
+  exercise GAP ACCEPTANCE (lane_change_initiation.md section 4), not the full
+  3-hop distance budget — that stress is already covered by the no-traffic
+  sibling. See "why 2 hops, not 3" below.
+
+  == why 2 hops, not 3 (measured 2026-08-02, see expectations.yaml notes) ==
+  An earlier 3-hop version of this file (Ego starting in lane -1, matching the
+  no-traffic sibling exactly) was measured and FAILED (deviation_count=1),
+  not from a bug but from distance arithmetic: the first hop's gap wait alone
+  consumed ~78 m of the 190 m budget (dist_to_connection 190 -> 112) waiting
+  out an adjacent vehicle that started level with Ego, leaving only 65 m for
+  the remaining two hops (~47 m each is needed, so ~94 m) — geometrically
+  impossible regardless of how gap acceptance behaves. Gap acceptance itself
+  was confirmed working correctly (the vehicle was correctly held off, then
+  correctly admitted once clear); the no-traffic sibling's 3x47=141 m fits
+  190 m only because it never has to wait. Starting Ego one hop closer (lane
+  -2) removes that impossible arithmetic while keeping exactly one adjacent
+  vehicle to gate a real gap-wait, which is this scenario's actual purpose.
+
+  The single background vehicle carries no ObjectController (esmini's default
+  lane-following behavior — constant SpeedAction, no Route needed — the
+  same pattern used for the "Lead" vehicle in
+  resources/xosc/verification/aeb_c2c_grid/*.xosc), so it simply holds its
+  lane at a constant speed slower than Ego's.
+
+  Placement: AdjacentTraffic (lane -3, s=10, 8.333 m/s / 30 km/h) starts
+  DIRECTLY BESIDE Ego's own start position (Ego: lane -2, s=10, 13.889 m/s /
+  50 km/h) — the same "starts level, Ego is faster" mechanic the measured
+  3-hop attempt already confirmed produces a real (not permanent) gap-wait
+  on the hop into that lane: the ~0 m initial gap fails both the lead-gap and
+  rear-gap thresholds (lane_change_gap_min_m=8.0,
+  v_ego*lane_change_gap_headway_lead_s=16.67), Ego draws level with and then
+  passes AdjacentTraffic as the faster vehicle, and the rear-gap check
+  (threshold max(8.0, 8.333*1.0)=8.333 m, opening at the 5.556 m/s speed
+  difference) is expected to clear a few seconds later. The rear-TTC check
+  does not gate here: AdjacentTraffic (8.333 m/s) is slower than Ego, so it
+  is not "approaching" in the sense that check requires.
+
+  Lane -4 (the second, final hop) is left clear of traffic: it is a taper
+  (zero width at s=50, reaching 3.0 m by s=175 — see the sibling file's
+  header comment). If this hop ever fails to complete, the defect is not gap
+  arbitration.
+
+  This scenario is deliberately NOT built to block the only gap available:
+  the intent is "Ego must wait for a gap once, not that Ego can never enter"
+  (see expectations.yaml — max_deviations: 0 still asserts Ego reaches lane
+  -4 before the connection despite the wait).
+
+  lane_change_initiation_enabled is enabled the same way as the sibling
+  file — via this scenario's route_lane_batch.yaml entry's
+  "policies: [lane_change_initiation]", not a static Property in this file.
+  See lane_change_to_exit_ramp.xosc's header comment for why.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-08-02T13:00:00"
+               description="VirtualDriver verification: AD-initiated lane change to reach a junction exit ramp (2-hop start, lane -2), with one adjacent vehicle to stimulate gap acceptance"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+      <ParameterDeclaration name="TrafficSpeed" parameterType="double" value="8.333"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/highway_example_with_merge_and_split.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+      <ScenarioObject name="AdjacentTraffic">
+         <Vehicle name="car_yellow" vehicleCategory="car" model3d="../../../models/car_yellow.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="1"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-2" offset="0" s="10"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <!--
+                             Start Waypoint matches the TeleportAction above (lane -2,
+                             not -1): this scenario starts Ego one hop closer to the
+                             target lane band than the no-traffic sibling, so only
+                             TWO lane changes (-2 -> -3 -> -4) are needed. See the
+                             file-level header comment for why.
+                           -->
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-2" offset="0" s="10"/>
+                              </Position>
+                           </Waypoint>
+                           <!--
+                             Explicit connecting-road Waypoint (junction 1, connection
+                             id=3) — required for Route::IsValid()==true. See
+                             lane_change_to_exit_ramp.xosc's header comment.
+                           -->
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="4" laneId="-1" offset="0" s="50"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="-1" offset="0" s="40"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+            <Private entityRef="AdjacentTraffic">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-3" offset="0" s="10"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="$TrafficSpeed"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="RouteLaneStory">
+         <Act name="RouteLaneAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="28" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

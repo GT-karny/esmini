@@ -1,0 +1,74 @@
+scenario: overtake_into_oncoming_lane_when_clear
+category: 08_overtake
+# vd-func:FUNC-056 (overtake maneuver) / req-vd-ad:REQ-AD-023 acceptance
+# ladder step e: overtaking via the OPPOSING lane (design doc section 7) on
+# a single-lane-per-direction road, with no oncoming traffic present (so
+# the "no oncoming vehicle within lookahead" condition holds vacuously --
+# see the .xosc file's header comment). Same distance-budget structure as
+# overtake_slow_lead_on_two_lane_road (required=496.667 m against a
+# dist_to_connection=770.0 m budget, large margin), so this file isolates
+# the passing-LANE-SELECTION question (does the AD correctly fall through
+# to the opposing lane when no same-direction passing lane exists) rather
+# than re-testing the route-budget guard.
+# MEASURED (2026-08-04, real Release build, coordinating session's own
+# run): lane -1 -> +1 (the opposing lane) -> -1 return, outbound indicator
+# lead 2.95s / inbound 3.00s -- the same lead times as the two-lane sibling
+# overtake_slow_lead_on_two_lane_road, as expected (same v_pass/v_lead/g0,
+# same lane_change_indicator_lead_time_s=3.0 config value; the only
+# structural difference is which lane is used for passing).
+#
+# expect_phases deliberately does NOT start with "idle" -- same reasoning
+# as the two-lane sibling scenario's expectations.yaml: Ego is constrained
+# by SlowLead from frame 1, so idle never appears at the start of this run.
+must:
+  - event: overtake_decision_holds
+    expect_considered: true
+    reason: >
+      Same trigger math as the two-lane scenarios (delta_v=12.0 m/s,
+      t_pass=4.83s, SlowLead constrained-gap) -- must fire here too, or
+      this scenario is not testing anything (design doc section 9-4's
+      false-pass warning applies equally to the oncoming-lane path).
+  - event: overtake_decision_holds
+    expect_phases: [signal_out, out, pass, signal_back, back, idle]
+    reason: >
+      Confirms the full round trip completes using the OPPOSING lane (+1)
+      as the passing lane (design doc section 4's fallback rule: no
+      same-direction passing lane exists on a 1-lane-per-direction road, so
+      the AD must select the opposing lane instead of simply never
+      overtaking) and returns to lane -1 (the only, exit-connected lane)
+      well before the junction.
+  - event: overtake_decision_holds
+    expect_cleared_lead: true
+    reason: >
+      Confirms SlowLead was actually cleared before the return hop, the
+      same completion criterion as the two-lane sibling scenario.
+  - event: indicator_leads_lane_change
+    window: [0.0, 8.0]
+    min_lead_s: 2.9
+    reason: >
+      Outbound hop (design doc section 9-3's two-call convention). MEASURED
+      lead 2.95s, identical to the two-lane sibling scenario (same
+      lane_change_indicator_lead_time_s=3.0 config value governs both).
+      min_lead_s=2.9 = legal 3.0s minus one frame's dt=0.05 quantization
+      allowance, not a loosened assertion -- same convention as
+      req-vd-ad:REQ-AD-018 steps b/c.
+  - event: indicator_leads_lane_change
+    window: [9.0, 20.0]
+    min_lead_s: 2.9
+    reason: >
+      Inbound (return) hop, the section 9-3 second call. MEASURED lead
+      3.00s. The direction check (section 11-9) also confirms the lit side
+      flips between the outbound (into the opposing lane) and inbound
+      (back to lane -1) hops.
+notes: >
+  MEASURED (2026-08-04, real Release build, coordinating session). This
+  file deliberately does NOT exercise the oncoming-gap-safety arithmetic
+  itself (design doc section 7-2's (v_ego+v_opp)*t_total*
+  overtake_oncoming_safety_factor formula) -- no oncoming vehicle is placed
+  in this scenario at all, so that condition holds vacuously and is not a
+  meaningful test of it. A companion scenario WITH an oncoming vehicle
+  (measuring the actual safety-gap arithmetic and a case where the AD
+  correctly waits for the oncoming vehicle to pass) would be needed to
+  cover that separately; it is out of this file's scope (design doc
+  section 9-4 lists exactly four scenario names for this batch, and this
+  is the one named "when_clear").

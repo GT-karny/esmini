@@ -1,0 +1,29 @@
+catalog_id: signalized_short_block__b12
+kind: road
+geometry_type: G4+G4
+signage: traffic_light x2
+layout:
+  ego_path:
+  - 0
+  - 100
+  - 2
+  - 200
+  - 4
+  junction_a_id: 100
+  junction_b_id: 200
+  block_road_id: 2
+  light_junction_a:
+    road: 0
+    s: 92.0
+  light_junction_b:
+    road: 2
+    s: 3.0
+generator:
+  script: road_catalog/gen_signalized_short_block.py
+  params:
+    block_length: 12.0
+    leg_length: 100.0
+    lanes: 1
+    head_setback: 8.0
+    head_offset: 3.0
+generated_at_commit: 9929ef33

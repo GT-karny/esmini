@@ -17,4 +17,4 @@ generator:
     speed: 11.0
     ego_move: straight through on the E-W minor road
     cross_move: straight through on the N-S priority road
-generated_at_commit: 33ffaf18
+generated_at_commit: b7433c7e

@@ -3,7 +3,7 @@
 // feature:F7 (AUTO_RESUME merge trajectory) -- pure-logic lateral offset
 // profile generator.
 //
-// Background (docs/virtualdriver/resume_merge_trajectory_design.md section 1):
+// Background (docs/virtualdriver/design/resume_merge_trajectory_design.md section 1):
 // on a manual->AUTO_RESUME transition, TrajectoryShortPlanner anchors the
 // preview to the CURRENT (physically occupied) lane's CENTER instantaneously
 // every frame (no ramp -- see AdSteeringEnvelope.hpp's own quote of the same
@@ -118,7 +118,7 @@ namespace gt_esmini
 // the user's own account communicated directly in-session, not a separately
 // logged/instrumented real-machine test run (no recorded date/vehicle/speed
 // beyond "today, this wheel"). Headless measurement independently confirms
-// the qualitative shape (GT_esmini/docs/virtualdriver/resume_merge_user_check.md
+// the qualitative shape (GT_esmini/docs/virtualdriver/field-test/resume_merge_user_check.md
 // sec 4): with this flag off the car can simply stay parked in the adjacent
 // lane after AUTO_RESUME; with it on, a repeatable headless probe returns to
 // the route lane in ~3.7s with zero overshoot. See that doc for the current

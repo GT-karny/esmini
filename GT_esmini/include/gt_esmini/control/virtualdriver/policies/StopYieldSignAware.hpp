@@ -80,6 +80,14 @@ struct StopYieldSignAwareConfig
     // keeps tracking it. ~ vehicle front overhang. The FSM sees the margin-adjusted
     // distance, so "stopped at the line" is detected at adjusted-dist ~ 0.
     double           stop_margin       = 3.0;   // [m]
+    // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): for
+    // each STOP-classified sign, swap its distance for a paired stop-line signal's
+    // (RouteSignalScan::FindPairedStopLine) when one is found within
+    // stop_line_window before it. YIELD signs are untouched (design §7). OFF is a
+    // kill switch: FindPairedStopLine is never called, so the stop target stays
+    // sign_s - stop_margin exactly.
+    bool             stop_line_aware_enabled = true;
+    double           stop_line_window        = 10.0;  // [m] pairing search window before the sign
 };
 
 // Phase 3c: react to STOP (OSI type 17) and YIELD/GIVE_WAY (OSI type 16) signs

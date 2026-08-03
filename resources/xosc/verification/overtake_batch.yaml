@@ -1,0 +1,76 @@
+name: overtake
+origin: vd-func:FUNC-056   # 追い越しの発起・完遂。docs/virtualdriver/design/overtake_maneuver.md 9-2 の telemetry.overtake ブロックを検証する。
+# vd-func:FUNC-056 (追い越しマヌーバ) の常設回帰バッチ。4本すべてが
+# resources/scenario_authoring/road_catalog/gen_straight_restricted_exit.py
+# が生成した2本の道路(直線本線+末端junction+接続レーンを1本に絞った分岐)を
+# 使う。既存の xodr にはこの形状(直線・片側2車線以上・数百m・その先に
+# junction)が無いことが調査で判明していた(design doc 9-4)ため。
+#
+# 4本の役割分担(design doc 9-4 の表そのまま):
+#   - overtake_slow_lead_on_two_lane_road: REQ-AD-023 段a-c。同方向追い越しの
+#     クリーンな成功例(経路バジェットに大きな余裕、273.33m)。
+#   - overtake_declined_before_route_branch: REQ-AD-024 段b。経路バジェットの
+#     ガードが効いて追い越さない(明確な不足、96.667m)。considered=true かつ
+#     blocked_reason=route_budget が両立することが肝(design doc 9-4 の
+#     「両立しない配置は偽PASSになる」警告への対応)。
+#   - overtake_aborted_for_route_branch: REQ-AD-024 段c。§5-2 の安全弁
+#     (経路ホップの締切が先行車クリア前に来たら打ち切って戻る)。
+#     2026-08-04 に開始位置を詰める方式から作り直し済み(親セッションが
+#     この方式は原理的に安全弁へ届かないと検算で確認 -- required 式は
+#     常に単ホップしきい値+reserve だけ余裕を残す自己完結的な式のため)。
+#     正しい機構: SlowLead が PASS 中盤(t=9.2s)で加速し delta_v を
+#     12.0->0.1 m/s へ縮める。considered/guard は他3本と同じく明確な余裕
+#     側(margin 173.33m)。**CONFIDENCE: LOW** -- ビルド前に作成したため
+#     実測なし。機構自体の算術マージンは~14%(締切到達22.3s vs 自然クリア
+#     まで26.0s)で確保できているが、加速イベントの発火時刻(固定
+#     SimulationTimeCondition, t=9.2s)は理想化タイムラインに基づく見積り。
+#     詳細は当該 .xosc / .expectations.yaml のヘッダ参照。
+#   - overtake_into_oncoming_lane_when_clear: REQ-AD-023 段e。片側1車線・
+#     対向車無しでの対向車線追い越し(§7)。対向車の安全マージン算術自体は
+#     このファイルの対象外(対向車が存在しないため空虚に真)。
+#
+# 4本とも telemetry.overtake ブロックのみで判定する新 matcher
+# overtake_decision_holds(GT_esmini/web/backend/services/vd_metrics.py)を
+# 使う。route_lane_plan_holds / indicator_leads_lane_change 同様、
+# 「何も評価しない must は skip」「overtake ブロックを持つフレームが窓に
+# 無ければ skip(古い DLL 検出)」の規律を継承。
+#
+# policies: [overtake, lead] (対向車線シナリオのみ overtake_opposing_lane を
+# 追加)。lane_change_initiation は有効化しない -- 経路要求LCと追い越しの
+# どちらが armed したのか区別しづらくなるため(親セッションの判断、
+# overtake_aborted_for_route_branch.xosc のヘッダコメントに記載の通り、
+# §5-2 の安全弁は lc_init_cfg_ の enabled を内部でオーバーライドするので
+# 経路要求LC自体を有効化する必要が無い)。
+# GT_esmini/scripts/verification/gt_sim_test.py の _POLICY_FLAG に
+# "overtake"/"overtake_opposing_lane" の2エントリを追加済み(親の追加指示、
+# overtake_enabled / overtake_use_opposing_lane_enabled にマップ)。
+#
+# Run:
+#   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/overtake_batch.yaml --out test_results/web/overtake
+defaults:
+  dt: 0.05
+  max_time: 62.0   # overtake_aborted_for_route_branch の StopTrigger=60s を覆うため
+                   # (gt_sim_test.py の batch() はエントリ単位の max_time 上書きを
+                   # 読まない -- route_lane_batch.yaml の同種コメント参照)。
+  snapshots: 3
+  osi: false
+scenarios:
+  - scenario: resources/xosc/verification/08_overtake/overtake_slow_lead_on_two_lane_road.xosc
+    expectations: resources/xosc/verification/08_overtake/overtake_slow_lead_on_two_lane_road.expectations.yaml
+    policies: [overtake, lead]
+    report: overtake
+  - scenario: resources/xosc/verification/08_overtake/overtake_declined_before_route_branch.xosc
+    expectations: resources/xosc/verification/08_overtake/overtake_declined_before_route_branch.expectations.yaml
+    policies: [overtake, lead]
+    report: overtake
+  - scenario: resources/xosc/verification/08_overtake/overtake_aborted_for_route_branch.xosc
+    expectations: resources/xosc/verification/08_overtake/overtake_aborted_for_route_branch.expectations.yaml
+    policies: [overtake, lead]
+    report: overtake
+    # CONFIDENCE: LOW -- see the .xosc / .expectations.yaml headers. This
+    # entry's threshold calibration is unverified against a real build.
+  - scenario: resources/xosc/verification/08_overtake/overtake_into_oncoming_lane_when_clear.xosc
+    expectations: resources/xosc/verification/08_overtake/overtake_into_oncoming_lane_when_clear.expectations.yaml
+    policies: [overtake, overtake_opposing_lane, lead]
+    report: overtake

@@ -1,0 +1,5 @@
+# Project-local Codex configuration. This directory is deliberately independent
+# from .claude so both agent harnesses can evolve without overwriting each other.
+
+[features]
+hooks = true

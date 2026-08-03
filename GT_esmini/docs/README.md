@@ -39,15 +39,15 @@ GT_esmini (GroundTruth esmini) は、[esmini](https://github.com/esmini/esmini) 
 
 フル車両物理を人間並みのドライバーロジックで自動運転させる制御プログラム（現行開発の主軸）。
 
-| ドキュメント | 内容 |
+**入口は [VirtualDriver ドキュメント索引](virtualdriver/README.md)。** 目的から引ける形にしてある。
+
+| 読者 | 場所 |
 |:---|:---|
-| [全体ロードマップ](virtualdriver/roadmap.md) | ビジョン・フェーズ計画（プリ実装設計合意、2026-06） |
-| [検証環境設計](virtualdriver/verification_environment.md) | 挙動検証環境のプリ実装設計（roadmap 付随） |
-| [シナリオ・道路オーサリング基盤](virtualdriver/scenario_authoring_foundation.md) | F1 量産基盤（道路/シナリオカタログ生成）の設計 |
-| [Phase 2 テレメトリ依頼(midlong)](virtualdriver/A2_midlong_telemetry_request.md) | 中長期判定テレメトリ JSON 出力 + constraints の実装依頼記録 |
-| [Phase 2 フォローアップ課題](virtualdriver/P2_followup_issues.md) | Phase 2 完了時点の積み残し課題台帳 |
-| [Phase 3b/3c firm-stop 欠陥報告](virtualdriver/P3_firmstop_issue.md) | 検証環境が検出した firm-stop 欠陥の報告 |
-| [F4 注釈類似度 自動判定 設計メモ](virtualdriver/F4_annotation_similarity_design.md) | 検証工場の F4 ストレッチ: per-scenario 回帰ゲート（実装済み）と、注釈データセット類似度による自動判定（構想・未実装）の設計 |
+| シナリオを書く人、設定を調整する人 | [virtualdriver/guides/](virtualdriver/guides/) |
+| 実機のハンドルで試す人 | [virtualdriver/field-test/](virtualdriver/field-test/) |
+| 実装する人（設計と判断の記録） | [virtualdriver/design/](virtualdriver/design/) |
+| 数値を引く人（一次証拠・凍結） | [virtualdriver/measurements/](virtualdriver/measurements/) |
+| 完了した工程の記録 | [virtualdriver/archive/](virtualdriver/archive/README.md) |
 
 ## PythonDriverController (開発凍結中)
 

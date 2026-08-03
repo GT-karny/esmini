@@ -1,0 +1,76 @@
+scenario: lane_change_to_exit_ramp_at_constant_speed
+category: 06_route_lane
+# vd-func:FUNC-061 (indicator pre-signal) / req-vd-ad:REQ-AD-018 acceptance
+# ladder step b ("定速で法定3秒のリードを満たす"). Companion to
+# lane_change_to_exit_ramp_during_gradual_acceleration.expectations.yaml (step c).
+# Neither of the two existing lane_change_to_exit_ramp*.xosc scenarios in this
+# directory can isolate step b: both start Ego with n_remaining=3 (lane -1/-2),
+# for which required_m=270m exceeds the 190m road-0 budget, so the hop is
+# already decided on frame 1 - see this scenario's .xosc header comment. This
+# scenario starts Ego in lane -3 (n_remaining=1, required_m=103.3m) so the hop
+# arms mid-run, and holds Ego at a genuinely constant 13.889 m/s the whole time
+# (Init-only step SpeedAction, no Story ramp at all) so any measured lead is
+# attributable to the steady-state two-threshold rule alone, not a transient.
+must:
+  - event: route_lane_plan_holds
+    max_deviations: 0
+    reason: >
+      Same success-side assertion as the existing lane_change_to_exit_ramp
+      scenarios' must #1: with lane_change_initiation enabled and no adjacent
+      traffic, the ego is expected to complete the single -3 -> -4 lane change
+      before crossing off road 0, so deviation_count must stay 0 for the whole
+      run.
+  - event: route_lane_plan_holds
+    expect_target_lanes: [-4]
+    reason: >
+      Confirms RouteLanePlan resolves the same target-lane band {-4} as the
+      sibling scenarios in this directory - band derivation does not depend on
+      the starting lane or on speed profile, only on the route/junction
+      geometry.
+  - event: indicator_leads_lane_change
+    min_lead_s: 2.9
+    reason: >
+      This scenario asserts that the lead REACHES the legal 3.0s floor
+      (lane_change_indicator_lead_time_s) at genuinely constant speed -- the
+      role the constant-speed sibling plays vs. the gradual-acceleration
+      sibling's "lead does not shrink under acceleration" claim (see that
+      file's must #3).
+      MEASURED 2026-08-03 (parent session, real Release build with the
+      section-11-11 forward-projection rule wired in, test_results/web/
+      route_lane_final/lane_change_to_exit_ramp_at_constant_speed): t_sig=
+      9.80, t_arm=12.85, lead=3.05s -- matches the .xosc header comment's
+      arithmetic (predicted t_sig=9.9/t_arm=12.9/lead=3.00 exactly) to within
+      one frame (dt=0.05) of quantization. EgoSpeed was lowered from the
+      sibling scenarios' 13.889 m/s to 9.0 m/s specifically so this decision
+      lands at t>=10s, past the driver model's speed-tracking transient (see
+      the .xosc header comment's "WHY EgoSpeed IS 9.0 m/s" paragraph):
+      measured d(ego.speed)/dt at t_sig=9.80 was ~0.00066 m/s^2 and at
+      t_arm=12.85 was ~0.00015 m/s^2, both comfortably under the 0.001 m/s^2
+      threshold the parent used to call the speed "converged" -- so the
+      measured 3.05s reflects the rule's true steady-state floor, not a
+      residual transient.
+      min_lead_s: 2.9 is set just under the measured 3.05s, per this
+      directory's convention (see the no-traffic sibling's must #3) of
+      placing the threshold a little below the measurement rather than
+      pinned to it, with an extra tenth of margin here specifically for
+      dt=0.05 frame quantization (the same arithmetic that lands on 12.85
+      instead of exactly 12.90 could as easily land one frame the other way
+      on a future run).
+notes: >
+  MEASURED 2026-08-03 (parent session, real Release build with the
+  section-11-11 forward-projection rule wired in, test_results/web/
+  route_lane_final/lane_change_to_exit_ramp_at_constant_speed): PASS. Ego
+  moves lane -3 -> -4 on road 0 (track transitions to road 4 at t=21.45,
+  still inside the 28s StopTrigger window; the run does not reach road 2,
+  which is expected -- this scenario only needs to demonstrate the single
+  -3 -> -4 hop, not the full exit-ramp crossing) and deviation_count stays 0
+  for the whole run.
+
+  Indicator pre-signal: signal_active first true at t=9.80, armed first true
+  at t=12.85, lead=3.05s, single rising edge on both signal_active and armed
+  (no chattering), lamp lit and matching the hop direction throughout. This
+  confirms the .xosc header comment's arithmetic (required_m flat at 74m,
+  closing rate exactly v=9.0 m/s, 3v/v=3.0s) at a speed chosen so the decision
+  falls after the driver model's speed-tracking transient has settled (a<0.001
+  m/s^2 by t=10s) -- see this file's must #3 reason for the frame-by-frame
+  dv/dt figures.

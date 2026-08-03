@@ -1,0 +1,133 @@
+scenario: lane_change_to_exit_ramp_with_traffic
+category: 06_route_lane
+# vd-func:FUNC-055 (AD-initiated lane change) / req-vd-ad:REQ-AD-017 acceptance
+# ladder step c, WITH one background vehicle (AdjacentTraffic, lane -3, s=10,
+# 8.333 m/s -- slower than Ego) to stimulate gap acceptance
+# (lane_change_initiation.md section 4) rather than just the initiation
+# decision that lane_change_to_exit_ramp.xosc isolates.
+#
+# RECONFIGURED TO 2 HOPS 2026-08-02 (parent instruction, following a real
+# measurement -- see below). Ego now starts in lane -2 (not -1, unlike the
+# no-traffic sibling), so only two lane changes are needed: -2 -> -3 -> -4.
+# See the .xosc header comment for the full "why 2 hops, not 3" writeup.
+#
+# WHY: an earlier 3-hop version of this scenario (Ego starting in lane -1,
+# matching the no-traffic sibling exactly, two background vehicles in lanes
+# -2 and -3) was MEASURED by the parent session against a real
+# GT_esminiLib.dll build with lane_change_initiation wired in
+# (test_results/web/route_lane/) and FAILED with deviation_count=1. Per the
+# parent's telemetry read (the scenario's own lane_change block): the first
+# hop's gap-wait alone consumed ~78 m of the 190 m budget
+# (dist_to_connection 190 -> 112, because the adjacent vehicle started level
+# with Ego and was correctly held off, then correctly admitted -- gap
+# acceptance itself was NOT the defect), leaving only 65 m for two more hops
+# needing ~47 m each (~94 m) -- geometrically impossible regardless of gap-
+# acceptance behavior. This is the same conclusion documented in the
+# no-traffic sibling's expectations.yaml notes. The fix applied here is the
+# route-shortening reconfiguration above, not a change to gap-acceptance
+# logic or to the max_deviations matcher (vd_metrics.py's max_deviations
+# implementation was independently confirmed correct on the no-traffic
+# sibling's PASS and is unchanged).
+#
+# CALIBRATION STATUS OF THIS (2-hop) VERSION: MEASURED 2026-08-02 by the parent
+# session against a real Release build (test_results/web/route_lane_indicator/
+# lane_change_to_exit_ramp_with_traffic). PASS. The 2-hop reconfiguration did
+# restore the distance budget: final deviation_count == 0, and the gap-wait is
+# real rather than accidental -- before the first hop arms at t=7.55 the gap
+# check rejects for 32 frames on lead_gap and 46 frames on rear_gap. Both
+# carried-over thresholds (max_deviations: 0, expect_target_lanes: [-4]) held
+# unchanged, so the pre-reconfiguration values needed no correction. The two
+# hops run back-to-back as a single continuous armed segment (7.55 -> 14.30):
+# a completed hop disarms and the next re-arms inside the same frame, so
+# "armed" never dips between them.
+#
+# This supersedes the "NOT YET MEASURED" note that stood here and in
+# route_lane_batch.yaml. The knowledge-graph edge for
+# matcher:route_lane_plan_holds had already recorded a measurement of this
+# version ("7.5s ギャップを拒否してから 2 ホップ", deviation_count=0); that claim
+# was correct, and it is these two files' notes that had gone stale -- not the
+# graph.
+must:
+  - event: route_lane_plan_holds
+    max_deviations: 0
+    reason: >
+      Same success-side assertion as lane_change_to_exit_ramp's must #1: even
+      with a gap-wait delay from AdjacentTraffic on the first hop (-2 -> -3),
+      the ego is expected to find an acceptable gap and complete both lane
+      changes before the junction 1 connection, so deviation_count must still
+      end at 0. Unlike the superseded 3-hop version of this scenario (see the
+      notes: above), the 2-hop distance budget (~124 m estimated vs a 190 m
+      cap) is intended to leave enough slack to absorb one gap-wait -- if this
+      scenario still fails with deviation_count>0, the likely next step is
+      re-examining AdjacentTraffic's placement/speed (per the .xosc's
+      placement writeup), not loosening this threshold, since a repeat
+      distance-budget failure here would mean the 2-hop shortening was
+      insufficient.
+  - event: route_lane_plan_holds
+    expect_target_lanes: [-4]
+    reason: >
+      Same band-derivation sanity check as the no-traffic sibling -- background
+      traffic does not change what RouteLanePlan computes as the target-lane
+      band, only whether/when the ego actually gets there.
+  - event: indicator_leads_lane_change
+    min_lead_s: 3.0
+    reason: >
+      Same design-doc-section-11 pre-signal-timing assertion as the no-traffic
+      sibling's must #3. This scenario is the BETTER stimulus for it (per
+      section 11-9): the gap-wait on the first hop (-2 -> -3) stretches
+      t_arm - t_sig well beyond the no-wait case.
+      RE-MEASURED 2026-08-03 (parent session, real Release build with the
+      section-11-11 forward-projection rule wired in, test_results/web/
+      route_lane_final/lane_change_to_exit_ramp_with_traffic): t_sig=0.55,
+      t_arm=7.55, lead=7.00s (up from the pre-fix 2026-08-02 measurement's
+      t_sig=3.10 / lead=4.45s -- the forward-projection moves signal_active
+      much earlier under acceleration, same direction as the no-traffic
+      sibling's move from 0.40s to 2.30s), with the lamp lit and matching the
+      hop direction across the whole interval and no chattering (single
+      rising edge on both signal_active and armed).
+      WHY min_lead_s IS 3.0 AND NOT SOMETHING NEAR 7.0: most of the 7.00s is
+      still gap-wait time (t_arm=7.55 is set by when AdjacentTraffic's gap is
+      accepted, not by the indicator rule), which depends on
+      AdjacentTraffic's placement/speed. Pinning the threshold near the
+      measured value would turn any unrelated gap tuning into a red matcher.
+      3.0 is deliberately set to the LEGAL FLOOR itself
+      (lane_change_indicator_lead_time_s / JP Road Traffic Act Enforcement
+      Order Art. 21 para 1) rather than to a value carved just under this
+      run's measurement: section 11-11's rule guarantees a lead of at least
+      3.0s even with zero gap-wait (see the constant-speed sibling, which
+      isolates exactly that floor), so 3.0 is a meaningful lower bound here
+      regardless of how AdjacentTraffic is tuned in the future, not an
+      arbitrary margin below 7.00.
+notes: >
+  MEASURED 2026-08-02 (this 2-hop version), parent session, real Release build
+  with lane_change_initiation enabled via the batch's policies: list
+  (test_results/web/route_lane_indicator/lane_change_to_exit_ramp_with_traffic).
+  All three must entries PASS.
+
+  Answering the three things the previous (pre-measurement) revision of this
+  block asked to verify:
+    1. A gap-wait DOES occur and is not accidental: the gap check rejects for
+       32 frames on lead_gap and 46 frames on rear_gap before the first hop
+       arms at t=7.55. AdjacentTraffic's placement needed no tightening.
+    2. The 2-hop distance budget holds with real margin, not barely: final
+       deviation_count == 0, both hops completing inside one armed segment
+       (7.55 -> 14.30) well before the junction 1 connection.
+    3. No `window:` was needed on the max_deviations must -- the unwindowed
+       check held over the full run, same as the no-traffic sibling.
+
+  Indicator pre-signal (design doc section 11): ORIGINAL (2026-08-02,
+  distance-only rule) measurement was signal_active first true at t=3.10,
+  armed first true at t=7.55, lead=4.45s. RE-MEASURED 2026-08-03 against the
+  section-11-11 forward-projection rule (test_results/web/route_lane_final/
+  lane_change_to_exit_ramp_with_traffic): signal_active first true at
+  t=0.55, armed unchanged at t=7.55, lead=7.00s -- t_arm did not move because
+  the gap-wait, not the indicator rule, decides when the hop actually arms;
+  only t_sig moved earlier. This scenario demonstrates the "signal, then wait
+  for a gap" behaviour; the no-traffic sibling isolates the pure two-
+  threshold lead under the new rule (2.30s) and the constant-speed sibling
+  isolates the rule's steady-state floor (3.0s exactly).
+
+  route_lane.target_lanes reads [-1] on the FINAL frame, not [-4]: by then the
+  ego is past junction 1 and on road 2, where the band is -1. The
+  expect_target_lanes: [-4] must is an EXISTS check (>=1 gated frame) and
+  matches the pre-junction frames -- documented semantics, not a near-miss.

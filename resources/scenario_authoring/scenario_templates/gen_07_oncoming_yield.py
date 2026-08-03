@@ -98,6 +98,7 @@ from authoring_common import (  # noqa: E402
     make_npc_vehicle,
     make_route,
     make_virtual_driver_controller,
+    repo_root,
     write_meta_yaml,
     write_scenario,
 )
@@ -108,6 +109,14 @@ from scenariogeneration import xosc  # noqa: E402
 # ---------------------------------------------------------------------------
 ROAD_REF = "t_junction__a90"
 ROADFILE_REL = f"../../road_catalog/generated/{ROAD_REF}.xodr"
+ROADFILE_ABS = (
+    repo_root()
+    / "resources"
+    / "scenario_authoring"
+    / "road_catalog"
+    / "generated"
+    / f"{ROAD_REF}.xodr"
+)
 PHASE = "3d"
 
 LEG_LEN = 100.0  # each approach leg length (s of junction entry)
@@ -204,6 +213,7 @@ def build_variant(
             lane_pos(EGO_ROAD, DRIVE_LANE, EGO_TELEPORT_S),
             lane_pos(EGO_EXIT_ROAD, EGO_EXIT_LANE, 80.0),
         ],
+        xodr_path=ROADFILE_ABS,
     )
     add_routed_actor_init(
         init,
@@ -230,6 +240,7 @@ def build_variant(
                 lane_pos(ONC_ROAD, DRIVE_LANE, stand_s),
                 lane_pos(ONC_EXIT_ROAD, DRIVE_LANE, 80.0),
             ],
+            xodr_path=ROADFILE_ABS,
         )
         # Teleport at rest (init speed 0); launch handled by the Story Act.
         add_routed_actor_init(

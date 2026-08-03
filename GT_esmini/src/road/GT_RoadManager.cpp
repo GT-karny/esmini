@@ -3782,6 +3782,8 @@ void OpenDrive::Clear()
     road_ids_.clear();
     junction_ids_.clear();
     dynamic_signals_.clear();
+    // [GT_ODR:ctrl-clear] controller_ is parsed additively; Clear() missed it, so reloads stacked stale controllers
+    controller_.clear();
 
     for (size_t i = 0; i < road_.size(); i++)
     {

@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 06_route_lane / route_valid_off_target_lane_for_exit_ramp
+
+  Sibling of merge_required_for_exit_ramp.xosc on the SAME road network
+  (resources/xodr/highway_example_with_merge_and_split.xodr, junction 1) and the
+  SAME start (road 0, lane -1, s=10) and destination (road 2, lane -1, s=40).
+  The only difference is the Route: this scenario's Waypoint list EXPLICITLY
+  includes the junction's connecting road (road 4 - junction 1 connection id=3,
+  the ONLY connection whose <laneLink> covers lane -4 of road 0, connecting it
+  to lane -1 of road 4 and on to road 2, the exit ramp with no other
+  predecessor). merge_required_for_exit_ramp.xosc instead gives just the two
+  endpoints and lets esmini auto-complete the road-level path.
+
+  That single difference changes which RouteLanePlan diagnostic this exercises
+  (docs/virtualdriver/design/route_lane_plan_design.md, section 2 "hole 1" -
+  measured on this exact road/waypoint combination there):
+    - Coarse 2-Waypoint version (merge_required_for_exit_ramp.xosc): the
+      road-level graph search used to auto-complete a route has no adjacent
+      connecting road it can reach from road 0 lane -1 without an explicit
+      hint, so Route::AddWaypoint logs "Skip waypoint ... path not found" and
+      the route is marked invalid outright (Route::IsValid() == false for the
+      whole run) -> RouteLanePlan.hpp's BuildRouteLanePlan() short-circuits on
+      that check FIRST, before any lane-band computation, giving
+      diagnostic=="invalid_route" and an empty target-lane band for the whole
+      run (RouteLaneStatus.reason=="no_plan").
+    - THIS scenario's explicit road-4 Waypoint: Route::AddWaypoint succeeds
+      with no WARN at all (road 4 is one hop from road 0 through junction 1,
+      so RoadPath::Calculate's own "nextRoad == targetRoad" fast path is hit
+      immediately and lane connectivity for that hop is never checked - see
+      RoadManager.cpp) -> Route::IsValid() == true. RouteLanePlan's own
+      backward-propagation (RouteLanePlan.cpp BuildBandsFromSkeleton) then
+      resolves cleanly on its FIRST pass, because it recomputes each road's
+      lane band from the junction's actual <laneLink> topology (road 0 -> lane
+      -4 -> connectingRoad 4 -> lane -1 -> road 2), independent of whatever
+      lane happens to be named on an intermediate Waypoint - so this is
+      expected to need NO LaneIndependentRouter reroute (rerouted == false)
+      and NO non-empty diagnostic; it is a clean, valid plan. The Waypoint's
+      OWN lane on road 0 (-1, where the teleport actually puts the ego) plays
+      no part in that computation at all - RouteLanePlan.hpp's "hole 1" is
+      exactly that Route::AddWaypoint/RoadPath::Calculate never checks it
+      either. The result: target_lanes on road 0 comes out {-4} while the ego
+      is physically sitting in lane -1 the whole time it is on road 0 (VD does
+      not perform autonomous lane changes - vd-func:FUNC-055 is out of scope
+      for RouteLanePlan by design) - on_target_lane == false throughout, and
+      once the ego crosses off road 0 without ever having reached lane -4 (it
+      instead flows through the "through" lanes into junction 1 connection
+      id=1 / road 3, which IS reachable from lane -1), ControllerVirtualDriver
+      records a deviation (deviation_count >= 1). See
+      route_valid_off_target_lane_for_exit_ramp.expectations.yaml for the
+      full derivation and an explicit flag on which of these are read off the
+      code/design doc (high confidence) versus a captured run (not yet done -
+      this scenario predates the telemetry build).
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-08-02T11:00:00"
+               description="VirtualDriver verification: an explicit connecting-road Waypoint makes the route to a junction exit valid, yet the ego starts (and stays) off the exit's required lane"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/highway_example_with_merge_and_split.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-1" offset="0" s="10"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-1" offset="0" s="10"/>
+                              </Position>
+                           </Waypoint>
+                           <!--
+                             Explicit connecting-road Waypoint (junction 1, connection
+                             id=3): road 4 is 100 m long with a single driving lane,
+                             id=-1 (predecessor road0 lane -4, successor road2 lane -1
+                             - see the xodr <road id="4"> block). s=50 sits mid-road,
+                             away from either end's boundary handling. This is the
+                             ONLY change versus merge_required_for_exit_ramp.xosc's
+                             2-Waypoint route.
+                           -->
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="4" laneId="-1" offset="0" s="50"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="-1" offset="0" s="40"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="RouteLaneStory">
+         <Act name="RouteLaneAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="28" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

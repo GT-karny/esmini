@@ -1,5 +1,6 @@
 #include "gt_esmini/control/virtualdriver/policies/CrosswalkPedestrianAware.hpp"
 
+#include "gt_esmini/control/common/OsiIdentity.hpp"
 #include "gt_esmini/control/virtualdriver/PolicyDetail.hpp"
 
 #include "Entities.hpp"
@@ -84,13 +85,13 @@ void PathPointAtS(const std::vector<crosswalk_geom::Pt>& pts, const std::vector<
 }
 }  // namespace
 
-bool CrosswalkBlocked(const std::vector<PedState>&           peds,
-                      const std::vector<crosswalk_geom::Pt>& footprint,
-                      const std::vector<crosswalk_geom::Pt>& ego_path,
-                      const std::vector<double>&             ego_s,
-                      double                                 s_entry,
-                      double                                 s_exit,
-                      const BlockParams&                     p)
+BlockResult CrosswalkBlocked(const std::vector<PedState>&           peds,
+                             const std::vector<crosswalk_geom::Pt>& footprint,
+                             const std::vector<crosswalk_geom::Pt>& ego_path,
+                             const std::vector<double>&             ego_s,
+                             double                                 s_entry,
+                             double                                 s_exit,
+                             const BlockParams&                     p)
 {
     // Passage-band half-width: peds beyond this lateral offset from the ego route
     // are out of the ego's swept path.
@@ -142,7 +143,7 @@ bool CrosswalkBlocked(const std::vector<PedState>&           peds,
                 }
                 // Out of band but stationary / approaching -> still on the roadway; block.
             }
-            return true;  // CROSSING block
+            return {true, ped.osi_id};  // CROSSING block
         }
 
         // WAITING rule: ped just off the footprint, plausibly about to step on.
@@ -150,10 +151,10 @@ bool CrosswalkBlocked(const std::vector<PedState>&           peds,
         if (in_band) continue;  // a ped standing in our lane off-crosswalk is out of scope here
         const double d = crosswalk_geom::DistanceToPolygon(footprint, ped.x, ped.y);
         if (d <= wait_margin)
-            return true;  // WAITING block
+            return {true, ped.osi_id};  // WAITING block
     }
 
-    return false;
+    return {};
 }
 }  // namespace crosswalk_decide
 
@@ -258,6 +259,10 @@ TrafficPolicySnapshot CrosswalkPedestrianAware::Evaluate(const TrafficPolicyCont
         ps.y  = o->pos_.GetY();
         ps.vx = o->pos_.GetVelX();
         ps.vy = o->pos_.GetVelY();
+        // Carry the identity through the flattening. Without this the classifier
+        // answers "someone is crossing" and the id is gone by the time anyone
+        // asks who (OsiIdentity.hpp).
+        ps.osi_id = OsiIdOf(o);
         peds.push_back(ps);
     }
 
@@ -287,7 +292,7 @@ TrafficPolicySnapshot CrosswalkPedestrianAware::Evaluate(const TrafficPolicyCont
 
     // Blocking test for one crosswalk: flatten the per-crosswalk gates and call
     // the pure classifier.
-    auto blocked = [&](const ScannedCrosswalk& cw, bool committed) -> bool {
+    auto blocked = [&](const ScannedCrosswalk& cw, bool committed) -> crosswalk_decide::BlockResult {
         crosswalk_decide::BlockParams p;
         p.ego_half_width         = ego_half_width;
         p.wait_margin            = cfg_.wait_margin;
@@ -298,12 +303,21 @@ TrafficPolicySnapshot CrosswalkPedestrianAware::Evaluate(const TrafficPolicyCont
         return crosswalk_decide::CrosswalkBlocked(peds, cw.footprint, ego_poly, ego_s, cw.s_entry, cw.s_exit, p);
     };
 
-    // Governing crosswalk = nearest (scan is sorted by s_entry) with any blocking ped.
-    auto findGoverning = [&]() -> const ScannedCrosswalk* {
+    // Governing crosswalk = nearest (scan is sorted by s_entry) with any blocking
+    // ped, paired with the ped that made it blocking (the two travel together
+    // because the latch stores both).
+    struct Governing
+    {
+        const ScannedCrosswalk* cw         = nullptr;
+        int                     ped_osi_id = kNoOsiId;
+    };
+    auto findGoverning = [&]() -> Governing {
         for (const ScannedCrosswalk& cw : scan.crosswalks)
-            if (blocked(cw, /*committed=*/false))
-                return &cw;
-        return nullptr;
+        {
+            const crosswalk_decide::BlockResult r = blocked(cw, /*committed=*/false);
+            if (r.blocked) return {&cw, r.ped_osi_id};
+        }
+        return {};
     };
 
     if (committed_)
@@ -313,8 +327,15 @@ TrafficPolicySnapshot CrosswalkPedestrianAware::Evaluate(const TrafficPolicyCont
         if (cur)
         {
             committed_stop_s_ = cur->s_entry;  // pin the stop to the current entry
-            if (blocked(*cur, /*committed=*/true))
+            const crosswalk_decide::BlockResult r = blocked(*cur, /*committed=*/true);
+            if (r.blocked)
+            {
                 release = false;  // still blocked -> hold
+                // Refresh the subject like stop_s: the crosswalk stays latched
+                // while the body doing the blocking can change (one ped finishes
+                // crossing as the next steps on).
+                committed_ped_osi_id_ = r.ped_osi_id;
+            }
         }
         // else: passed it / route changed -> release.
 
@@ -326,40 +347,48 @@ TrafficPolicySnapshot CrosswalkPedestrianAware::Evaluate(const TrafficPolicyCont
             // farther hold cleared (crossing rule defeated). findGoverning() walks
             // nearest-first, so a strictly smaller s_entry means a different,
             // closer, blocked crosswalk.
-            const ScannedCrosswalk* gov = findGoverning();
-            if (gov && gov->s_entry < cur->s_entry - 1.0e-6)
+            const Governing gov = findGoverning();
+            if (gov.cw && gov.cw->s_entry < cur->s_entry - 1.0e-6)
             {
-                committed_road_id_   = gov->road_id;
-                committed_object_id_ = gov->object ? gov->object->GetId() : 0u;
-                committed_stop_s_    = gov->s_entry;
+                committed_road_id_    = gov.cw->road_id;
+                committed_object_id_  = gov.cw->object ? gov.cw->object->GetId() : 0u;
+                committed_cw_osi_id_  = OsiIdOf(gov.cw->object);
+                committed_stop_s_     = gov.cw->s_entry;
+                committed_ped_osi_id_ = gov.ped_osi_id;
             }
         }
         else
         {
-            const ScannedCrosswalk* gov = findGoverning();
-            if (gov)
+            const Governing gov = findGoverning();
+            if (gov.cw)
             {
                 // Re-commit straight to a fresh governing crosswalk.
-                committed_           = true;
-                committed_road_id_   = gov->road_id;
-                committed_object_id_ = gov->object ? gov->object->GetId() : 0u;
-                committed_stop_s_    = gov->s_entry;
+                committed_            = true;
+                committed_road_id_    = gov.cw->road_id;
+                committed_object_id_  = gov.cw->object ? gov.cw->object->GetId() : 0u;
+                committed_cw_osi_id_  = OsiIdOf(gov.cw->object);
+                committed_stop_s_     = gov.cw->s_entry;
+                committed_ped_osi_id_ = gov.ped_osi_id;
             }
             else
             {
-                committed_ = false;
+                committed_            = false;
+                committed_ped_osi_id_ = kNoOsiId;
+                committed_cw_osi_id_  = kNoOsiId;
             }
         }
     }
     else
     {
-        const ScannedCrosswalk* gov = findGoverning();
-        if (gov)
+        const Governing gov = findGoverning();
+        if (gov.cw)
         {
-            committed_           = true;
-            committed_road_id_   = gov->road_id;
-            committed_object_id_ = gov->object ? gov->object->GetId() : 0u;
-            committed_stop_s_    = gov->s_entry;
+            committed_            = true;
+            committed_road_id_    = gov.cw->road_id;
+            committed_object_id_  = gov.cw->object ? gov.cw->object->GetId() : 0u;
+            committed_cw_osi_id_  = OsiIdOf(gov.cw->object);
+            committed_stop_s_     = gov.cw->s_entry;
+            committed_ped_osi_id_ = gov.ped_osi_id;
         }
     }
 
@@ -369,6 +398,18 @@ TrafficPolicySnapshot CrosswalkPedestrianAware::Evaluate(const TrafficPolicyCont
     // into the bare source string — the W2-shaped information loss).
     AddDetail(snap.detail, "gt.crosswalk.object_id", static_cast<int>(committed_object_id_));
     AddDetail(snap.detail, "gt.crosswalk.road_id", static_cast<int>(committed_road_id_));
+    // The same crosswalk as OSI publishes it (StationaryObject.id). `object_id`
+    // above is the OpenDRIVE <object id> and does NOT match it -- in OSI that
+    // number only appears as the `object_id:<n>` source_reference identifier.
+    // Named `object_osi_id` (not `osi_id`) so the whole partner-id family shares
+    // one `_osi_id` suffix a consumer can scan for; the pairing with `object_id`
+    // directly above is then legible without reading this comment.
+    // A <repeat> crosswalk emits further instances under fresh ids; this names
+    // the object, not the instance (OsiIdentity.hpp).
+    AddDetail(snap.detail, "gt.crosswalk.object_osi_id", committed_cw_osi_id_);
+    // WHO is crossing. Previously unanswerable: the pedestrians were flattened
+    // into anonymous positions before the decision was made.
+    AddDetail(snap.detail, "gt.crosswalk.ped_osi_id", committed_ped_osi_id_);
     AddDetail(snap.detail, "gt.crosswalk.stop_s_m", committed_stop_s_);
 
     PolicyConstraint c;

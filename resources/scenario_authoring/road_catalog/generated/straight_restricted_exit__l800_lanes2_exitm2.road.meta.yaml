@@ -1,0 +1,11 @@
+catalog_id: straight_restricted_exit__l800_lanes2_exitm2
+kind: road
+geometry_type: fork_restricted_exit
+generator:
+  script: road_catalog/gen_straight_restricted_exit.py
+  params:
+    length: 800.0
+    lanes: 2
+    exit_lane: -2
+    angle_deg: 20.0
+generated_at_commit: 9488c193

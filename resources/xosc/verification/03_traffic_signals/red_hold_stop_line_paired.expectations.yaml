@@ -1,0 +1,200 @@
+scenario: red_hold_stop_line_paired
+category: 03_traffic_signals
+# Discriminator for stop-line pairing (design/stop_line_stop_target.md),
+# TrafficLightAware side. UPDATED 2026-08-02 twice: first for the
+# stop-line-anchor redesign (pairing anchors on the ENTRY of the junction the
+# governing head resolves to, not the head itself), then for a follow-up fix
+# that changed the anchor to min(that junction entry, the head's own
+# distance) -- RouteSignalScan::ResolveStopLineAnchor -- so the paired stop
+# line can never land past the head (design sec5's "keep the head in scan
+# while stopped" guarantee). See the notes block for the full rule, why it
+# exists, and the re-measured numbers.
+#
+# Road signalized_short_block__b12_hs4_sl8 (head-setback=4, stop-line-setback
+# -a=8) places a paired stop-line signal (type=294, country=OpenDRIVE) 8 m
+# before junction A's entry (s=100) and the junction-A head (id=0) 4 m before
+# that same entry (s=96) -- so the stop line (s=92) sits BEFORE the head, and
+# min(entry, head) picks the head (the near-side case). Pre-pairing (or kill
+# switch off) the ego rests near road 0 s=91 (head margin only); with pairing
+# (this scenario's default config) it rests near s=87 (stop-line based, same
+# numeric result the pure entry-anchor design gave -- the min() fix changes
+# WHICH anchor token is reported here, not the rest position; see notes).
+must:
+  - event: stopped_at_signal
+    signal_id: 0
+    road_id: 0
+    s_range: [84, 89]
+    min_duration: 2.0
+    stop_speed: 0.3
+    require_red: true
+    reason: "停止線ペアリングにより信号ヘッド基準ではなく停止線基準の位置に完全停止"
+  - event: speed_below
+    threshold: 0.5
+    after: { sim_time: 18.0 }
+    before: { sim_time: 25.0 }
+    reason: "赤が続く間は停止を維持する(発進しない) -- red_hold と同型の恒常性チェック"
+notes: >
+  THE ANCHOR RULE (authoritative statement; see also RouteSignalScan.hpp's
+  ResolveStopLineAnchor doc comment and its own unit tests in
+  test_RouteSignalScan.cpp, which pin this exact scenario's numbers -- entry
+  100.0, head 92.0, a stop line at 97.0 -- as the reported-regression case):
+  when a governing head's junction is resolved and reached by this route, the
+  stop-line pairing search anchors on min(junction_entry_ahead,
+  head_dist_ahead), NOT the entry alone. Ties go to the entry
+  (ResolveStopLineAnchor uses `junction_entry_ahead <= head_dist_ahead`). The
+  diagnostic gt.traffic_light.stop_line_anchor reports which side won:
+  "junction_entry" or "head" (or "head" as the untouched initial value when
+  the kill switch is off or no junction/spans match at all -- unrelated to
+  this min(), the pre-existing fallback path).
+    WHY: a near-side head (mounted before the junction it governs, the
+    common case) is always NEARER to the ego than that junction's own entry,
+    so min() picks the head there, and FindPairedStopLineByDistance's own
+    `dist > anchor_dist -> reject` rule then means only stop lines AT OR
+    BEFORE THE HEAD can ever pair -- reinstating, near-side, the exact
+    invariant design sec5 relies on ("stop line before or at the head", true
+    by construction under the pre-redesign single-anchor design, NOT
+    automatically true once the entry became a second candidate anchor). A
+    far-side head (mounted past the junction it governs, see
+    red_hold_stop_line_paired_farside.xosc) is always FARTHER from the ego
+    than that junction's entry, so min() picks the entry there instead --
+    preserving the entry-anchor redesign's actual purpose (pairing a stop
+    line that sits on the near approach, nowhere near the far-side head's own
+    position). One rule, two regimes, selected automatically per asset by
+    which distance is smaller; no separate configuration knob.
+  Both arms RE-measured on 2026-08-02 (second pass, after the min() fix) with
+  dt 0.05, max-time 30, policies:[traffic_light], in-process via
+  GT_esminiLib.dll. The OFF arm is NOT reachable through this manifest (the
+  committed virtual_driver.json kill switch tl_stop_line_aware_enabled
+  defaults true) -- run standalone with a ConfigFile override
+  (tl_stop_line_aware_enabled=false), same idiom as before; recorded here,
+  not part of any gate.
+    ON arm (this scenario's actual default config): gt.traffic_light.
+      stop_line_anchor="head" (CHANGED from "junction_entry" under the
+      pure-entry-anchor design: head_dist_ahead=96 < junction_entry_ahead=
+      100, so min() now picks the head), stop_line_used=true. True dwell
+      bottom (speed exactly 0) at road 0 s=86.9706 (front_bumper.s=90.8706),
+      stable for 11.85s (t=[13.20,25.05]) -- IDENTICAL position to the
+      pre-min-fix measurement. This is expected, not a coincidence:
+      FindPairedStopLineByDistance still finds the SAME stop line (s=92, 4 m
+      before the head at s=96, well inside window) regardless of which
+      anchor found it eligible, and the actual "wanted" target is computed
+      from the paired candidate's OWN distance, never from the anchor value
+      itself -- the min() fix only ever changes candidate ELIGIBILITY, never
+      the resulting position once a candidate is accepted either way. This
+      asset's stop line was always before the head (8 m from entry vs 4 m
+      head-setback), so it was never at risk of exclusion.
+    OFF arm (tl_stop_line_aware_enabled=false): gt.traffic_light.stop_line_
+      anchor="head" (the pre-pairing default token; unrelated to the min()
+      fix here, since the whole anchor-selection block is skipped by the
+      kill switch), stop_line_used=false, dist_m=5.004. True dwell bottom at
+      road 0 s=90.9959 (front_bumper.s=94.8959), stable 11.55s. IDENTICAL to
+      the pre-min-fix measurement (this arm never reaches ResolveStopLineAnchor
+      at all).
+    Re-verified with gt_sim_test.py assert against this same file: ON passes
+    both matchers (stopped_at_signal longest-stop 11.85s, speed_below max
+    0.01); OFF fails ONLY stopped_at_signal ("... = 0.00s", i.e. never sits
+    in [84,89], not that it never stops) while speed_below still passes
+    (max 0.01) -- the OFF arm fails for the intended reason (wrong rest
+    position), not because the ego fails to stop.
+    Delta (OFF - ON) = 4.0253 m, unchanged from the pre-min-fix measurement,
+    a clean, non-overlapping discriminator given s_range's ~2 m margin on
+    both sides (OFF sits 1.996 m above [84,89]'s upper bound).
+  Window-boundary study, RE-DONE after the min() fix (design sec9.2; NOT part
+  of this manifest -- reusing the same scratch --out-dir assets generated
+  earlier with gen_signalized_short_block.py --stop-line-setback-a <N>,
+  head-setback left at the 8.0 default so the head sits at road 0 s=92,
+  junction A entry at s=100; never committed). Re-running the SAME four
+  assets (3/6/10/12 m setback from the ENTRY) against the min()-fixed DLL
+  gives a DIFFERENT split than the pure-entry-anchor pass, because for a
+  near-side head the entry basis this study originally swept is no longer
+  the one that decides eligibility -- the head basis is, per the rule above.
+  Restated in the quantity that now actually governs (distance from the
+  HEAD at s=92, back to sec9.2's original pre-redesign framing):
+    setback 3 m from entry (line s=97, i.e. 5 m PAST the head at s=92):
+      stop_line_anchor=head, stop_line_used=FALSE (changed from true
+      pre-min-fix) -- min() picks head_dist_ahead=92 as the anchor, and
+      FindPairedStopLineByDistance rejects a candidate at 97 outright
+      (97 > 92), before the window check even runs. Dwell bottom road 0
+      s=86.9706, stable 11.85s -- BIT-IDENTICAL to the true kill-switch-OFF
+      arm above (same fallback code path, design sec4). See "N=3 hazard"
+      below for the full before/after story.
+    setback 6 m from entry (line s=94, i.e. 2 m PAST the head): same
+      exclusion as setback 3 m (94 > 92) -- stop_line_anchor=head,
+      stop_line_used=FALSE (changed from true pre-min-fix, where it paired
+      via the entry basis at dwell bottom s=88.9958). Dwell bottom road 0
+      s=86.9706, stable 11.85s -- also bit-identical to the OFF arm and to
+      setback 3 m. Confirms the min() fix is not merely "the same window,
+      shifted": it categorically excludes every stop line past the head, no
+      window value changes that.
+    setback 10 m from entry (line s=90, i.e. 2 m BEFORE the head): eligible
+      either basis (90 <= 92 head-anchor, and 2 m is inside window).
+      stop_line_anchor=head (changed from junction_entry token; UNCHANGED
+      position). Dwell bottom road 0 s=84.9709, stable 12.00s -- identical
+      to the pre-min-fix measurement.
+    setback 12 m from entry (line s=88, i.e. 4 m BEFORE the head -- this IS
+      the original signalized_short_block__b12_sl4 asset's stop-line
+      position): stop_line_anchor=head, stop_line_used=TRUE (changed from
+      FALSE pre-min-fix, where 12 m exceeded the pure entry-anchor window).
+      4 m from the head is well inside the 10 m window, so this now PAIRS.
+      Dwell bottom road 0 s=82.9710, stable 12.15s -- this is the exact
+      numeric result the ORIGINAL (pre-anchor-redesign, pre-f2fd312e)
+      implementation produced for this same asset (see the version-control
+      history of this file), confirming the min() fix reproduces the
+      original near-side behaviour bit-for-bit whenever the head is nearer
+      than the entry, exactly as intended.
+    Net effect: for a near-side head, the window question is (again) "is
+    10 m enough measured from the HEAD", not from the entry -- sec9.2's
+    original framing, now restored as the operative one for this
+    regime. The one real-world sample on file (multi_intersections.xodr
+    road196, 4 m head-to-line) sits inside it with the same headroom as
+    before the whole redesign; nothing about that calibration changed.
+  N=3 hazard: CONFIRMED RESOLVED. Pre-min-fix, setback 3 m from entry (line
+    at s=97, past the head at s=92) reproduced a real, reproducible
+    scan-retention edge case: pairing succeeded via the entry-only anchor,
+    the resulting "wanted" target (94, pre-margin) sat past the head's own
+    mounting s, the ego's origin crossed s=92 while still closing on that
+    target, RouteSignalScan::ScanSignalsAhead's forward-only scan then
+    dropped the head entirely, and control passed to head_b with a
+    JunctionStopGuard PULL_BACK re-target -- the ego, already essentially
+    stopped near s=92, was measured still creeping forward toward s=95.01 at
+    the scenario's own t=25 stop trigger, not yet resettled. Re-measured
+    2026-08-02 against the min()-fixed DLL with the SAME scratch asset (no
+    regeneration needed, this is a runtime policy change, not a road-geometry
+    one): stop_line_used=false from the first frame the anchor is evaluated
+    (the candidate at 97 is rejected outright, 97 > head anchor 92), the ego
+    decelerates smoothly to the SAME stable position the true OFF arm reaches
+    (road 0 s=86.9706), and remains there for 11.85s (t=[13.20,25.05]) with
+    NO re-target, NO renewed motion, and no "signal_id" change away from 0
+    anywhere in the captured telemetry. The creep is gone because the defect
+    it depended on (a paired target landing past the head) can no longer
+    occur at all: ResolveStopLineAnchor's min() rejects any such candidate
+    before FindPairedStopLineByDistance's window check is even reached, so
+    design sec5's "keep the head in scan while stopped" guarantee, which the
+    pure entry-anchor design had silently stopped enforcing, now holds again
+    by construction, for every near-side asset, not just this one.
+  Real-world calibration point (unaffected by the min() fix, still valid):
+    multi_intersections.xodr road196's head (signal 290 or 291, s=0.0) sits
+    EXACTLY at junction 146's entry (road196's own predecessor link is
+    elementType="junction" elementId="146" with no gap) -- so head_dist_ahead
+    and junction_entry_ahead are equal there (a tie, which ResolveStopLineAnchor
+    resolves to the "junction_entry" token, though the DISTANCE used is
+    identical either way at a tie). The stop line (signal 292, s=4.0) is 4.0 m
+    from both, unchanged by which token wins.
+  Conclusion on tl_stop_line_window=10.0 (design sec9.2): still keep the
+    default, and the reasoning is now closer to the ORIGINAL pre-redesign
+    reasoning than the entry-only-anchor pass concluded. For a near-side head
+    (the common case, and the only kind on file today) the window is measured
+    from the head again, exactly as sec9.2 originally posed the question, and
+    the one real sample (4 m) sits well inside it. For a far-side head (see
+    red_hold_stop_line_paired_farside.xosc/.expectations.yaml) the window is
+    measured from the junction entry, and THAT question is still not fully
+    settled by real-world data: the OpenDRIVE junction ENTRY is a MODELLING
+    boundary (where a connecting-road link starts), not the painted edge of
+    the intersection, and this repository has no real far-side asset with an
+    authored curb reference to check 10 m against. A future reviewer of this
+    value must treat it as two separate questions bundled behind one number
+    by min(): "is 10 m enough from the head" (well-supported, one real
+    sample, unchanged by any of this) and "is 10 m enough from the entry"
+    (NOT well-supported -- do not assume the entry sits close to the real
+    curb just because the one on-file sample happens to coincide with a
+    head).

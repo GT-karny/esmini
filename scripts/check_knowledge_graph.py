@@ -83,6 +83,7 @@ GATE_CATALOG_YAML = KNOWLEDGE_DIR / "gate_catalog.yaml"
 REQ_CATALOG_YAML = KNOWLEDGE_DIR / "requirements_vd_ad.yaml"
 SCENE_CATALOG_YAML = KNOWLEDGE_DIR / "scene_catalog_vd_ad.yaml"
 FUNC_CATALOG_YAML = KNOWLEDGE_DIR / "function_catalog_vd_ad.yaml"
+COMPONENT_CATALOG_YAML = KNOWLEDGE_DIR / "component_catalog_vd.yaml"
 CLAIM_DOMAINS_YAML = KNOWLEDGE_DIR / "claim_domains.yaml"
 
 # --- 値域（capability_model.md §2.2 / §2.3 / §4）---------------------------
@@ -195,8 +196,23 @@ def load_catalogs() -> dict:
         "scene": rows(SCENE_CATALOG_YAML, "scenes"),
         "scene-modifier": rows(SCENE_CATALOG_YAML, "modifiers"),
         "vd-func": rows(FUNC_CATALOG_YAML, "functions"),
+        "vd-component": rows(COMPONENT_CATALOG_YAML, "components"),
         "domain": rows(CLAIM_DOMAINS_YAML, "domains"),
     }
+
+
+def _ns_re(ns: dict):
+    """namespace の id_pattern を返す。本体が差し込む `_re` が無ければ自前でコンパイル。"""
+    rx = ns.get("_re")
+    if rx is not None:
+        return rx
+    pat = ns.get("id_pattern")
+    if not pat:
+        return None
+    try:
+        return re.compile(pat)
+    except re.error:
+        return None
 
 
 def check_catalog_values(catalogs: dict, namespaces: dict, err) -> None:
@@ -242,6 +258,72 @@ def check_catalog_values(catalogs: dict, namespaces: dict, err) -> None:
         elif str(face) not in FACE_VALUES:
             err(f"namespace '{slug}': 未知の face '{face}' "
                 f"(許容: {'/'.join(sorted(FACE_VALUES))})")
+
+    # acceptance_ladder（段階受入）の構造検査。
+    # hard にした理由: 段は「要求のどこまで出来ているか」の真実源で、graph.yaml の
+    # verifies 辺（要求単位）では表現できない粒度を一手に引き受ける。ここが壊れると
+    # 辺だけが残り「要求全体が検証済み」と読める＝過大申告が黙って復活する。
+    # `_re` は本体フローが後から差し込むコンパイル済みパターン。実証ハーネスは生 YAML を
+    # 渡すので存在しない。無い場合に黙って検査を飛ばすと**検知器が沈黙する**ため、
+    # id_pattern から自前でコンパイルする（2026-08-02 の実証で MISS として露見した）。
+    matcher_re = _ns_re(namespaces.get("matcher", {}))
+    for i, r in enumerate(catalogs["req-vd-ad"]):
+        ladder = r.get("acceptance_ladder")
+        if ladder is None:
+            continue
+        where = f"requirements_vd_ad.yaml requirements[{i}] ({r.get('id', '?')})"
+        if not isinstance(ladder, list) or not ladder:
+            err(f"{where}: acceptance_ladder はリストで1段以上必要です")
+            continue
+        for j, s in enumerate(ladder):
+            sw = f"{where} ladder[{j}]"
+            if not str(s.get("step") or "").strip():
+                err(f"{sw}: step が空です")
+            if not str(s.get("claim") or "").strip():
+                err(f"{sw}: claim が空です")
+            if not isinstance(s.get("met"), bool):
+                err(f"{sw}: met は bool が必須です（'true' 等の文字列は不可）")
+            vb = s.get("verified_by")
+            if not isinstance(vb, list):
+                err(f"{sw}: verified_by はリストが必須です（未検証なら空リスト）")
+                continue
+            for ref in vb:
+                if not isinstance(ref, str) or not ref.startswith("matcher:"):
+                    err(f"{sw}: verified_by の '{ref}' は 'matcher:<id>' 形式が必須です")
+                elif matcher_re and not matcher_re.fullmatch(ref.split(":", 1)[1]):
+                    err(f"{sw}: verified_by の matcher '{ref}' は matcher 名前空間の "
+                        "id_pattern 外です（未登録の matcher）")
+            # 未達の段に判定資産が付くのは「検証済みなのに未達」＝台帳の自己矛盾。
+            if vb and s.get("met") is False:
+                err(f"{sw}: met: false なのに verified_by があります"
+                    "（判定資産が通っているなら met を上げるか、資産の対象段を見直す）")
+
+    # function_catalog の by:（実装元）が名前空間付きIDであることを強制する。
+    # hard にした理由: 2026-08-02 まで by: には 'planner'/'driver' という**未登録の擬似ID**が
+    # 6件入っていた。ITrafficPolicy 以外の実装を指す名前空間が無かったことの露出で、
+    # RouteLanePlan の realizes 辺が張れない事態として表面化するまで誰も気づかなかった。
+    # 自由文字列を許すと同じ穴が黙って再発する。'road' だけは「VD の実装ユニットではなく
+    # esmini RoadManager 由来」を意味する統制語として明示的に許す。
+    component_ids = {c.get("id") for c in catalogs["vd-component"]}
+    policy_re = _ns_re(namespaces.get("policy", {}))
+    for i, f in enumerate(catalogs["vd-func"]):
+        by = f.get("by")
+        if by is None or by == "" or by == "road":
+            continue
+        where = f"function_catalog_vd_ad.yaml functions[{i}] ({f.get('id', '?')})"
+        if ":" not in str(by):
+            err(f"{where}: by: '{by}' は名前空間付きIDではありません"
+                "（'vd-component:<slug>' / 'policy:<slug>' / 'road' / 空 のいずれか）")
+            continue
+        slug, local = str(by).split(":", 1)
+        if slug == "vd-component":
+            if local not in component_ids:
+                err(f"{where}: by: の '{local}' が component_catalog_vd.yaml にありません")
+        elif slug == "policy":
+            if policy_re and not policy_re.fullmatch(local):
+                err(f"{where}: by: の policy '{local}' は policy 名前空間の id_pattern 外です")
+        else:
+            err(f"{where}: by: の名前空間 '{slug}' は実装元として許容されていません")
 
 
 # --- 行定義（claim_domains.yaml）の検査語彙 --------------------------------
@@ -1071,6 +1153,8 @@ def check() -> int:
             err(f"concept_vocabulary.yaml: duplicate concept '{cid}'")
         concept_ids.add(cid)
 
+    component_ids = {c.get("id") for c in load_catalogs()["vd-component"]}
+
     # -- 2..5 edges -----------------------------------------------------------
     def check_ref(ref: str, where: str):
         if not isinstance(ref, str) or ":" not in ref:
@@ -1090,6 +1174,11 @@ def check() -> int:
         if slug == "openx" and local not in concept_ids:
             err(f"{where}: openx concept '{local}' is not in "
                 f"concept_vocabulary.yaml (add it there first)")
+        # vd-component は内容 slug パターンなので、正規表現だけでは何でも通ってしまう
+        # （openx と同型の問題）。台帳の実在を要求しないと catalog が飾りになる。
+        if slug == "vd-component" and local not in component_ids:
+            err(f"{where}: vd-component '{local}' is not in "
+                f"component_catalog_vd.yaml (add it there first)")
 
     seen = set()
     edges = graph.get("edges", [])

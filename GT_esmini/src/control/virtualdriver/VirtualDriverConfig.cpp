@@ -71,8 +71,23 @@ const DoubleField kDoubleFields[] = {
     {"resume_merge_duration_min_s", &VirtualDriverConfig::resume_merge_duration_min_s},
     {"resume_merge_duration_max_s", &VirtualDriverConfig::resume_merge_duration_max_s},
     {"resume_merge_min_offset_m", &VirtualDriverConfig::resume_merge_min_offset_m},
+    // AD lane-change initiation (vd-func:FUNC-055).
+    {"lane_change_lead_time_s", &VirtualDriverConfig::lane_change_lead_time_s},
+    {"lane_change_min_lead_distance_m", &VirtualDriverConfig::lane_change_min_lead_distance_m},
+    {"lane_change_reserve_distance_m", &VirtualDriverConfig::lane_change_reserve_distance_m},
+    {"lane_change_gap_min_m", &VirtualDriverConfig::lane_change_gap_min_m},
+    {"lane_change_gap_headway_lead_s", &VirtualDriverConfig::lane_change_gap_headway_lead_s},
+    {"lane_change_gap_headway_rear_s", &VirtualDriverConfig::lane_change_gap_headway_rear_s},
+    {"lane_change_gap_ttc_min_s", &VirtualDriverConfig::lane_change_gap_ttc_min_s},
+    {"lane_change_lateral_accel_comfort", &VirtualDriverConfig::lane_change_lateral_accel_comfort},
+    {"lane_change_indicator_lead_time_s", &VirtualDriverConfig::lane_change_indicator_lead_time_s},
+    // AD overtake maneuver (vd-func:FUNC-056). Only 5 new keys -- see design doc section 8.
+    {"overtake_max_pass_time_s", &VirtualDriverConfig::overtake_max_pass_time_s},
+    {"overtake_oncoming_lookahead_m", &VirtualDriverConfig::overtake_oncoming_lookahead_m},
+    {"overtake_oncoming_safety_factor", &VirtualDriverConfig::overtake_oncoming_safety_factor},
     {"control_point_offset", &VirtualDriverConfig::control_point_offset},
     {"control_point_min_speed", &VirtualDriverConfig::control_point_min_speed},
+    {"indicator_min_distance_m", &VirtualDriverConfig::indicator_min_distance_m},
     {"indicator_lead_time", &VirtualDriverConfig::indicator_lead_time},
     {"indicator_min_on_time", &VirtualDriverConfig::indicator_min_on_time},
     {"idm_time_headway", &VirtualDriverConfig::idm_time_headway},
@@ -86,6 +101,8 @@ const DoubleField kDoubleFields[] = {
     {"tl_lookahead", &VirtualDriverConfig::tl_lookahead},
     {"tl_yellow_decel", &VirtualDriverConfig::tl_yellow_decel},
     {"tl_stop_margin", &VirtualDriverConfig::tl_stop_margin},
+    {"tl_junction_clearance", &VirtualDriverConfig::tl_junction_clearance},
+    {"tl_stop_line_window", &VirtualDriverConfig::tl_stop_line_window},
     {"sign_lookahead", &VirtualDriverConfig::sign_lookahead},
     {"stop_hold_time", &VirtualDriverConfig::stop_hold_time},
     {"stop_detect_speed", &VirtualDriverConfig::stop_detect_speed},
@@ -94,6 +111,7 @@ const DoubleField kDoubleFields[] = {
     {"creep_advance", &VirtualDriverConfig::creep_advance},
     {"yield_creep_speed", &VirtualDriverConfig::yield_creep_speed},
     {"sign_stop_margin", &VirtualDriverConfig::sign_stop_margin},
+    {"sign_stop_line_window", &VirtualDriverConfig::sign_stop_line_window},
     {"conflict_lookahead", &VirtualDriverConfig::conflict_lookahead},
     {"conflict_step", &VirtualDriverConfig::conflict_step},
     {"conflict_lane_margin", &VirtualDriverConfig::conflict_lane_margin},
@@ -158,6 +176,9 @@ const BoolField kBoolFields[] = {
     {"policy_crosswalk_enabled", &VirtualDriverConfig::policy_crosswalk_enabled},
     {"policy_junction_priority_enabled", &VirtualDriverConfig::policy_junction_priority_enabled},
     {"policy_aeb_enabled", &VirtualDriverConfig::policy_aeb_enabled},
+    {"tl_junction_guard_enabled", &VirtualDriverConfig::tl_junction_guard_enabled},
+    {"tl_stop_line_aware_enabled", &VirtualDriverConfig::tl_stop_line_aware_enabled},
+    {"sign_stop_line_aware_enabled", &VirtualDriverConfig::sign_stop_line_aware_enabled},
     {"crosswalk_yield_to_waiting", &VirtualDriverConfig::crosswalk_yield_to_waiting},
     {"crosswalk_ped_signal_aware", &VirtualDriverConfig::crosswalk_ped_signal_aware},
     {"override_enabled", &VirtualDriverConfig::override_enabled},
@@ -166,6 +187,9 @@ const BoolField kBoolFields[] = {
     {"ffb_target_track_enabled", &VirtualDriverConfig::ffb_target_track_enabled},   // F7b
     {"ad_steering_envelope_enabled", &VirtualDriverConfig::ad_steering_envelope_enabled},  // feature:F7
     {"resume_merge_enabled", &VirtualDriverConfig::resume_merge_enabled},  // feature:F7
+    {"lane_change_initiation_enabled", &VirtualDriverConfig::lane_change_initiation_enabled},  // vd-func:FUNC-055
+    {"overtake_enabled", &VirtualDriverConfig::overtake_enabled},  // vd-func:FUNC-056
+    {"overtake_use_opposing_lane_enabled", &VirtualDriverConfig::overtake_use_opposing_lane_enabled},  // vd-func:FUNC-056
 };
 
 const IntField kIntFields[] = {
@@ -312,6 +336,43 @@ ResumeMergeConfig VirtualDriverConfig::ResumeMergeCfg() const
     return c;
 }
 
+LaneChangeInitiationConfig VirtualDriverConfig::LaneChangeInitiationCfg() const
+{
+    LaneChangeInitiationConfig c;
+    c.enabled             = lane_change_initiation_enabled;
+    c.lead_time_s         = lane_change_lead_time_s;
+    c.min_lead_distance_m = lane_change_min_lead_distance_m;
+    c.reserve_distance_m  = lane_change_reserve_distance_m;
+    c.gap_min_m           = lane_change_gap_min_m;
+    c.gap_headway_lead_s  = lane_change_gap_headway_lead_s;
+    c.gap_headway_rear_s  = lane_change_gap_headway_rear_s;
+    c.gap_ttc_min_s       = lane_change_gap_ttc_min_s;
+    c.indicator_lead_time_s = lane_change_indicator_lead_time_s;
+    return c;
+}
+
+ResumeMergeConfig VirtualDriverConfig::LaneChangeMergeCfg() const
+{
+    ResumeMergeConfig c;
+    c.enabled        = true;  // outer gate is lane_change_initiation_enabled (see header doc)
+    c.a_lat_comfort  = lane_change_lateral_accel_comfort;
+    c.duration_min_s = kResumeMergeDefaultDurationMinS;  // reuse resume-merge's OWN defaults, not
+    c.duration_max_s = kResumeMergeDefaultDurationMaxS;  // resume_merge_duration_*/min_offset_m --
+    c.min_offset_m   = kResumeMergeDefaultMinOffsetM;    // the two features stay independently tunable
+    return c;
+}
+
+OvertakeConfig VirtualDriverConfig::OvertakeCfg() const
+{
+    OvertakeConfig c;
+    c.enabled                    = overtake_enabled;
+    c.use_opposing_lane_enabled  = overtake_use_opposing_lane_enabled;
+    c.max_pass_time_s            = overtake_max_pass_time_s;
+    c.oncoming_lookahead_m       = overtake_oncoming_lookahead_m;
+    c.oncoming_safety_factor     = overtake_oncoming_safety_factor;
+    return c;
+}
+
 AutoIndicatorConfig VirtualDriverConfig::IndicatorConfig() const
 {
     AutoIndicatorConfig c;
@@ -340,6 +401,18 @@ TrafficLightAwareConfig VirtualDriverConfig::TrafficLightConfig() const
     c.params.yellow_decel = tl_yellow_decel;
     c.lookahead           = tl_lookahead;
     c.stop_margin         = tl_stop_margin;
+
+    c.junction_guard_enabled = tl_junction_guard_enabled;
+    // Pulling a stop back to before a junction is still "halt at the line", so it
+    // reuses tl_stop_margin rather than inventing a second standoff; the
+    // feasibility test uses the planner's comfort_decel, which is the
+    // deceleration that will actually shape the approach (see the header).
+    c.junction.stop_margin    = tl_stop_margin;
+    c.junction.exit_clearance = tl_junction_clearance;
+    c.junction.decel          = comfort_decel;
+
+    c.stop_line_aware_enabled = tl_stop_line_aware_enabled;
+    c.stop_line_window        = tl_stop_line_window;
     return c;
 }
 
@@ -354,6 +427,9 @@ StopYieldSignAwareConfig VirtualDriverConfig::StopYieldConfig() const
     c.yield_creep_speed      = yield_creep_speed;
     c.lookahead              = sign_lookahead;
     c.stop_margin            = sign_stop_margin;
+
+    c.stop_line_aware_enabled = sign_stop_line_aware_enabled;
+    c.stop_line_window        = sign_stop_line_window;
     return c;
 }
 

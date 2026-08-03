@@ -207,14 +207,64 @@ def lane_pos(
     return xosc.LanePosition(s, offset, str(lane_id), str(road_id))
 
 
-def make_route(name: str, waypoints: list[xosc.LanePosition]) -> xosc.Route:
+def _bridge_junction_gaps(
+    waypoints: list[xosc.LanePosition], xodr_path: Path
+) -> list[xosc.LanePosition]:
+    """Insert a Waypoint for any OpenDRIVE junction connecting road skipped
+    between two consecutive waypoints (see check_route_waypoints.py / issue #31:
+    RoadManager::Route::AddWaypoint fails path resolution and silently
+    truncates the route if the connecting road has no Waypoint of its own).
+    """
+    import sys
+
+    scripts_dir = repo_root() / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    from check_route_waypoints import parse_xodr  # noqa: PLC0415
+
+    junction_of, adjacent, transitions, road_pair_candidates, road_length = parse_xodr(
+        xodr_path
+    )
+
+    out = [waypoints[0]]
+    for prev, cur in zip(waypoints, waypoints[1:]):
+        road_a, lane_a = prev.road_id, prev.lane_id
+        road_b, lane_b = cur.road_id, cur.lane_id
+        if road_a != road_b and road_b not in adjacent.get(road_a, ()):
+            exact = transitions.get((road_a, lane_a, road_b, lane_b))
+            if exact is None:
+                candidates = road_pair_candidates.get((road_a, road_b), set())
+                if len(candidates) == 1:
+                    rid = next(iter(candidates))
+                    own_lane = next(v[1] for v in transitions.values() if v[0] == rid)
+                    exact = (rid, own_lane)
+            if exact is not None:
+                rid, own_lane = exact
+                mid_s = round(road_length.get(rid, 0.0) / 2.0, 2)
+                out.append(lane_pos(int(rid), int(own_lane), mid_s))
+            # else: no unambiguous connecting road found (e.g. a virtual-junction
+            # anchor link) -- leave the gap for the caller/generator to resolve
+            # explicitly rather than guessing.
+        out.append(cur)
+    return out
+
+
+def make_route(
+    name: str, waypoints: list[xosc.LanePosition], xodr_path: Path | None = None
+) -> xosc.Route:
     """Build an explicit (deterministic) Route through the given waypoints.
 
     All waypoints use routeStrategy="shortest" — the same strategy the
     hand-authored junction scenarios use (05_anticipation/*.xosc). The route is
     what makes NPC/ego junction traversal deterministic instead of leaving the
     turn choice to esmini's default junction selection.
+
+    Pass `xodr_path` (the generator's own road file) to auto-insert a Waypoint
+    for any skipped junction connecting road between consecutive waypoints —
+    see `_bridge_junction_gaps`.
     """
+    if xodr_path is not None:
+        waypoints = _bridge_junction_gaps(waypoints, xodr_path)
     route = xosc.Route(name)
     for wp in waypoints:
         route.add_waypoint(wp, xosc.RouteStrategy.shortest)

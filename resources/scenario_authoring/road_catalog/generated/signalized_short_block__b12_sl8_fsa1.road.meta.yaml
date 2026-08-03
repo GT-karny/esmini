@@ -1,0 +1,36 @@
+catalog_id: signalized_short_block__b12_sl8_fsa1
+kind: road
+geometry_type: G4+G4
+signage: traffic_light x2 + stop_line + farside_head_a(controller-wired)
+layout:
+  ego_path:
+  - 0
+  - 100
+  - 2
+  - 200
+  - 4
+  junction_a_id: 100
+  junction_b_id: 200
+  block_road_id: 2
+  light_junction_a_farside:
+    road: 2
+    s: 1.0
+    resolved_via: controller_chain (SignalJunctionResolver path (a))
+  light_junction_b:
+    road: 2
+    s: 3.0
+  stop_line_junction_a:
+    road: 0
+    s: 92.0
+    offset_from_junction_a_entry: 8.0
+generator:
+  script: road_catalog/gen_signalized_short_block.py
+  params:
+    block_length: 12.0
+    leg_length: 100.0
+    lanes: 1
+    head_setback: 8.0
+    head_offset: 3.0
+    head_farside_offset_a: 1.0
+    stop_line_setback_a: 8.0
+generated_at_commit: 42cea738

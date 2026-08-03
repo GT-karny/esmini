@@ -77,6 +77,7 @@ from authoring_common import (  # noqa: E402
     make_npc_vehicle,
     make_route,
     make_virtual_driver_controller,
+    repo_root,
     write_meta_yaml,
     write_scenario,
 )
@@ -177,6 +178,14 @@ def build_variant(
     catalog_id = f"08_unsignalized_junction__p{idx:03d}"
     topo = _TOPOLOGY[(junction, ego_on_priority)]
     roadfile_rel = f"../../road_catalog/generated/{junction}.xodr"
+    roadfile_abs = (
+        repo_root()
+        / "resources"
+        / "scenario_authoring"
+        / "road_catalog"
+        / "generated"
+        / f"{junction}.xodr"
+    )
 
     # --- entities -------------------------------------------------------
     entities = xosc.Entities()
@@ -195,6 +204,7 @@ def build_variant(
     ego_route = make_route(
         "ego_route",
         [lane_pos(ego_er, ego_el, EGO_TELEPORT_S), lane_pos(ego_xr, ego_xl, 80.0)],
+        xodr_path=roadfile_abs,
     )
     add_routed_actor_init(
         init, "Ego", lane_pos(ego_er, ego_el, EGO_TELEPORT_S), ego_route, SPEED
@@ -211,6 +221,7 @@ def build_variant(
             lane_pos(cross_er, cross_el, CROSS_TELEPORT_S),
             lane_pos(cross_xr, cross_xl, 80.0),
         ],
+        xodr_path=roadfile_abs,
     )
     # Teleport the cross vehicle at rest; launch it late via the Story Act.
     add_routed_actor_init(

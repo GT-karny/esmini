@@ -32,6 +32,7 @@ Python utility scripts. Always execute via `DriverScript/.venv/Scripts/python.ex
 | `run_gt_tests.ps1` | GT unit gate (ctest `test_ScenarioReaderParsing`; `-IncludeIntegration` for known-broken sets) |
 | `run_regression_gate.ps1` | Pre-merge ladder: unit gate → ODR quick → VirtualDriver behavioral batch (see root CLAUDE.md §5) |
 | `build_package.ps1` | Distribution package pipeline (single source of truth for `/package`) |
+| `check_black_format.py` | Reproduces the CI `lint` job's black-format check locally. Reads the file selection and black flags from `.pre-commit-config.yaml` (no duplication → cannot drift from CI); warns if local black ≠ the `support/python/requirements.txt` pin. No args = every tracked file (pre-push check); `--staged` = indexed content only, used by the blocking `git-hooks/pre-commit`. Read-only — it prints a fix command scoped to the offenders, never a repo-wide sweep. |
 
 ### Fork Governance (Clean Core / upstream sync)
 | Script | Role |

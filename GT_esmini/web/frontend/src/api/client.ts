@@ -345,6 +345,41 @@ export interface VirtualDriverConfig {
   resume_merge_duration_min_s?: number;
   resume_merge_duration_max_s?: number;
   resume_merge_min_offset_m?: number;
+  // vd-func:FUNC-055 — AD-initiated lane change (REQ-AD-017 acceptance ladder
+  // step c). When the route requires a lane the ego is not on, commits to a
+  // lane change one hop at a time once the connection deadline nears, gated
+  // by gap acceptance against the target lane's neighbors. Default OFF — see
+  // docs/virtualdriver/design/lane_change_initiation.md.
+  lane_change_initiation_enabled?: boolean;
+  lane_change_lead_time_s?: number;
+  lane_change_min_lead_distance_m?: number;
+  lane_change_reserve_distance_m?: number;
+  lane_change_gap_min_m?: number;
+  lane_change_gap_headway_lead_s?: number;
+  lane_change_gap_headway_rear_s?: number;
+  lane_change_gap_ttc_min_s?: number;
+  lane_change_lateral_accel_comfort?: number;
+  // Pre-arms the turn signal v*lane_change_indicator_lead_time_s before the
+  // same connection-deadline threshold used above, independent of gap
+  // acceptance. Separate from indicator_lead_time (intersection turns) —
+  // see docs/virtualdriver/design/lane_change_initiation.md §11-10.
+  lane_change_indicator_lead_time_s?: number;
+  // vd-func:FUNC-056 — AD overtake maneuver. Passes a slower same-lane lead
+  // when the pass fits within overtake_max_pass_time_s, gated by a route-
+  // budget guard (a route connection is never sacrificed for a pass) and
+  // ordinary gap acceptance (or, for the opposing-lane case, a dedicated
+  // closing-speed check). Default OFF, independent of
+  // lane_change_initiation_enabled — see
+  // docs/virtualdriver/design/overtake_maneuver.md.
+  overtake_enabled?: boolean;
+  // Independent second gate: allows using the OPPOSING lane on a
+  // single-lane-each-way road when no same-direction passing lane exists.
+  // Default OFF (vd-func:FUNC-030 passing-prohibition-zone awareness is not
+  // yet implemented).
+  overtake_use_opposing_lane_enabled?: boolean;
+  overtake_max_pass_time_s?: number;
+  overtake_oncoming_lookahead_m?: number;
+  overtake_oncoming_safety_factor?: number;
   control_point_offset?: number;
   control_point_min_speed?: number;
   // Input source for the run. "network" (default when never configured — see
@@ -369,6 +404,16 @@ export interface VirtualDriverConfig {
   tl_lookahead?: number;
   tl_yellow_decel?: number;
   tl_stop_margin?: number;
+  tl_junction_guard_enabled?: boolean;
+  tl_junction_clearance?: number;
+  // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md):
+  // for the governing head only, swaps its stop target for a paired stop-line
+  // signal found within tl_stop_line_window before the anchor. The anchor is
+  // min(the entry of the junction the head governs, the head itself) when
+  // that junction is resolved and reached by this route; otherwise the
+  // anchor is the head itself. OFF restores head_s - tl_stop_margin exactly.
+  tl_stop_line_aware_enabled?: boolean;
+  tl_stop_line_window?: number;
   // 3c stop / yield sign
   sign_lookahead?: number;
   stop_hold_time?: number;
@@ -378,6 +423,14 @@ export interface VirtualDriverConfig {
   creep_advance?: number;
   yield_creep_speed?: number;
   sign_stop_margin?: number;
+  // Stop-line pairing (docs/virtualdriver/design/stop_line_stop_target.md): for
+  // each STOP-classified sign, swaps its stop target for a paired stop-line
+  // signal found within sign_stop_line_window before it. YIELD signs are
+  // untouched. OFF restores sign_s - sign_stop_margin exactly. Default ON (no
+  // existing gate asset has a stop-line-classified signal, so this changes
+  // nothing today either way).
+  sign_stop_line_aware_enabled?: boolean;
+  sign_stop_line_window?: number;
   // 3d conflict-corridor resolver
   conflict_lookahead?: number;
   conflict_step?: number;

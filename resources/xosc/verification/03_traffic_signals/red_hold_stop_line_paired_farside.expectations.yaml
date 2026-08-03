@@ -1,0 +1,121 @@
+scenario: red_hold_stop_line_paired_farside
+category: 03_traffic_signals
+# Far-side discriminator for the stop-line-anchor redesign (design/
+# stop_line_stop_target.md), TrafficLightAware side. See the .xosc's own
+# header comment for the full asset description. Wired into
+# stop_line_pairing_batch.yaml and GT_esmini/test/regression_baseline/
+# stop_line_pairing_expected.yaml (as of the min(entry, head) anchor fix) --
+# this is the scenario the whole anchor redesign exists for. Also runnable
+# standalone:
+#   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py run \
+#       resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired_farside.xosc \
+#       --out <dir> --policy traffic_light --dt 0.05 --max-time 40
+#   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py assert \
+#       <dir> --expectations resources/xosc/verification/03_traffic_signals/red_hold_stop_line_paired_farside.expectations.yaml
+must:
+  - event: stopped_at_signal
+    signal_id: 0
+    road_id: 0
+    s_range: [84, 89]
+    min_duration: 2.0
+    stop_speed: 0.3
+    require_red: true
+    reason: "far-side(交差点の向こう側)に載ったヘッドでも、min(交差点入口,ヘッド)アンカーが入口を選び停止線基準の位置に完全停止"
+  - event: speed_below
+    threshold: 0.5
+    after: { sim_time: 20.0 }
+    before: { sim_time: 35.0 }
+    reason: "赤が続く間は停止を維持する(発進しない) -- red_hold と同型の恒常性チェック"
+notes: >
+  Both arms RE-measured on 2026-08-02 after the anchor rule was changed to
+  min(junction-entry distance, governing-head distance) (new pure function
+  ResolveStopLineAnchor, RouteSignalScan.hpp/.cpp; see
+  red_hold_stop_line_paired.expectations.yaml's notes for the full rule and
+  why it exists -- this scenario is unaffected by the CHANGE itself, only by
+  which anchor token gets reported, see below). dt 0.05, max-time 40,
+  policies:[traffic_light], in-process via GT_esminiLib.dll, EgoSpeed=10.0
+  mirroring junction_not_blocked.xosc's proven PULL_BACK-not-SUPPRESS
+  kinematics. The OFF arm is NOT reachable through the default config
+  (tl_stop_line_aware_enabled defaults true) -- run standalone with a
+  ConfigFile override (tl_stop_line_aware_enabled=false), same idiom as
+  red_hold_stop_line_paired.expectations.yaml's own OFF arm.
+    ON arm (this scenario's actual default config): gt.traffic_light.
+      stop_line_anchor=junction_entry (UNCHANGED token: the far-side head's own
+      distance, about 30 m via road 2, is always farther than junction A's
+      entry distance for this asset, so min(entry, head) picks entry every
+      time -- this is exactly the case the redesign's min() rule preserves
+      the entry anchor for), stop_line_used=true, junction_action=hold. True
+      dwell bottom (speed exactly 0) at road 0 s=86.9970
+      (front_bumper.s=90.8970), stable for 21.35s out of the ~21.4s remaining
+      after the stop settles (t=[13.70,35.05], i.e. effectively permanent).
+      IDENTICAL to the pre-min-fix measurement (s=86.9970, same 21.35s run) --
+      confirms the min() fix changes nothing for this asset's rest position,
+      only for near-side ones (see red_hold_stop_line_paired.expectations.
+      yaml's notes).
+    OFF arm (tl_stop_line_aware_enabled=false): gt.traffic_light.stop_line_
+      anchor=head (the pre-pairing default token; skipped, never overwritten,
+      because the whole anchor-selection block, min() included, is gated on
+      the kill switch), stop_line_used=false, dist_m=22.000 (raw distance to
+      the far-side head, unaffected by pairing per design sec10),
+      junction_action=pull_back, junction_id=100. True dwell bottom at road 0
+      s=94.9967 (front_bumper.s=98.8967), stable for 20.50s (t=[14.55,35.05],
+      same near-permanent pattern). Also IDENTICAL to the pre-min-fix
+      measurement. This is the "対応づけに失敗して交差点入口基準(交差点内
+      停止ガードが引き戻した位置)にフォールバックする" behaviour the
+      far-side asset exists to demonstrate: the raw head distance (about
+      30 m, the head being physically on the far side of the junction) makes
+      JunctionStopGuard classify the naive head-margin target as blocking
+      junction A, so it PULLs BACK to entry(100) minus tl_stop_margin(3)
+      minus the planner's stop_band(~2) = 95, matching the measured 94.9967
+      to within numerical noise -- the SAME target junction_not_blocked.
+      xosc's own "with the guard" arm measures (road 0 s=95.0). The ego DOES
+      stop, and for a real reason (the guard, not a stall or an error) -- it
+      simply stops several metres closer to the junction than the marked
+      stop line, which is precisely the defect a head-anchor (or a
+      head-preferring min() anchor -- see below) pairing scheme can never see
+      coming for a far-side head: no window value could have paired this
+      stop line to this head, because the stop line is on the wrong SIDE of
+      the junction from the head's own mounting point, not merely far from
+      it.
+    Re-verified with gt_sim_test.py assert against this same expectations
+    file: ON passes both matchers (stopped_at_signal longest-stop 21.35s,
+    speed_below max 0.01); OFF fails ONLY stopped_at_signal
+    ("longest full stop ... = 0.00s", i.e. the ego never sits inside
+    [84,89], not that it never stops) while speed_below still passes
+    (max speed 0.01) -- confirms the OFF arm fails for the intended
+    reason (wrong REST POSITION), not because the ego fails to stop.
+    Delta (ON - OFF) = -8.0 m (86.9970 - 94.9967), non-overlapping given
+    s_range's 2-3 m margin on both sides and OFF sitting a further 5.997 m
+    past this s_range's [84,89] upper bound.
+  Why min(entry, head) does not blunt this asset's discriminator: min() only
+    ever SHRINKS the anchor distance from what a pure entry-anchor would use
+    (it picks the entry only when the entry is actually nearer than the
+    head -- see red_hold_stop_line_paired.expectations.yaml's notes for the
+    general rule). For a far-side head the head is always FARTHER than the
+    entry (it is physically beyond the junction), so min(entry, head) can
+    only ever equal entry here; there is no configuration of THIS asset where
+    min() would prefer the head instead. This is also why the scan-retention
+    hazard the near-side notes describe (a paired target landing past the
+    governing head's own s) structurally cannot arise on this asset either
+    way: the paired stop line (road 0, s=92) is nowhere near route-distance-
+    close to the far-side head (road 2, s=1.0, ~30 m further down the route);
+    there is no way for the ego's origin to cross the head's own position
+    while still closing on a stop-line target that sits far short of it.
+  What this asset demonstrates that signalized_short_block__b12_hs4_sl8
+    cannot: a near-side head still resolves to its own junction via
+    SignalJunctionResolver path (c) (its OWN road's successor link IS that
+    junction), so a head-anchored (or head-preferring min()) pairing scheme
+    still, by construction, searches from roughly the right place. A
+    far-side head's OWN road-link geometry resolves to the WRONG junction
+    (junction B here; see the xosc/meta.yaml for why); only path (a), the
+    explicit <controller>, together with an anchor that can fall back to the
+    junction entry when the head loses the race, gets this case right at
+    all. This is the configuration that motivated moving (part of) the
+    anchor from the head to the junction entry in the first place (see
+    design/stop_line_stop_target.md sec0 and SignalJunctionResolver.hpp's
+    module doc) -- this scenario is the asset that exercises it end to end
+    (controller-chain resolution -> min(entry, head) anchor picking entry ->
+    stop-line pairing -> a materially different, and correct, rest
+    position). Now wired into stop_line_pairing_batch.yaml /
+    stop_line_pairing_expected.yaml so a regression here is gated, not just
+    documented.

@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 06_route_lane / lane_change_to_exit_ramp
+
+  vd-func:FUNC-055 (AD-initiated lane change) / req-vd-ad:REQ-AD-017 acceptance
+  ladder step c ("接続点までに目標レーンへ自発的に車線変更する"). Isolates the
+  ACT OF INITIATING a lane change from gap acceptance: Entities carries ONLY
+  Ego, so every adjacent lane is vacant and every gap-acceptance check
+  (docs/virtualdriver/design/lane_change_initiation.md section 4) is trivially
+  satisfied ("隣接レーンに車が居なければ無条件に受容する"). If this scenario
+  ever fails, the defect is in the DECISION to lane-change or in the
+  trajectory itself, never in gap arbitration — that is what the sibling
+  lane_change_to_exit_ramp_with_traffic.xosc adds.
+
+  Same road/route as the sibling diagnostic-only pair in this directory
+  (route_valid_off_target_lane_for_exit_ramp.xosc / merge_required_for_exit_ramp.xosc):
+  resources/xodr/highway_example_with_merge_and_split.xodr, junction 1,
+  road0/-1/s=10 -> road2/-1/s=40. This scenario reuses
+  route_valid_off_target_lane_for_exit_ramp.xosc's exact Waypoint list —
+  road0/-1/s=10 -> road4/-1/s=50 -> road2/-1/s=40 — because ONLY that explicit
+  connecting-road (road 4, junction 1 connection id=3) Waypoint makes
+  Route::IsValid()==true (RoadPath::Calculate's "nextRoad == targetRoad" fast
+  path fires and skips the lane-connectivity check for that one hop — "hole
+  1" in route_lane_plan_design.md section 2). Dropping the road-4 Waypoint
+  reproduces merge_required_for_exit_ramp.xosc's invalid_route case instead,
+  a different diagnostic entirely.
+
+  Road-network facts this scenario depends on (measured, see
+  lane_change_initiation.md section 3):
+    - junction 1 connection id=3's <laneLink> covers ONLY "-4" of road 0 —
+      road 2 (the exit ramp) is reachable from no other road-0 lane.
+    - Ego starts in lane -1: reaching lane -4 needs THREE consecutive lane
+      changes, -1 -> -2 -> -3 -> -4.
+    - dist_to_connection at t=0 is 190 m (road 0 is 200 m long, Ego starts at
+      s=10). At v=13.889 m/s (50 km/h, EgoSpeed below) and the shipped
+      defaults (lane_change_lead_time_s=6.0, lane_change_min_lead_distance_m=
+      40.0, lane_change_reserve_distance_m=20.0), required_m for
+      n_remaining=3 is 3*max(13.889*6.0, 40.0)+20 = 270 m > 190 m, so the
+      first lane change is expected to be decided on frame 1 (no waiting for
+      a closing deadline — see lane_change_initiation.md section 3).
+    - Lane -4 is a taper: zero width at s=50, reaching 3.0 m by s=175. The
+      -3 -> -4 hop therefore cannot geometrically anchor before s=50.
+
+  lane_change_initiation_enabled defaults OFF (design section 8) and this
+  file does NOT set a static <Property name="ConfigFile">: the VirtualDriver
+  verification harness's policy-injection mechanism (gt_sim_test.py
+  _POLICY_FLAG / _write_policy_config / _prepare_policy_xosc — the same
+  mechanism car_following_traffic_control_batch.yaml's "policies: [lead]" /
+  "policies: [traffic_light]" entries use) generates a per-run
+  virtual_driver.json with lane_change_initiation_enabled=true and injects an
+  ABSOLUTE ConfigFile Property at run time, because a relative ConfigFile
+  value resolves against this module's config/ directory
+  (ConfigLoader::ResolveConfigPath), not this scenario file's directory, and
+  GT_esmini/config/ must not be edited from this file. See
+  resources/xosc/verification/route_lane_batch.yaml's
+  "policies: [lane_change_initiation]" entry for this scenario.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-08-02T12:00:00"
+               description="VirtualDriver verification: AD-initiated lane change to reach a junction exit ramp, no adjacent traffic (isolates initiation from gap acceptance)"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/highway_example_with_merge_and_split.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-1" offset="0" s="10"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-1" offset="0" s="10"/>
+                              </Position>
+                           </Waypoint>
+                           <!--
+                             Explicit connecting-road Waypoint (junction 1, connection
+                             id=3): road 4 is 100 m long with a single driving lane,
+                             id=-1 (predecessor road0 lane -4, successor road2 lane -1
+                             - see the xodr <road id="4"> block). s=50 sits mid-road,
+                             away from either end's boundary handling. Required for
+                             Route::IsValid()==true (see the file-level comment above).
+                           -->
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="4" laneId="-1" offset="0" s="50"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="-1" offset="0" s="40"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="RouteLaneStory">
+         <Act name="RouteLaneAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="3.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="28" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

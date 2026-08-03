@@ -1,6 +1,7 @@
 #include "gt_esmini/control/ControllerVirtualDriver.hpp"
 #include "gt_esmini/control/common/JunctionTurn.hpp"
 #include "gt_esmini/control/common/ModuleDirectory.hpp"
+#include "gt_esmini/control/common/OsiIdentity.hpp"
 #include "gt_esmini/control/common/TransitionDynamics.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
@@ -36,12 +37,36 @@
 #include "logger.hpp"
 
 #include <cmath>
+#include <cstddef>
+#include <functional>
 #include <memory>
 
 using namespace scenarioengine;
 
 namespace gt_esmini
 {
+
+namespace
+{
+// vd-func:FUNC-056: the ONE-lane hop direction in Position::Delta's own diff.dLaneId space. Every
+// hop this feature arms moves by exactly one step in that space -- design doc
+// overtake_maneuver.md section 4's passing-lane rule and section 7-1's opposing-lane rule both
+// name single-step targets -- so the sign of (target - current) in RAW lane-id space always
+// matches what Delta() will report, in BOTH cases:
+//   - same-side hop (e.g. -2 -> -1): Delta reports diff.dLaneId == +1 (raw difference, unchanged)
+//   - centerline-crossing hop (-1 -> +1): Delta reports diff.dLaneId == +1, NOT +2 -- confirmed
+//     from RoadManager.cpp's Position::Delta (RoadManager.cpp:12280-12287): crossing the
+//     zero-width reference lane (SIGN(laneIdB) != SIGN(adjustedLaneIdA)) subtracts 1 from the
+//     raw |difference| to disregard lane id 0, which is never a driving lane.
+// This is why direction_step for ScanAdjacentLaneGap/ScanOncomingGap must be +/-1 here, never the
+// raw (target_lane_id - current_lane_id) difference the design doc's own section 7-1 suggested
+// ("id 差 +2") -- that suggestion does not match Position::Delta's actual, confirmed behavior.
+int OvertakeLaneStep(int current_lane_id, int target_lane_id)
+{
+    if (target_lane_id == current_lane_id) return 0;
+    return (target_lane_id > current_lane_id) ? 1 : -1;
+}
+}  // namespace
 
 ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     : Controller(args)
@@ -126,6 +151,17 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     // feature:F7 resume-merge (see ResumeMergeProfile.hpp). Built once here,
     // same convention as ad_envelope_cfg_ above; not hot-reloaded during a run.
     resume_merge_cfg_ = vd_config_.ResumeMergeCfg();
+
+    // vd-func:FUNC-055 AD lane-change initiation (see ResumeMergeProfile.hpp block above for the
+    // convention this mirrors). Built once here; not hot-reloaded during a run.
+    lc_init_cfg_  = vd_config_.LaneChangeInitiationCfg();
+    lc_merge_cfg_ = vd_config_.LaneChangeMergeCfg();
+
+    // vd-func:FUNC-056 AD overtake maneuver (see LaneChangeInitiation block above for the
+    // convention this mirrors). Built once here; not hot-reloaded during a run. No separate
+    // ResumeMergeConfig/State -- overtake reuses lc_merge_cfg_/lc_merge_state_ and lc_init_state_
+    // above VERBATIM (design doc overtake_maneuver.md section 5).
+    ot_cfg_ = vd_config_.OvertakeCfg();
 
     // --- Create input source (reused ManualDrive sources) ---
 #ifdef GT_ENABLE_SDL2
@@ -409,6 +445,25 @@ void ControllerVirtualDriver::Deactivate()
     Controller::Deactivate();
 }
 
+namespace
+{
+// Cheap "did the route change" cache key for the RouteLanePlan rebuild in Step()
+// below: the route's resolved (track,lane) waypoint skeleton, combined into one
+// hash. Not cryptographic -- a collision only costs one stale frame, since the
+// OTHER half of the cache key (the Route* identity) still normally changes
+// whenever the route itself does.
+std::size_t HashRouteLaneWaypoints(const std::vector<roadmanager::Position>& waypoints)
+{
+    std::size_t seed = waypoints.size();
+    for (const roadmanager::Position& wp : waypoints)
+    {
+        seed ^= std::hash<id_t>{}(wp.GetTrackId()) + 0x9e3779b9U + (seed << 6) + (seed >> 2);
+        seed ^= std::hash<int>{}(wp.GetLaneId()) + 0x9e3779b9U + (seed << 6) + (seed >> 2);
+    }
+    return seed;
+}
+}  // namespace
+
 void ControllerVirtualDriver::Step(double timeStep)
 {
     if (!object_) return;
@@ -568,6 +623,17 @@ void ControllerVirtualDriver::Step(double timeStep)
     const double ego_speed = have_phys ? phys_speed : object_->GetSpeed();
     const double wheel_base = object_->boundingbox_.dimensions_.length_ * 0.6;
 
+    // vd-func:FUNC-061 forward-projected pre-signal (ShouldSignalLaneChangeHop below): a_ego is the
+    // vehicle-frame longitudinal acceleration esmini reports (1-frame delayed -- acceptable here,
+    // this only feeds a lead-time projection, not closed-loop control); v_cap is the terminal target
+    // of any in-flight SpeedAction (0.0 / "no cap" until the first action has been observed, per
+    // target_initialized_ -- see ResolveTargetSpeed's own last_action_target_ comment). Deliberately
+    // NOT target_speed (line ~551): that is the CURRENT-time reference value of an in-progress
+    // transition, not where the transition is headed, so using it as a cap would just re-derive
+    // ego_speed and silence the forward projection.
+    const double a_ego = object_->pos_.GetAccLong();
+    const double v_cap = target_initialized_ ? last_action_target_ : 0.0;
+
     // Forward control-point offset (P2 issue 2). Resolve the configured value:
     //   > 0  explicit distance [m] ahead of the origin
     //   = 0  AUTO — the front-axle distance (wheel_base); enabled by default
@@ -600,7 +666,139 @@ void ControllerVirtualDriver::Step(double timeStep)
             requested_cp = dist;
     }
 
-    // 2c. feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md).
+    // RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) -- per-frame "is the
+    // ego on a lane that still leads to the route's destination" check. A pure
+    // diagnostic layer (never touches steering/speed), so -- unlike the
+    // resume-merge block right below -- it runs the same way regardless of which
+    // domain(s) this controller owns this frame; only the TELEMETRY write (11c.,
+    // further down) is gated on being the integrator.
+    RouteLaneStatus route_lane_status;  // stays default (valid=false) when there is no route -- case (b) below
+    {
+        // (a) Cache identity comes from the SHARED route, never from a clone:
+        // Position::CopyRoute does `route_ = new Route` every call, so a clone's
+        // address is fresh each frame and would miss the cache unconditionally --
+        // rebuilding the plan (and re-arming the once-only warning) every step.
+        const roadmanager::Route* shared_route = object_->pos_.GetRoute();
+
+        if (shared_route == nullptr)
+        {
+            // (b) No route at all -- common (many scenarios never run an
+            // AssignRouteAction). "no_route" is the caller-supplied reserved
+            // diagnostic (RouteLanePlan.hpp); (c)/(d) below are skipped entirely,
+            // matching that contract.
+            route_lane_plan_            = RouteLanePlan{};
+            route_lane_plan_.diagnostic = "no_route";
+            route_lane_cache_route_     = nullptr;
+            route_lane_cache_hash_      = 0;
+        }
+        else
+        {
+            // (c) Rebuild only when the route actually changed: Route* identity OR
+            // the resolved (track,lane) waypoint skeleton differs from what the
+            // current route_lane_plan_ was built from.
+            const std::size_t wp_hash = HashRouteLaneWaypoints(shared_route->minimal_waypoints_);
+            if (shared_route != route_lane_cache_route_ || wp_hash != route_lane_cache_hash_)
+            {
+                // Isolated route clone -- same pattern/reason as
+                // ResolveResumeMergeRouteLane below: BuildRouteLanePlan takes the
+                // route by const& and never mutates it, but cloning keeps this call
+                // site safe against a future change that reaches for more of the
+                // shared Route*. Built only on a cache miss: CopyRoute deep-copies
+                // every waypoint, which is far too heavy to repeat per frame.
+                roadmanager::Position rl_pos;
+                rl_pos.Duplicate(object_->pos_);
+                rl_pos.CopyRoute(object_->pos_);
+
+                route_lane_plan_        = BuildRouteLanePlan(*rl_pos.GetRoute());
+                route_lane_cache_route_ = shared_route;
+                route_lane_cache_hash_  = wp_hash;
+                // A rebuild is a NEW situation even if the resulting diagnostic
+                // string repeats the previous one (e.g. a new route that is ALSO
+                // lane_discontinuity) -- re-arm the once-only warning below.
+                route_lane_warned_ = false;
+                route_lane_warned_reason_.clear();
+            }
+
+            // (d) Match the ego every frame, cache hit or not (cheap: one linear
+            // scan over plan.bands). object_->pos_, NOT the physics-backend pose:
+            // EvaluateRouteLaneStatus needs an already road-resolved Position
+            // (GetTrackId/GetLaneId/GetS), which is exactly what object_->pos_ is
+            // -- the same Position the telemetry ego block below and
+            // ResolveResumeMergeRouteLane both read. physics_backend_->GetPose()
+            // (above) only returns raw world x/y/h/speed with no track/lane of its
+            // own, so using it here would mean re-deriving road/lane from scratch:
+            // a second, possibly junction-ambiguous resolution of the same
+            // question, computed a different way than the rest of this frame's
+            // telemetry. The self-localization comment above (preferring the
+            // physics pose over pos_) is specifically about the short planner's
+            // fine-grained cross-track error against the preview during a running
+            // lateral action; this is a coarser topological lane check, for which
+            // pos_'s already-resolved road frame is the right (and only cheap)
+            // source.
+            route_lane_status = EvaluateRouteLaneStatus(route_lane_plan_, object_->pos_);
+        }
+    }
+
+    // Warn once per distinct diagnostic (latched; reset above whenever the plan is
+    // actually rebuilt). This layer's whole purpose is catching a route that LOOKS
+    // fine to Route::AddWaypoint but cannot actually be followed lane-for-lane, so
+    // silently degrading without a trace would defeat it.
+    // "no_route" is excluded on purpose: an entity with no AssignRouteAction is the
+    // common case, not a degradation, and warning about it would bury the diagnostics
+    // that do matter. It still reaches telemetry as route_lane.diagnostic.
+    if (!route_lane_plan_.diagnostic.empty() && route_lane_plan_.diagnostic != "no_route" &&
+        route_lane_plan_.diagnostic != route_lane_warned_reason_)
+    {
+        // discontinuity_road_id is only meaningful for the lane-level break cases;
+        // printing a bare ID_UNDEFINED (4294967295) elsewhere reads as a real road id.
+        if (route_lane_plan_.discontinuity_road_id != ID_UNDEFINED)
+        {
+            LOG_WARN("VirtualDriver RouteLanePlan: {} at road {} — target-lane guidance unavailable, "
+                     "continuing with position-based lane keeping",
+                     route_lane_plan_.diagnostic,
+                     route_lane_plan_.discontinuity_road_id);
+        }
+        else
+        {
+            LOG_WARN("VirtualDriver RouteLanePlan: {} — target-lane guidance unavailable, "
+                     "continuing with position-based lane keeping",
+                     route_lane_plan_.diagnostic);
+        }
+        route_lane_warned_reason_ = route_lane_plan_.diagnostic;
+        route_lane_warned_        = true;
+    }
+
+    // Deviation record: the ego left a road while off its target lane(s) on it.
+    // Gated on route_lane_prev_target_lanes_ being non-empty (the PREVIOUS road
+    // actually had a resolved band) so an object with no route at all -- or one
+    // already off_plan_road -- does not spam a warning on every ordinary road
+    // transition; genuine deviations should stay rare (no latch here, per design).
+    {
+        const id_t current_road = object_->pos_.GetTrackId();
+        if (current_road != route_lane_prev_road_ && !route_lane_prev_target_lanes_.empty() &&
+            !route_lane_prev_on_target_)
+        {
+            ++route_lane_deviations_;
+            route_lane_last_dev_road_ = route_lane_prev_road_;
+
+            std::string lanes_str;
+            for (std::size_t i = 0; i < route_lane_prev_target_lanes_.size(); ++i)
+            {
+                if (i) lanes_str += ",";
+                lanes_str += std::to_string(route_lane_prev_target_lanes_[i]);
+            }
+            LOG_WARN("VirtualDriver RouteLanePlan: left road {} in lane {} but the route requires "
+                     "one of {} — off-route risk downstream",
+                     route_lane_prev_road_, route_lane_prev_lane_, lanes_str);
+        }
+
+        route_lane_prev_road_         = current_road;
+        route_lane_prev_lane_         = object_->pos_.GetLaneId();
+        route_lane_prev_on_target_    = route_lane_status.on_target_lane;
+        route_lane_prev_target_lanes_ = route_lane_status.target_lanes;
+    }
+
+    // 2c. feature:F7 resume-merge (docs/virtualdriver/design/resume_merge_trajectory_design.md).
     // Smooths a manual->AUTO_RESUME lateral hand-over by ramping a ROUTE-lane
     // reference into the short planner instead of the raw per-frame
     // current-lane snap (TrajectoryShortPlanner.cpp's anchor). Entirely gated
@@ -722,6 +920,758 @@ void ControllerVirtualDriver::Step(double timeStep)
         prev_heading_valid_ = true;
     }
 
+    // 2d. vd-func:FUNC-055 AD lane-change initiation
+    // (docs/virtualdriver/design/lane_change_initiation.md). Entirely gated behind
+    // lc_init_cfg_.enabled (shipped default: FALSE) -- when false, NOTHING below this guard
+    // executes, so lc_now_* keep their just-declared defaults (false/0/0/0.0) and the sctx.merge_*
+    // wiring right below (unchanged from feature:F7 resume-merge's own arithmetic) sees exactly
+    // what it saw before this feature existed. HARD INVARIANT: bit-identical to today when
+    // disabled -- see the design doc section 8 "設計要件".
+    bool         lc_now_active = false;
+    unsigned int lc_now_track  = 0;
+    int          lc_now_lane   = 0;
+    double       lc_now_offset = 0.0;
+
+    // design doc section 11-4: lc_signal_dir_ is reset here EVERY frame, unconditionally, BEFORE
+    // the `if (lc_init_cfg_.enabled)` gate below. When the feature is disabled the gate never runs,
+    // so this reset is the only write that member gets -- it stays permanently 0, which is exactly
+    // the "既定OFFの不変条件" DetectManeuverDir() below relies on (it reads lc_signal_dir_
+    // unconditionally, gated only by lc_init_cfg_.enabled at its own call site).
+    lc_signal_dir_ = 0;
+
+    // Diagnostics-only locals for telemetry_.lane_change, written into telemetry_ itself only at
+    // section 11d below (AFTER the is_integrator gate) -- same convention as route_lane/
+    // resume_merge telemetry (see the comment on section 11c): a non-integrator does not own
+    // "where is the ego on the road" this frame, and this block's decision is downstream of that
+    // same question, so it must not publish telemetry for a frame it does not own the answer to.
+    int         lc_diag_target_track_id    = -1;
+    int         lc_diag_target_lane_id     = 0;
+    int         lc_diag_n_remaining        = 0;
+    double      lc_diag_required_m         = 0.0;
+    double      lc_diag_dist_to_connection = -1.0;
+    bool        lc_diag_gap_accepted       = false;
+    std::string lc_diag_gap_reason;
+
+    // vd-func:FUNC-056 AD overtake maneuver (docs/virtualdriver/design/overtake_maneuver.md).
+    // Diagnostics-only locals, same convention as lc_diag_* above: computed every frame this
+    // feature is enabled -- regardless of suppressed/phase -- so telemetry_.overtake stays live
+    // (design doc section 9-1's false-PASS guard needs `considered`/`blocked_reason` even on a
+    // frame the maneuver does not act). Published at section 11d below.
+    std::string ot_diag_phase          = OvertakePhaseName(OvertakePhase::IDLE);
+    bool        ot_diag_considered     = false;
+    int         ot_diag_lead_id        = -1;
+    int         ot_diag_lead_osi_id    = -1;
+    double      ot_diag_delta_v        = 0.0;
+    double      ot_diag_t_pass         = 0.0;
+    double      ot_diag_required_m     = 0.0;
+    double      ot_diag_route_budget_m = -1.0;
+    std::string ot_diag_blocked_reason;
+    bool        ot_diag_cleared_lead   = false;
+
+    if (lc_init_cfg_.enabled || ot_cfg_.enabled)
+    {
+        // Same scan pattern resume-merge's own suppression check uses just above (design doc
+        // section 2's priority order: storyboard LaneChangeAction > resume-merge > AD-initiated
+        // LC), duplicated rather than shared so this feature never depends on
+        // resume_merge_cfg_.enabled also being true.
+        bool has_lateral_storyboard_action = false;
+        for (auto* action : object_->getPrivateActions())
+        {
+            if (action->GetCurrentState() != StoryBoardElement::State::RUNNING) continue;
+            if (action->action_type_ == OSCAction::ActionType::LAT_LANE_CHANGE ||
+                action->action_type_ == OSCAction::ActionType::LAT_LANE_OFFSET)
+            {
+                has_lateral_storyboard_action = true;
+                break;
+            }
+        }
+
+        const bool suppressed = has_lateral_storyboard_action || resume_merge_state_.active || lat_manual;
+
+        if (suppressed && lc_init_state_.armed)
+        {
+            // Abort the in-progress hop (design doc section 2: "進行中なら中止" for all three
+            // suppression triggers). No fourth disarm trigger is added to resume-merge's own
+            // state machine -- that direction is closed by design (section 9's scope table).
+            DisarmLaneChangeHop(lc_init_state_);
+            DisarmResumeMerge(lc_merge_state_);
+        }
+
+        // vd-func:FUNC-056: suppression also aborts an in-progress overtake (design doc section
+        // 5-3 -- same three triggers as above). Checked independently of lc_init_state_.armed
+        // because SIGNAL_OUT/SIGNAL_BACK have not armed anything yet but must still abort (a
+        // pre-signal for a maneuver that can no longer proceed is worse than none).
+        if (suppressed && ot_phase_ != OvertakePhase::IDLE)
+        {
+            ot_phase_               = OvertakePhase::IDLE;
+            ot_signal_start_time_s_ = -1.0;
+            ot_lead_id_             = -1;
+            ot_cleared_lead_        = false;
+            ot_forced_by_route_     = false;
+        }
+
+        // Diagnostic hop plan, computed EVERY frame lc_init_cfg_.enabled -- regardless of
+        // armed/suppressed -- so telemetry_.lane_change.{n_remaining,required_m,dist_to_connection}
+        // stay real numbers WHILE a hop is executing instead of collapsing to 0/0.0/-1.0 (the
+        // "not armed, considering" branch below used to be the ONLY place that filled them, so
+        // they froze the instant a hop armed). While armed, the reference lane is the CURRENT
+        // HOP'S TARGET, not the ego's current (still mid-transition) lane, so n_remaining/
+        // required_m report what is left AFTER this hop finishes, not before -- the ego is
+        // already committed to this hop, so "remaining" should not double-count it.
+        //
+        // Explicitly re-gated on lc_init_cfg_.enabled (not just the widened outer gate above): this
+        // is route-REQUEST-specific diagnostics, and a user who enables ONLY overtake_enabled must
+        // see lc_init_cfg_.enabled's own telemetry sub-object stay at its all-default shape (design
+        // doc's "ここは間違えやすいので特に注意" -- the outer gate widening must not leak into this
+        // feature's own bit-identical-when-disabled invariant).
+        LaneHopPlan diag_hop;
+        if (lc_init_cfg_.enabled)
+        {
+            if (route_lane_status.valid)
+            {
+                const int reference_lane = lc_init_state_.armed ? lc_init_state_.hop_target_lane_id
+                                                                 : route_lane_status.ego_lane_raw;
+                diag_hop            = ComputeLaneHopPlan(reference_lane, route_lane_status.target_lanes);
+                lc_diag_n_remaining = diag_hop.valid ? diag_hop.n_remaining : 0;
+                lc_diag_required_m  = RequiredLaneChangeDistance(lc_diag_n_remaining, ego_speed, lc_init_cfg_);
+            }
+            // route_lane_status.dist_to_connection already carries the right value regardless of
+            // armed state -- route_lane's own telemetry (11c.) publishes this same number every
+            // frame. -1.0 here means exactly what it always means (RouteLaneStatus/RouteLanePlan's
+            // "unknown" / "final band has no onward connection" convention), never "not computed
+            // because a hop happens to be in progress".
+            lc_diag_dist_to_connection = route_lane_status.dist_to_connection;
+        }
+
+        // vd-func:FUNC-056 AD overtake maneuver diagnostics (design doc overtake_maneuver.md).
+        // Computed every frame ot_cfg_.enabled -- regardless of suppressed/phase, same convention
+        // as diag_hop above -- so `considered`/`blocked_reason` stay real numbers even on a frame
+        // the maneuver does not act (section 9-1's false-PASS guard: a run where `considered`
+        // never goes true never attempted an overtake at all). ot_ego_lane_now / ot_candidate_lane
+        // / ot_candidate_opposing / ot_lead_sample / ot_trigger / ot_guard / ot_direction_step /
+        // ot_gap_or_oncoming_ok are ALSO consumed by the state-machine switch below (not
+        // recomputed) -- same "compute once, diagnose and decide from the same numbers" discipline
+        // diag_hop/lc_diag_* established above.
+        int                   ot_ego_lane_now       = 0;
+        int                   ot_candidate_lane      = 0;
+        bool                  ot_candidate_opposing  = false;
+        OvertakeLeadSample    ot_lead_sample;
+        OvertakeTriggerResult ot_trigger;
+        OvertakeRouteGuardResult ot_guard;
+        int                   ot_direction_step      = 0;
+        bool                  ot_gap_or_oncoming_ok  = false;
+
+        if (ot_cfg_.enabled)
+        {
+            ot_ego_lane_now = route_lane_status.valid ? route_lane_status.ego_lane_raw : object_->pos_.GetLaneId();
+
+            // Candidate passing lane: FRESH from the current lane while IDLE (nothing committed
+            // yet); FROZEN to the lane actually being used once a pass is under way (design doc
+            // section 5-1 -- do not let the candidate drift mid-maneuver).
+            if (ot_phase_ == OvertakePhase::IDLE)
+            {
+                ot_candidate_lane = OvertakePassingLaneId(ot_ego_lane_now);
+                if (ot_candidate_lane == 0 && ot_cfg_.use_opposing_lane_enabled)
+                {
+                    ot_candidate_lane     = OvertakeOpposingLaneId(ot_ego_lane_now);
+                    ot_candidate_opposing = (ot_candidate_lane != 0);
+                }
+            }
+            else
+            {
+                ot_candidate_lane     = ot_passing_lane_id_;
+                ot_candidate_opposing = ot_opposing_;
+            }
+            ot_direction_step = (ot_candidate_lane != 0) ? OvertakeLaneStep(ot_ego_lane_now, ot_candidate_lane) : 0;
+
+            // Section 3's trigger: same-lane lead scan (LeadVehicleAware.cpp's own pattern, NOT
+            // ScanAdjacentLaneGap -- that scans an ADJACENT lane) + IDM s* via the SAME
+            // lead_idm::DesiredGap() LeadVehicleAware.cpp itself calls (not reimplemented; see
+            // ScanOvertakeLead's own header doc for why this cannot share that policy's Evaluate()
+            // directly). v_ego for the IDM gap is the ACTUAL current speed (matches
+            // LeadVehicleAware's own convention), NOT v_pass below.
+            ot_lead_sample = ScanOvertakeLead(vd_config_.idm_lookahead);
+            const LeadVehicleAwareConfig ot_lead_cfg = vd_config_.LeadConfig();
+
+            // v_pass = min(v_desired, v_ceiling); v_desired is v_cap (last_action_target_'s
+            // terminal-value latch, computed above for lane-change-initiation's own forward
+            // projection) -- NOT ResolveTargetSpeed()'s interpolated reference (design doc section
+            // 3 / lane_change_initiation.md section 11-11's identical warning). v_ceiling only
+            // applies when respect_speed_limit is on -- a scenario that deliberately ignores speed
+            // limits should not have overtaking silently capped by one.
+            const double ot_v_ceiling = vd_config_.respect_speed_limit ? object_->pos_.GetSpeedLimit() : v_cap;
+            const double ot_v_pass    = std::min(v_cap, ot_v_ceiling);
+
+            OvertakeTriggerInput ot_trigger_in;
+            ot_trigger_in.v_ego_mps          = ego_speed;
+            ot_trigger_in.v_desired_mps      = ot_v_pass;
+            ot_trigger_in.ego_length_m       = object_->boundingbox_.dimensions_.length_;
+            ot_trigger_in.return_clearance_m = lc_init_cfg_.gap_min_m;  // g1, reused verbatim (design doc section 3)
+            ot_trigger_in.idm_desired_gap_m  = lead_idm::DesiredGap(ot_lead_cfg.idm, ego_speed, ot_lead_sample.v_lead_mps);
+            ot_trigger_in.idm_follow_margin  = ot_lead_cfg.follow_margin;
+            ot_trigger = EvaluateOvertakeTrigger(ot_lead_sample, ot_trigger_in, ot_cfg_);
+
+            // Section 2's route-budget guard. n_back is the hop count from the PASSING lane back
+            // to the route's target-lane band (section 2-1) -- NOT the pre-overtake n_remaining --
+            // computed against ot_candidate_lane (the frozen passing lane once committed).
+            int ot_n_back = 0;
+            if (route_lane_status.valid && ot_candidate_lane != 0)
+            {
+                ot_n_back = ComputeLaneHopPlan(ot_candidate_lane, route_lane_status.target_lanes).n_remaining;
+            }
+            OvertakeRouteGuardInput ot_guard_in;
+            ot_guard_in.route_valid        = route_lane_status.valid;
+            ot_guard_in.dist_to_connection = route_lane_status.dist_to_connection;
+            ot_guard_in.n_back             = ot_n_back;
+            ot_guard_in.v_pass_mps         = ot_v_pass;
+            ot_guard_in.t_pass_s           = ot_trigger.t_pass_s;
+            ot_guard_in.hop_duration_s     = lc_merge_cfg_.duration_max_s;
+            ot_guard = EvaluateOvertakeRouteGuard(ot_guard_in, lc_init_cfg_);
+
+            // Entry-gap check, direction-appropriate (design doc section 7-2: an oncoming vehicle
+            // is NOT judged by EvaluateGapAcceptance's same-direction formula). This is also used
+            // by the SIGNAL_OUT arm decision below -- computed once here, not re-derived.
+            if (ot_candidate_lane != 0 && entities_ && ot_direction_step != 0)
+            {
+                if (ot_candidate_opposing)
+                {
+                    const double ot_t_total = lc_merge_cfg_.duration_max_s * 2.0 + ot_trigger.t_pass_s;
+                    const OncomingSample ot_oncoming = ScanOncomingGap(ot_direction_step, ot_cfg_.oncoming_lookahead_m);
+                    ot_gap_or_oncoming_ok = AcceptOncomingGap(ot_oncoming, ego_speed, ot_t_total, ot_cfg_);
+                }
+                else
+                {
+                    const LaneChangeGapSample ot_gap =
+                        ScanAdjacentLaneGap(*object_, *entities_, ot_direction_step, vd_config_.idm_lookahead);
+                    ot_gap_or_oncoming_ok = EvaluateGapAcceptance(ot_gap, ego_speed, lc_init_cfg_).accepted;
+                }
+            }
+
+            // Fixed-vocabulary blocked_reason (design doc section 9-1), priority order: suppressed
+            // always wins; "" (not blocked) whenever there was no motive to begin with (considered
+            // false) -- there is nothing to report blocking in that case.
+            if (suppressed)
+            {
+                ot_diag_blocked_reason = "suppressed";
+            }
+            else if (!ot_trigger.considered)
+            {
+                ot_diag_blocked_reason = "";
+            }
+            else if (ot_candidate_lane == 0)
+            {
+                ot_diag_blocked_reason = "no_passing_lane";
+            }
+            else if (!ot_guard.allowed)
+            {
+                ot_diag_blocked_reason = "route_budget";
+            }
+            else if (!ot_gap_or_oncoming_ok)
+            {
+                ot_diag_blocked_reason = ot_candidate_opposing ? "oncoming" : "gap";
+            }
+            else
+            {
+                ot_diag_blocked_reason = "";
+            }
+
+            ot_diag_considered     = ot_trigger.considered;
+            ot_diag_lead_id        = ot_lead_sample.has_lead ? ot_lead_sample.lead_id : -1;
+            ot_diag_lead_osi_id    = ot_lead_sample.has_lead ? ot_lead_sample.lead_osi_id : -1;
+            ot_diag_delta_v        = ot_trigger.delta_v_mps;
+            ot_diag_t_pass         = ot_trigger.t_pass_s;
+            ot_diag_required_m     = ot_guard.required_m;
+            ot_diag_route_budget_m = route_lane_status.dist_to_connection;
+            // ot_diag_phase / ot_diag_cleared_lead are NOT set here -- ot_phase_/ot_cleared_lead_
+            // can still change later THIS SAME FRAME (the state-machine switch below), and
+            // telemetry must reflect the post-transition phase (same "authoritative after the
+            // decision is known" precedent as lc_diag_target_track_id/target_lane_id's own
+            // re-assignment once armed, above). Set once, after everything, just below.
+        }
+
+        if (!suppressed)
+        {
+            if (lc_init_state_.armed && lc_merge_state_.active)
+            {
+                AdvanceResumeMerge(lc_merge_state_, timeStep);
+            }
+
+            if (lc_init_state_.armed && !lc_merge_state_.active)
+            {
+                // The hop's trajectory has run its course (converged to the target lane center,
+                // or was never actually armed -- defensive). Completion check per design doc
+                // section 3: "state.active が false になり、かつ自車の lane id が今回の目標レーン".
+                // If the ego is not yet physically on the target lane (rare: the quintic converges
+                // geometrically but a lane-width/road-curvature mismatch can leave one frame's
+                // rounding short of the boundary), re-arming happens naturally next frame from the
+                // "not armed" branch below, with a FRESH gap check -- not by holding this hop open
+                // indefinitely.
+                //
+                // vd-func:FUNC-056: this shared hop machinery (lc_init_state_/lc_merge_state_) just
+                // finished EITHER a route-request hop or one of overtake's two hops -- they are
+                // mutually exclusive by construction (design doc section 5-3's priority + the
+                // if/else-if below), so ot_phase_ unambiguously says which: it is OUT/BACK ONLY
+                // while an overtake-armed hop is the one active.
+                if (ot_phase_ == OvertakePhase::MOVING_OUT)
+                {
+                    ot_phase_ = OvertakePhase::PASS;  // design doc section 5-1: OUT -> PASS on hop completion
+                }
+                else if (ot_phase_ == OvertakePhase::MOVING_BACK)
+                {
+                    // BACK -> IDLE: the return hop finished, so the maneuver is over.
+                    ot_phase_        = OvertakePhase::IDLE;
+                    ot_lead_id_      = -1;
+                    ot_cleared_lead_ = false;
+                    ot_forced_by_route_ = false;
+                }
+                DisarmLaneChangeHop(lc_init_state_);
+            }
+
+            if (!lc_init_state_.armed)
+            {
+                // Not currently working a hop: is one due, and if so, is the gap open?
+                // diag_hop above was computed from this SAME reference lane (ego_lane_raw, since
+                // armed is false here), so it is reused directly rather than recomputed. Explicitly
+                // re-gated on lc_init_cfg_.enabled (diag_hop.valid alone would already be false when
+                // this feature is off, since it is never populated then -- but spelling out the
+                // gate here matches the same "important not to get this wrong" precedent as the
+                // diag_hop wrap above: a reader must not have to trace diag_hop's own gating to see
+                // that route-required lane changes stay off).
+                if (lc_init_cfg_.enabled && route_lane_status.valid && !route_lane_status.on_target_lane &&
+                    diag_hop.valid)
+                {
+                    const LaneHopPlan& hop = diag_hop;
+                    const bool         due = ShouldAttemptLaneChangeHop(
+                        hop.n_remaining, route_lane_status.dist_to_connection, ego_speed, lc_init_cfg_);
+
+                    lc_diag_target_track_id = static_cast<int>(route_lane_status.road_id);
+                    lc_diag_target_lane_id  = hop.next_hop_lane_id;
+
+                    if (due && entities_)
+                    {
+                        const LaneChangeGapSample gap =
+                            ScanAdjacentLaneGap(*object_, *entities_, hop.direction_step, vd_config_.idm_lookahead);
+                        const GapAcceptanceResult gr = EvaluateGapAcceptance(gap, ego_speed, lc_init_cfg_);
+                        lc_diag_gap_accepted           = gr.accepted;
+                        lc_diag_gap_reason             = gr.reason;
+                        lc_init_state_.last_gap_reason = gr.reason;
+
+                        if (gr.accepted)
+                        {
+                            // Capture hand-over state exactly like resume-merge's own arm block
+                            // above, but the anchor is the HOP TARGET lane instead of the route
+                            // lane (design doc section 1: "アンカーに目標レーンを渡す" -- the
+                            // whole point of reusing ResumeMergeProfile unmodified).
+                            roadmanager::Position hop_center;
+                            if (hop_center.SetLanePos(route_lane_status.road_id, hop.next_hop_lane_id,
+                                                      object_->pos_.GetS(), 0.0) !=
+                                roadmanager::Position::ReturnCode::ERROR_GENERIC)
+                            {
+                                const double h_road = hop_center.GetHRoad();
+                                const double d0 = -(object_->pos_.GetX() - hop_center.GetX()) * std::sin(h_road) +
+                                                   (object_->pos_.GetY() - hop_center.GetY()) * std::cos(h_road);
+                                const double ego_h  = object_->pos_.GetH();
+                                const double v0_lat = object_->GetSpeed() * std::sin(ego_h - h_road);
+
+                                double a0_lat = 0.0;
+                                if (lc_prev_heading_valid_ && timeStep > 1e-9)
+                                {
+                                    const double yaw_rate =
+                                        GetAngleInIntervalMinusPIPlusPI(ego_h - lc_prev_heading_) / timeStep;
+                                    a0_lat = yaw_rate * object_->GetSpeed();
+                                }
+
+                                if (ArmResumeMerge(lc_merge_state_, d0, v0_lat, a0_lat, lc_merge_cfg_))
+                                {
+                                    const bool along_s = IsAngleForward(object_->pos_.GetHRelative());
+                                    const int  indicator_dir =
+                                        LaneChangeIndicatorDir(route_lane_status.ego_lane_raw, hop.next_hop_lane_id, along_s);
+                                    ArmLaneChangeHop(lc_init_state_, static_cast<unsigned int>(route_lane_status.road_id),
+                                                     hop.next_hop_lane_id, hop.direction_step, indicator_dir);
+                                }
+                            }
+                        }
+                    }
+                }
+                else if (ot_cfg_.enabled)
+                {
+                    // vd-func:FUNC-056 overtake state machine (design doc overtake_maneuver.md
+                    // section 5-1). Reached only when the route branch above did NOT take this
+                    // frame (design doc section 5-3: "経路要求LCが先に取る") -- ot_ego_lane_now /
+                    // ot_candidate_lane / ot_candidate_opposing / ot_trigger / ot_guard /
+                    // ot_direction_step / ot_gap_or_oncoming_ok were all computed once, above,
+                    // before the `if (!suppressed)` block; reused here, not recomputed.
+                    switch (ot_phase_)
+                    {
+                        case OvertakePhase::IDLE:
+                            // Section 5-1: IDLE -> SIGNAL_OUT needs trigger + route guard, but NOT
+                            // gap acceptance ("合図は『入りたい』の表明であって『入れる』の表明では
+                            // ない", inherited from lane_change_initiation.md section 11-3).
+                            if (ot_trigger.considered && ot_candidate_lane != 0 && ot_guard.allowed)
+                            {
+                                ot_phase_               = OvertakePhase::SIGNAL_OUT;
+                                ot_lead_id_             = ot_lead_sample.lead_id;
+                                ot_lead_length_m_       = ot_lead_sample.lead_length_m;
+                                ot_origin_lane_id_      = ot_ego_lane_now;
+                                ot_passing_lane_id_     = ot_candidate_lane;
+                                ot_opposing_            = ot_candidate_opposing;
+                                ot_signal_start_time_s_ = sim_time_;
+                                ot_t_pass_s_            = ot_trigger.t_pass_s;
+                                ot_cleared_lead_        = false;
+            ot_forced_by_route_     = false;
+                            }
+                            break;
+
+                        case OvertakePhase::SIGNAL_OUT:
+                            if (!ot_trigger.considered || !ot_guard.allowed)
+                            {
+                                // Section 5-1: "trigger または経路ガードが崩れた" -- back to IDLE.
+                                ot_phase_               = OvertakePhase::IDLE;
+                                ot_signal_start_time_s_ = -1.0;
+                            }
+                            else if (entities_ &&
+                                     SignalDwellSatisfied(ot_signal_start_time_s_, sim_time_,
+                                                          lc_init_cfg_.indicator_lead_time_s) &&
+                                     ot_gap_or_oncoming_ok)
+                            {
+                                // Arm the outbound hop -- SAME pattern as the route-request arm
+                                // block above (hop_center anchor / d0 / v0_lat / a0_lat /
+                                // ArmResumeMerge / ArmLaneChangeHop), target lane swapped for
+                                // ot_passing_lane_id_ (design doc section 5: "目標レーンだけ差し
+                                // 替える"; ResumeMergeProfile itself is unmodified).
+                                roadmanager::Position hop_center;
+                                if (hop_center.SetLanePos(object_->pos_.GetTrackId(), ot_passing_lane_id_,
+                                                          object_->pos_.GetS(), 0.0) !=
+                                    roadmanager::Position::ReturnCode::ERROR_GENERIC)
+                                {
+                                    const double h_road = hop_center.GetHRoad();
+                                    const double d0 =
+                                        -(object_->pos_.GetX() - hop_center.GetX()) * std::sin(h_road) +
+                                        (object_->pos_.GetY() - hop_center.GetY()) * std::cos(h_road);
+                                    const double ego_h  = object_->pos_.GetH();
+                                    const double v0_lat = object_->GetSpeed() * std::sin(ego_h - h_road);
+
+                                    double a0_lat = 0.0;
+                                    if (lc_prev_heading_valid_ && timeStep > 1e-9)
+                                    {
+                                        const double yaw_rate =
+                                            GetAngleInIntervalMinusPIPlusPI(ego_h - lc_prev_heading_) / timeStep;
+                                        a0_lat = yaw_rate * object_->GetSpeed();
+                                    }
+
+                                    if (ArmResumeMerge(lc_merge_state_, d0, v0_lat, a0_lat, lc_merge_cfg_))
+                                    {
+                                        const bool along_s = IsAngleForward(object_->pos_.GetHRelative());
+                                        const int  indicator_dir =
+                                            LaneChangeIndicatorDir(ot_ego_lane_now, ot_passing_lane_id_, along_s);
+                                        ArmLaneChangeHop(lc_init_state_,
+                                                         static_cast<unsigned int>(object_->pos_.GetTrackId()),
+                                                         ot_passing_lane_id_, ot_direction_step, indicator_dir);
+                                        ot_phase_ = OvertakePhase::MOVING_OUT;
+                                    }
+                                }
+                            }
+                            break;
+
+                        case OvertakePhase::PASS:
+                        {
+                            // Section 5-2 safety valve: if the route hop deadline is upon us,
+                            // abandon the pass and start signaling the return NOW, even if the
+                            // lead has not been drawn clear yet.
+                            bool deadline_valve        = false;  // route deadline forces the return
+                            bool geometrically_cleared = false;  // ego actually drew clear of the lead
+                            bool lead_gone             = false;  // committed lead vanished from the scene
+                            if (route_lane_status.valid)
+                            {
+                                const int n_back =
+                                    ComputeLaneHopPlan(ot_passing_lane_id_, route_lane_status.target_lanes).n_remaining;
+                                // ShouldAttemptLaneChangeHop reads cfg.enabled INTERNALLY
+                                // (LaneChangeInitiation.cpp) -- this call must fire regardless of
+                                // lane_change_initiation_enabled, so a COPY with enabled forced true
+                                // is passed (design doc section 6's explicitly sanctioned one-off
+                                // workaround). Nothing else in the copy is touched.
+                                LaneChangeInitiationConfig forced_cfg = lc_init_cfg_;
+                                forced_cfg.enabled                    = true;
+                                // The valve opens at the SIGNAL threshold, not the ARM threshold
+                                // (design doc overtake_maneuver.md section 5-2, corrected 2026-08-04
+                                // after measurement). Opening it at the arm threshold leaves no room
+                                // for the legal indicator dwell that SIGNAL_BACK is about to serve,
+                                // so the return hop would have to arm with a ~0 s lead -- measured
+                                // 0.05 s, against 3.00 s on the clear-the-lead path. Same two-stage
+                                // relationship lane_change_initiation.md section 11-3 established
+                                // between ShouldSignal* and ShouldAttempt*: signalling first buys
+                                // exactly v*T of distance, which is what the dwell then spends.
+                                deadline_valve = ShouldSignalLaneChangeHop(n_back, route_lane_status.dist_to_connection,
+                                                                           ego_speed, a_ego, v_cap, forced_cfg);
+                            }
+
+                            // Evaluate the geometric clearance test UNCONDITIONALLY, even when the
+                            // valve has already decided the ego is leaving PASS this frame. The two
+                            // are different questions and telemetry must not conflate them: the
+                            // first implementation short-circuited (`if (!cleared)`) and then set
+                            // ot_cleared_lead_ from the SAME flag, so a valve-forced return
+                            // published cleared_lead=true -- i.e. "gave up without passing" was
+                            // indistinguishable from "passed and came back". design doc section 9-1
+                            // exists precisely to keep those apart ("ガードが効いた緑" vs 偽PASS),
+                            // so the conflation defeated the observable it was built for.
+                            {
+                                // Locate the FROZEN lead by id (design doc section 5-1: do NOT
+                                // re-resolve "nearest same-lane vehicle" here -- it would swap
+                                // targets the instant the lead is actually passed).
+                                scenarioengine::Object* lead_obj = nullptr;
+                                if (entities_)
+                                {
+                                    for (auto* other : entities_->object_)
+                                    {
+                                        if (other && other->GetId() == ot_lead_id_)
+                                        {
+                                            lead_obj = other;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (lead_obj == nullptr)
+                                {
+                                    // The recorded lead is gone (despawned / out of range): there
+                                    // is nothing left to pass, so leave PASS -- but do NOT claim
+                                    // the ego cleared it. "The target vanished" is not evidence of
+                                    // an overtake, and cleared_lead is read as exactly that claim.
+                                    lead_gone = true;
+                                }
+                                else
+                                {
+                                    roadmanager::PositionDiff diff = {};
+                                    if (object_->pos_.Delta(&lead_obj->pos_, diff, false, vd_config_.idm_lookahead))
+                                    {
+                                        // diff.ds is (lead_s - ego_s) along the ego's OWN facing
+                                        // direction (confirmed from RoadPath::Calculate's same-road
+                                        // branch, RoadManager.cpp:6433-6459); HasClearedLead wants
+                                        // (ego_s - lead_s), i.e. positive once the ego has drawn
+                                        // ahead -- the negation.
+                                        const double relative_ds_m = -diff.ds;
+                                        geometrically_cleared =
+                                            HasClearedLead(relative_ds_m, object_->boundingbox_.dimensions_.length_,
+                                                           ot_lead_length_m_, lc_init_cfg_.gap_min_m);
+                                    }
+                                }
+                            }
+
+                            // cleared_lead means ONE thing: the ego actually drew clear of the lead
+                            // it committed to pass. Neither the route deadline nor a vanished lead
+                            // earns it.
+                            if (geometrically_cleared)
+                            {
+                                ot_cleared_lead_ = true;
+                            }
+
+                            if (geometrically_cleared || lead_gone || deadline_valve)
+                            {
+                                // Latched so the matcher can still read "why did this return
+                                // happen" during SIGNAL_BACK/BACK, not just on the single
+                                // transition frame. Cleared on the way back to IDLE.
+                                ot_forced_by_route_     = deadline_valve && !geometrically_cleared;
+                                ot_phase_               = OvertakePhase::SIGNAL_BACK;
+                                ot_signal_start_time_s_ = sim_time_;
+                            }
+                            break;
+                        }
+
+                        case OvertakePhase::SIGNAL_BACK:
+                        {
+                            // NO deadline override here (design doc section 5-2, corrected
+                            // 2026-08-04 after measurement). The route deadline decides WHEN the
+                            // ego gives up on the pass -- that is the PASS case's job, and it now
+                            // opens at the SIGNAL threshold so this phase has its full
+                            // indicator_lead_time_s to spend. Letting the deadline also bypass the
+                            // dwell here (the first implementation did) produced a measured 0.05 s
+                            // indicator lead on the return leg, breaking req-vd-ad:REQ-AD-023 段 d.
+                            // The deadline must not bypass the GAP check either: merging into a
+                            // gap that was judged unsafe in order to make an exit is not a trade
+                            // this layer is allowed to make. If the gap never opens the ego stays
+                            // in the passing lane and the existing deviation_count machinery
+                            // records the miss -- design doc section 5-2's "中断も強制復帰もしない",
+                            // inherited from lane_change_initiation.md section 5.
+
+                            // The return-hop gap check is ALWAYS the ordinary same-direction check
+                            // (never AcceptOncomingGap): the ego has been travelling in its
+                            // ORIGINAL heading the whole maneuver, so the origin lane's neighbors
+                            // are same-direction traffic regardless of whether the outbound hop
+                            // used the opposing lane (design doc section 5-1/7-1).
+                            const int  return_step = OvertakeLaneStep(object_->pos_.GetLaneId(), ot_origin_lane_id_);
+                            bool       return_gap_ok = false;
+                            if (entities_ && return_step != 0)
+                            {
+                                const LaneChangeGapSample ret_gap = ScanAdjacentLaneGap(
+                                    *object_, *entities_, return_step, vd_config_.idm_lookahead);
+                                return_gap_ok = EvaluateGapAcceptance(ret_gap, ego_speed, lc_init_cfg_).accepted;
+                            }
+
+                            if (return_step != 0 &&
+                                SignalDwellSatisfied(ot_signal_start_time_s_, sim_time_,
+                                                     lc_init_cfg_.indicator_lead_time_s) &&
+                                return_gap_ok)
+                            {
+                                roadmanager::Position hop_center;
+                                if (hop_center.SetLanePos(object_->pos_.GetTrackId(), ot_origin_lane_id_,
+                                                          object_->pos_.GetS(), 0.0) !=
+                                    roadmanager::Position::ReturnCode::ERROR_GENERIC)
+                                {
+                                    const double h_road = hop_center.GetHRoad();
+                                    const double d0 =
+                                        -(object_->pos_.GetX() - hop_center.GetX()) * std::sin(h_road) +
+                                        (object_->pos_.GetY() - hop_center.GetY()) * std::cos(h_road);
+                                    const double ego_h  = object_->pos_.GetH();
+                                    const double v0_lat = object_->GetSpeed() * std::sin(ego_h - h_road);
+
+                                    double a0_lat = 0.0;
+                                    if (lc_prev_heading_valid_ && timeStep > 1e-9)
+                                    {
+                                        const double yaw_rate =
+                                            GetAngleInIntervalMinusPIPlusPI(ego_h - lc_prev_heading_) / timeStep;
+                                        a0_lat = yaw_rate * object_->GetSpeed();
+                                    }
+
+                                    if (ArmResumeMerge(lc_merge_state_, d0, v0_lat, a0_lat, lc_merge_cfg_))
+                                    {
+                                        const bool along_s = IsAngleForward(object_->pos_.GetHRelative());
+                                        const int  indicator_dir = LaneChangeIndicatorDir(
+                                            object_->pos_.GetLaneId(), ot_origin_lane_id_, along_s);
+                                        ArmLaneChangeHop(lc_init_state_,
+                                                         static_cast<unsigned int>(object_->pos_.GetTrackId()),
+                                                         ot_origin_lane_id_, return_step, indicator_dir);
+                                        ot_phase_ = OvertakePhase::MOVING_BACK;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+
+                        case OvertakePhase::MOVING_OUT:
+                        case OvertakePhase::MOVING_BACK:
+                            // Unreachable here: OUT/BACK hold ONLY while lc_init_state_.armed is
+                            // true, and this whole branch runs only when !lc_init_state_.armed
+                            // (see the enclosing `if` two levels up).
+                            break;
+                    }
+                }
+            }
+        }
+
+        if (lc_init_state_.armed && lc_merge_state_.active)
+        {
+            lc_now_active = true;
+            lc_now_track  = lc_init_state_.hop_track_id;
+            lc_now_lane   = lc_init_state_.hop_target_lane_id;
+            lc_now_offset = EvaluateResumeMergeOffset(lc_merge_state_, 0.0);
+        }
+
+        // While armed, the ACTIVE hop's own fields are the authoritative telemetry values (the
+        // "not armed, considering" branch above never ran this frame, so lc_diag_target_* would
+        // otherwise still show whatever it last computed before arming).
+        if (lc_init_state_.armed)
+        {
+            lc_diag_target_track_id = static_cast<int>(lc_init_state_.hop_track_id);
+            lc_diag_target_lane_id  = lc_init_state_.hop_target_lane_id;
+        }
+
+        // design doc section 11-4: confirm lc_signal_dir_ exactly once per frame, HERE -- after
+        // lc_init_state_.armed reflects any disarm (suppression, line ~928)/complete (line ~978)/
+        // arm (line ~1034) transition earlier in this same block, so the armed branch below never
+        // races against a stale armed flag from the top of the frame. diag_hop/suppressed are the
+        // SAME locals the "not armed, considering" branch above used (no recomputation).
+        //
+        // The armed branch is bit-identical to the value DetectManeuverDir() used to read directly
+        // off lc_init_state_.armed/direction_indicator before this change (see that function's own
+        // edit): lc_signal_dir_ == lc_init_state_.direction_indicator whenever armed is true, so
+        // routing DetectManeuverDir() through this member instead does not change its output on any
+        // frame where a hop is armed.
+        if (lc_init_state_.armed)
+        {
+            lc_signal_dir_ = lc_init_state_.direction_indicator;
+        }
+        else if (!suppressed && route_lane_status.valid && !route_lane_status.on_target_lane && diag_hop.valid &&
+                 route_lane_status.dist_to_connection >= 0.0)
+        {
+            // Chattering guard: real ego longitudinal acceleration is mostly smooth, but a measured
+            // multi-frame dip (3.88 -> 1.09 m/s^2 across ~0.2s, frame-to-frame |da| up to 3.19 m/s^2)
+            // gets amplified by the forward projection's v + a*T term (T==3s here => ~8.4 m/s of
+            // projected-speed error at the dip), which is enough to make the raw predicate above flip
+            // back and forth across its threshold for a couple of frames. Rather than inventing a
+            // filter time-constant to justify, this just holds the pre-signal ON for the rest of the
+            // SAME hop's candidacy once it has fired once -- the same "no upper time bound, do not
+            // drop it for a gap wait" philosophy design doc section 11-6 already applies to the
+            // signal once a hop is armed, just extended one step earlier to the pre-signal.
+            const bool same_hop_latched =
+                lc_signal_latched_ && lc_signal_latched_lane_ == diag_hop.next_hop_lane_id;
+            const bool fires_now =
+                same_hop_latched || ShouldSignalLaneChangeHop(diag_hop.n_remaining, route_lane_status.dist_to_connection,
+                                                               ego_speed, a_ego, v_cap, lc_init_cfg_);
+            if (fires_now)
+            {
+                lc_signal_latched_      = true;
+                lc_signal_latched_lane_ = diag_hop.next_hop_lane_id;
+
+                // Same along_s formula as the arm-time indicator resolution above (line ~1031); may
+                // be recomputed every frame here (unlike the armed latch) because the pre-signal has
+                // not yet crossed the lane boundary that would collapse current/target lane id to the
+                // same value (design doc section 11-4's "先行合図中は方向を毎フレーム再計算してよい").
+                const bool along_s = IsAngleForward(object_->pos_.GetHRelative());
+                lc_signal_dir_ =
+                    LaneChangeIndicatorDir(route_lane_status.ego_lane_raw, diag_hop.next_hop_lane_id, along_s);
+            }
+            else
+            {
+                lc_signal_latched_      = false;
+                lc_signal_latched_lane_ = 0;
+                lc_signal_dir_          = 0;
+            }
+        }
+        else if (ot_cfg_.enabled &&
+                 (ot_phase_ == OvertakePhase::SIGNAL_OUT || ot_phase_ == OvertakePhase::SIGNAL_BACK))
+        {
+            // vd-func:FUNC-056 pre-signal (design doc overtake_maneuver.md section 1: a fixed dwell
+            // timer, not lane_change_initiation's forward-projected predicate -- so no separate
+            // chattering latch is needed here; the dwell timer itself cannot flicker). Direction may
+            // be recomputed every frame (the lane boundary has not been crossed yet in either
+            // phase, so current/target never collapse to the same id -- design doc section 11-4's
+            // reasoning for the route-request pre-signal above applies identically here).
+            const bool along_s     = IsAngleForward(object_->pos_.GetHRelative());
+            const int  target_lane = (ot_phase_ == OvertakePhase::SIGNAL_OUT) ? ot_passing_lane_id_ : ot_origin_lane_id_;
+            lc_signal_dir_          = LaneChangeIndicatorDir(object_->pos_.GetLaneId(), target_lane, along_s);
+        }
+        else
+        {
+            lc_signal_latched_      = false;
+            lc_signal_latched_lane_ = 0;
+            lc_signal_dir_          = 0;
+        }
+
+        // Rolling one-frame-back heading for the NEXT arming instant's a0_lat (design doc section
+        // 1's reuse of resume-merge's own capture, mirrored here with independent storage -- see
+        // the header doc on lc_prev_heading_). Updated every frame this feature is enabled.
+        lc_prev_heading_       = object_->pos_.GetH();
+        lc_prev_heading_valid_ = true;
+
+        // vd-func:FUNC-056: ot_phase_/ot_cleared_lead_ are read HERE, after the state-machine
+        // switch above may have transitioned either this same frame, so telemetry reports the
+        // POST-transition phase (e.g. a frame that just armed the outbound hop shows "out", not
+        // the "signal_out" it was still in when the per-frame diagnostics above were computed).
+        if (ot_cfg_.enabled)
+        {
+            ot_diag_phase        = OvertakePhaseName(ot_phase_);
+            ot_diag_cleared_lead = ot_cleared_lead_;
+            // Carry the "why" of a return through SIGNAL_BACK/BACK. The per-frame diagnostics
+            // above only ever set blocked_reason from the IDLE-phase candidate evaluation, which
+            // does not run once a maneuver is committed -- so without this a valve-forced return
+            // published an empty reason and was indistinguishable from a clean one. Same token as
+            // the IDLE-phase guard on purpose: it is the same fact, observed later.
+            if (ot_forced_by_route_ && (ot_phase_ == OvertakePhase::SIGNAL_BACK || ot_phase_ == OvertakePhase::MOVING_BACK))
+            {
+                ot_diag_blocked_reason = "route_budget";
+            }
+        }
+    }
+
     // 3. Auto pipeline: short planner -> driver model
     ShortPlanContext sctx;
     sctx.object               = object_;
@@ -734,11 +1684,20 @@ void ControllerVirtualDriver::Step(double timeStep)
     // feature:F7 resume-merge: defaults (false/0/0/0.0/nullptr) preserve
     // today's behavior when merge_now_active is false (disabled, never
     // armed, or disarmed this frame) -- see the HARD INVARIANT note above.
-    sctx.merge_active     = merge_now_active;
-    sctx.merge_track_id   = merge_now_track;
-    sctx.merge_lane_id    = merge_now_lane;
-    sctx.merge_offset_now = merge_now_offset;
-    sctx.merge_state      = merge_now_active ? &resume_merge_state_ : nullptr;
+    // vd-func:FUNC-055: resume-merge and AD-initiated lane-change both feed the SAME sctx.merge_*
+    // slot (design doc section 1 -- TrajectoryShortPlanner is generic over "which lane is the
+    // anchor", it does not need to know which feature is asking). resume-merge wins on any frame
+    // both would otherwise apply (design doc section 2's priority order); in practice the
+    // suppression check above already keeps them mutually exclusive (LC disarms itself the instant
+    // resume_merge_state_.active goes true), but the branch is written explicitly here rather than
+    // relying on that invariant holding forever (design doc section 2: "両方が同時に書かないよう、
+    // コントローラ側で明示的に分岐すること"). When lc_init_cfg_.enabled is false, lc_now_active is
+    // always false and this collapses to exactly the pre-existing expression.
+    sctx.merge_active     = merge_now_active || lc_now_active;
+    sctx.merge_track_id   = merge_now_active ? merge_now_track : lc_now_track;
+    sctx.merge_lane_id    = merge_now_active ? merge_now_lane : lc_now_lane;
+    sctx.merge_offset_now = merge_now_active ? merge_now_offset : lc_now_offset;
+    sctx.merge_state      = merge_now_active ? &resume_merge_state_ : (lc_now_active ? &lc_merge_state_ : nullptr);
     ShortPlannerSnapshot plan = short_planner_->Plan(sctx);
 
     DriverState dstate;
@@ -956,6 +1915,12 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.auto_transition       = override_mgr_.JustTransitionedToAuto();
         telemetry_.resume_pressed        = override_mgr_.JustPressedResume();
         telemetry_.takeover_pressed      = override_mgr_.JustPressedTakeManual();
+        // telemetry_.route_lane is deliberately NOT refreshed here, same as
+        // track_id/lane_id/s below (11.) are not: a non-integrator does not own
+        // "where is the ego on the road" this frame, and route_lane is exactly
+        // that same class of information. route_lane_status itself was still
+        // computed above (before the is_integrator gate), for the warning/
+        // deviation bookkeeping, which does need to run every frame.
 
         // feature:F7 RETURN PATH — same reason driver.steer needed its own
         // line above: THIS is the branch a non-integrating lateral owner
@@ -1057,8 +2022,16 @@ void ControllerVirtualDriver::Step(double timeStep)
     IndicatorContext ictx;
     ictx.object       = object_;
     int maneuver_dir  = DetectManeuverDir();
+    // docs/virtualdriver/design/junction_turn_signal.md section 3-4: telemetry needs
+    // the RAW lookahead (dir/dist_to_entry_m/on_connector), not just the gated int
+    // folded into maneuver_dir, so DetectJunctionTurn hands both back from a SINGLE
+    // route scan. Only evaluated in the fallback branch -- an active lane change
+    // pre-empts junction-turn detection entirely, same as before.
+    JunctionTurnSnapshot junction_turn_result;
     if (maneuver_dir == 0)
-        maneuver_dir = DetectJunctionTurn(dstate.speed);
+    {
+        maneuver_dir = DetectJunctionTurn(dstate.speed, timeStep, junction_turn_result);
+    }
     ictx.maneuver_dir = maneuver_dir;
     ictx.sim_time     = sim_time_;
     ictx.manual_left  = manual_ind.left_on;
@@ -1229,6 +2202,12 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.driver                = dsnap;
     telemetry_.indicator             = ind;
 
+    // req-vd-ad:REQ-AD-021 / vd-func:FUNC-061 junction-turn pre-arm telemetry
+    // (docs/virtualdriver/design/junction_turn_signal.md section 3-4). Mirrors the
+    // raw lookahead DetectJunctionTurn handed back above -- stays at its struct
+    // defaults (0/-1.0/false) while a lane change owns the indicator this frame.
+    telemetry_.junction_turn = junction_turn_result;
+
     // feature:F7 resume-merge telemetry (design doc
     // resume_merge_trajectory_design.md section 8-6). Controller-owned merge
     // state-machine snapshot; deliberately NOT part of ShortPlannerSnapshot
@@ -1279,6 +2258,63 @@ void ControllerVirtualDriver::Step(double timeStep)
         telemetry_.front_bumper.offset  = fb.GetOffset();
         telemetry_.front_bumper.valid   = ok;
     }
+
+    // 11c. RouteLanePlan telemetry (control/virtualdriver/RouteLanePlan.hpp).
+    // Computed unconditionally above (before the is_integrator gate), but
+    // published only here -- not in the "if (!is_integrator)" early-return block
+    // above -- for the same reason track_id/lane_id/s (11.) are not refreshed there either:
+    // for a non-integrator this controller does not own "where is the ego on
+    // the road" this frame, and route_lane is exactly that same class of
+    // information one layer up (route conformance, built ON TOP OF track/lane).
+    // Publishing it there anyway would desync it from the very track_id/lane_id
+    // fields it is meant to be read alongside.
+    telemetry_.route_lane.valid                  = route_lane_status.valid;
+    telemetry_.route_lane.road_id                = static_cast<int>(route_lane_status.road_id);
+    telemetry_.route_lane.ego_lane               = route_lane_status.ego_lane;
+    telemetry_.route_lane.ego_lane_raw           = route_lane_status.ego_lane_raw;
+    telemetry_.route_lane.target_lanes           = route_lane_status.target_lanes;
+    telemetry_.route_lane.on_target_lane         = route_lane_status.on_target_lane;
+    telemetry_.route_lane.dist_to_connection     = route_lane_status.dist_to_connection;
+    telemetry_.route_lane.deviation_count        = route_lane_deviations_;
+    telemetry_.route_lane.last_deviation_road_id = static_cast<int>(route_lane_last_dev_road_);
+    telemetry_.route_lane.rerouted               = route_lane_plan_.rerouted;
+    telemetry_.route_lane.diagnostic             = route_lane_plan_.diagnostic;
+    telemetry_.route_lane.reason                 = route_lane_status.reason;
+
+    // 11d. vd-func:FUNC-055 AD lane-change initiation telemetry (LaneChangeInitiation.hpp).
+    // Computed above (before the is_integrator gate, into the lc_diag_*/lc_now_* locals) but
+    // published only here, same reasoning as 11c.'s own comment: a non-integrator does not own
+    // "where is the ego on the road" this frame, and this is exactly that class of information one
+    // layer up. All fields stay at their struct defaults when lc_init_cfg_.enabled is false.
+    telemetry_.lane_change.armed               = lc_init_state_.armed;
+    telemetry_.lane_change.direction           = lc_init_state_.armed ? lc_init_state_.direction_indicator : 0;
+    telemetry_.lane_change.target_track_id     = lc_diag_target_track_id;
+    telemetry_.lane_change.target_lane_id      = lc_diag_target_lane_id;
+    telemetry_.lane_change.n_remaining         = lc_diag_n_remaining;
+    telemetry_.lane_change.required_m          = lc_diag_required_m;
+    telemetry_.lane_change.dist_to_connection  = lc_diag_dist_to_connection;
+    telemetry_.lane_change.gap_accepted        = lc_diag_gap_accepted;
+    telemetry_.lane_change.gap_reason          = lc_diag_gap_reason;
+    // design doc section 11-8: signal_active is true whenever the AD-LC path is requesting the
+    // indicator, whether pre-signaling or already armed -- lc_signal_dir_ is 0 in neither case and
+    // permanently 0 when lc_init_cfg_.enabled is false (see the header doc on lc_signal_dir_), so
+    // this needs no separate enabled check.
+    telemetry_.lane_change.signal_active       = (lc_signal_dir_ != 0);
+
+    // 11e. vd-func:FUNC-056 AD overtake maneuver telemetry (OvertakeManeuver.hpp). Computed above
+    // (before the is_integrator gate, into the ot_diag_* locals) but published only here, same
+    // reasoning as 11c./11d.'s own comments. All fields stay at their struct defaults when
+    // ot_cfg_.enabled is false.
+    telemetry_.overtake.phase          = ot_diag_phase;
+    telemetry_.overtake.considered     = ot_diag_considered;
+    telemetry_.overtake.lead_id        = ot_diag_lead_id;
+    telemetry_.overtake.lead_osi_id    = ot_diag_lead_osi_id;
+    telemetry_.overtake.delta_v_mps    = ot_diag_delta_v;
+    telemetry_.overtake.t_pass_s       = ot_diag_t_pass;
+    telemetry_.overtake.required_m     = ot_diag_required_m;
+    telemetry_.overtake.route_budget_m = ot_diag_route_budget_m;
+    telemetry_.overtake.blocked_reason = ot_diag_blocked_reason;
+    telemetry_.overtake.cleared_lead   = ot_diag_cleared_lead;
 
     // 12. Base controller step
     scenarioengine::Controller::Step(timeStep);
@@ -1370,6 +2406,128 @@ int ControllerVirtualDriver::ResolveLaneChangeDir(const scenarioengine::LatLaneC
     return LaneChangeIndicatorDir(current_lane, target_lane, along_s);
 }
 
+OvertakeLeadSample ControllerVirtualDriver::ScanOvertakeLead(double lookahead) const
+{
+    OvertakeLeadSample sample;
+    if (!object_ || !entities_ || lookahead <= 0.0)
+    {
+        return sample;
+    }
+
+    // vd-func:FUNC-056 (design doc overtake_maneuver.md section 3-2): the same "nearest same-lane
+    // lead ahead" notion LeadVehicleAware.cpp's own Evaluate() uses (LeadVehicleAware.cpp:39-97),
+    // reproduced here rather than shared because that policy's Evaluate() is bound to
+    // TrafficPolicyContext, not this controller -- same math and same filter order (dLaneId==0,
+    // ds>0, |dt|<=lateral_tol), NOT a new definition of "lead".
+    const LeadVehicleAwareConfig lead_cfg = vd_config_.LeadConfig();
+    const scenarioengine::Object* lead    = nullptr;
+    double                        lead_ds = lookahead;
+
+    const double reject_radius    = lookahead + lead_cfg.lateral_tol;
+    const double reject_radius_sq = reject_radius * reject_radius;
+
+    for (auto* other : entities_->object_)
+    {
+        if (!other || other == object_) continue;
+
+        const double dx = other->pos_.GetX() - object_->pos_.GetX();
+        const double dy = other->pos_.GetY() - object_->pos_.GetY();
+        if (dx * dx + dy * dy > reject_radius_sq) continue;
+
+        roadmanager::PositionDiff diff = {};
+        if (!object_->pos_.Delta(&other->pos_, diff, false, lookahead)) continue;
+
+        if (diff.dLaneId != 0) continue;
+        if (diff.ds <= 0.0) continue;
+        if (std::fabs(diff.dt) > lead_cfg.lateral_tol) continue;
+        if (diff.ds < lead_ds)
+        {
+            lead_ds = diff.ds;
+            lead    = other;
+        }
+    }
+
+    if (!lead) return sample;
+
+    const double half_ego  = object_->boundingbox_.dimensions_.length_ / 2.0 + object_->boundingbox_.center_.x_;
+    const double half_lead = lead->boundingbox_.dimensions_.length_ / 2.0 - lead->boundingbox_.center_.x_;
+
+    sample.has_lead      = true;
+    sample.gap_lead_m    = std::max(0.0, lead_ds - half_ego - half_lead);
+    sample.v_lead_mps    = lead->GetSpeed();
+    sample.lead_length_m = lead->boundingbox_.dimensions_.length_;
+    sample.lead_id       = static_cast<int>(lead->GetId());
+    sample.lead_osi_id   = OsiIdOf(lead);
+    return sample;
+}
+
+OncomingSample ControllerVirtualDriver::ScanOncomingGap(int direction_step, double lookahead) const
+{
+    OncomingSample sample;
+    if (!object_ || !entities_ || direction_step == 0 || lookahead <= 0.0)
+    {
+        return sample;
+    }
+
+    const scenarioengine::Object* nearest          = nullptr;
+    double                        nearest_ds        = lookahead;
+    const double                  reject_radius_sq = lookahead * lookahead;
+
+    for (auto* other : entities_->object_)
+    {
+        if (!other || other == object_) continue;
+
+        const double dx = other->pos_.GetX() - object_->pos_.GetX();
+        const double dy = other->pos_.GetY() - object_->pos_.GetY();
+        if (dx * dx + dy * dy > reject_radius_sq) continue;
+
+        roadmanager::PositionDiff diff = {};
+        if (!object_->pos_.Delta(&other->pos_, diff, true, lookahead)) continue;
+
+        // Confirmed (not assumed) from RoadManager.cpp's Position::Delta implementation:
+        //   - diff.dLaneId == direction_step selects the ONE lane on the far side of the
+        //     centerline (see OvertakeLaneStep's own header doc for why direction_step must be
+        //     +/-1 here, not the raw opposing-lane-id difference).
+        //   - diff.dOppLane confirms the match actually crossed the zero-width reference lane
+        //     (RoadManager.cpp:12279-12287), guarding against a same-side neighbor that happens
+        //     to share the same |dLaneId| (this function's callers only invoke it when the ego
+        //     itself sits at lane +/-1, so this is defense-in-depth, not load-bearing today).
+        //   - diff.ds > 0 is "ahead along the ego's OWN facing direction" -- this branch of
+        //     Position::Delta (same-road case, RoadManager.cpp:6433-6459) computes the sign from
+        //     the EGO's own lane-id/heading only, never the other position's, so it holds for an
+        //     oncoming vehicle exactly as it does for a same-direction lead.
+        //   - diff.dDirection is FALSE for a genuinely oncoming vehicle on this same road
+        //     (RoadManager.cpp:12271-12277: dDirection is the equality of the two positions'
+        //     forward-facing booleans) -- required here so this function never mistakes a
+        //     same-direction vehicle for an oncoming one.
+        if (diff.dLaneId != direction_step) continue;
+        if (!diff.dOppLane) continue;
+        if (diff.ds <= 0.0) continue;
+        if (diff.dDirection) continue;
+
+        if (diff.ds < nearest_ds)
+        {
+            nearest_ds = diff.ds;
+            nearest    = other;
+        }
+    }
+
+    if (!nearest) return sample;
+
+    // Both vehicles present their FRONT to each other (closing head-on) -- UNLIKE a same-direction
+    // lead, where the ego sees the lead's REAR. ScanAdjacentLaneGap's bumper formula (half_lead =
+    // length/2 - center.x_, i.e. the REAR offset) would be WRONG here, so this is deliberately NOT
+    // a call into that function -- both offsets below use the FRONT formula (length/2 + center.x_),
+    // same as the ego's own half_ego throughout this file.
+    const double half_ego     = object_->boundingbox_.dimensions_.length_ / 2.0 + object_->boundingbox_.center_.x_;
+    const double half_nearest = nearest->boundingbox_.dimensions_.length_ / 2.0 + nearest->boundingbox_.center_.x_;
+
+    sample.has_oncoming   = true;
+    sample.gap_m          = std::max(0.0, nearest_ds - half_ego - half_nearest);
+    sample.v_oncoming_mps = nearest->GetSpeed();
+    return sample;
+}
+
 int ControllerVirtualDriver::DetectManeuverDir()
 {
     // Only signal when a lane change is actually in progress (avoid curve false-positives).
@@ -1388,6 +2546,25 @@ int ControllerVirtualDriver::DetectManeuverDir()
     {
         lane_change_action_id_ = nullptr;
         lane_change_dir_       = 0;
+
+        // vd-func:FUNC-055 (design doc lane_change_initiation.md section 11-4, step 2-3): no
+        // storyboard lane change is running -- fall back to lc_signal_dir_, which the Step() LC
+        // block (above, ~line 936) confirms every frame to either the ARMED hop's latched direction
+        // (lc_init_state_.direction_indicator -- BIT-IDENTICAL to what this function returned before
+        // this change, since lc_signal_dir_ == lc_init_state_.direction_indicator whenever armed is
+        // true) or the PRE-SIGNAL direction ahead of arming (new: design doc section 11), or 0.
+        // lc_init_cfg_.enabled is checked FIRST so a disabled feature never reaches lc_signal_dir_ at
+        // all -- it stays permanently 0 when disabled (see the header doc on lc_signal_dir_), keeping
+        // this path structurally identical to before the feature existed, not merely behaviourally so.
+        // vd-func:FUNC-056 (design doc overtake_maneuver.md section 6): the ONLY change this
+        // feature makes to DetectManeuverDir -- this gate, one line. lc_signal_dir_ is the same
+        // member the FUNC-055 comment above already describes; overtake writes into it with the
+        // SAME contract (Step()'s LC block confirms it every frame), so no further change is
+        // needed here.
+        if ((lc_init_cfg_.enabled || ot_cfg_.enabled) && lc_signal_dir_ != 0)
+        {
+            return lc_signal_dir_;
+        }
         return 0;
     }
 
@@ -1403,14 +2580,52 @@ int ControllerVirtualDriver::DetectManeuverDir()
     return lane_change_dir_;
 }
 
-int ControllerVirtualDriver::DetectJunctionTurn(double speed) const
+int ControllerVirtualDriver::DetectJunctionTurn(double speed, double dt, JunctionTurnSnapshot& out_raw) const
 {
+    out_raw = JunctionTurnSnapshot{};
+
     roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
     if (!odr) return 0;
 
-    // Lead-time based lookahead so the signal pre-arms before the intersection.
-    const double lookahead = std::max(15.0, speed * vd_config_.indicator_lead_time + 10.0);
-    return RouteLookaheadJunctionTurnDirection(object_->pos_, odr, lookahead);
+    // docs/virtualdriver/design/junction_turn_signal.md section 2-2/3-2: the trigger
+    // is a DISTANCE (JP Road Traffic Act Enforcement Order Art. 21 para 1: turns
+    // signal 30 m before the intersection), not a time-based lookahead padded by a
+    // constant -- the old "+ 10.0" was compensating for the previous algorithm
+    // eating the connector's own length, which no longer happens (section 2-1).
+    const double trigger = std::max(vd_config_.indicator_min_distance_m, speed * vd_config_.indicator_lead_time);
+
+    // One frame of lookahead past the trigger (see the gate below for why), and one scan
+    // step past THAT so the connector is always detected before the frame that must light
+    // the lamp -- a 2 m-quantized scan that stops exactly at the trigger can miss it by a
+    // step and re-introduce the late-signal the "reach" term exists to remove.
+    const double reach = trigger + std::max(0.0, speed * dt);
+    const JunctionTurnLookahead result = RouteLookaheadJunctionTurn(object_->pos_, odr, reach + kJunctionTurnLookaheadStepM);
+
+    // Raw result out for telemetry BEFORE the gate: the matcher measures the distance
+    // from the signal's rising edge back to the connector entry, so it needs
+    // dist_to_entry_m while the signal is still off.
+    out_raw.dir             = result.dir;
+    out_raw.dist_to_entry_m = result.dist_to_entry;
+    out_raw.on_connector    = result.on_connector;
+
+    // A straight-through connector (heading delta below kJunctionTurnHeadingThresholdRad,
+    // e.g. fabriksgatan road 12 at ~0.046 rad) yields dir == 0 and must stay dark even
+    // while ego is ON it -- crossing an intersection straight is not a signalled turn.
+    // Checked first so on_connector cannot read as "always signal" (design doc section 4-3
+    // requires the straight-crossing negative case to hold).
+    if (result.dir == 0) return 0;
+
+    // Mid-turn (defect 3) always signals; otherwise only once the connector's entry
+    // has closed to within the legal distance trigger.
+    //
+    // `reach` looks ONE FRAME AHEAD. Sampling is discrete, so the first frame that
+    // satisfies dist <= 30.0 is already PAST the legal point by up to one frame of travel
+    // -- measured 29.74 m on the 33.2 m connector before this term was added, i.e. the
+    // lamp lit just under the statutory distance. Art. 21 para 1 fixes the point at which
+    // signalling must have STARTED, so erring early is compliant and erring late is not.
+    // Same move the lane-change side made in lane_change_initiation.md section 11-11:
+    // stop chasing the threshold, predict where the next frame lands.
+    return (result.on_connector || result.dist_to_entry <= reach) ? result.dir : 0;
 }
 
 void ControllerVirtualDriver::ApplyLights(const PedalSteerCommand& cmd, const IndicatorSnapshot& ind)

@@ -10,8 +10,13 @@
 #include "gt_esmini/control/virtualdriver/AdasFunctionReport.hpp"
 #include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
 #include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
+#include "gt_esmini/control/virtualdriver/RouteLanePlan.hpp"
+#include "gt_esmini/control/virtualdriver/LaneChangeInitiation.hpp"
+#include "gt_esmini/control/virtualdriver/OvertakeManeuver.hpp"
 #include "osi_hostvehicledata.pb.h"
 
+#include <cstddef>
+#include <string>
 #include <vector>
 
 #define CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME "VirtualDriverController"
@@ -95,7 +100,15 @@ private:
     int    ResolveLaneChangeDir(const scenarioengine::LatLaneChangeAction* lc) const;
     // Look ahead along the route for a junction turn; +1 left, -1 right, 0 none.
     // Used to pre-arm turn signals before intersections (no lane change involved).
-    int    DetectJunctionTurn(double speed) const;
+    // Returns the GATED indicator direction (0 unless the legal distance trigger has
+    // been reached), and writes the RAW lookahead result to out_raw for telemetry --
+    // matcher:indicator_leads_junction_turn needs dist_to_entry_m/on_connector, which
+    // the gated int alone cannot carry (design doc junction_turn_signal.md section 3-4).
+    // One out-param rather than two calls: the route scan must run only once per frame.
+    // dt is this frame's timestep: the trigger predicts one frame forward so the lamp
+    // lights AT or BEFORE the legal 30 m point rather than at the first sample already
+    // past it (design doc junction_turn_signal.md section 2-2).
+    int    DetectJunctionTurn(double speed, double dt, JunctionTurnSnapshot& out_raw) const;
     void   ApplyLights(const PedalSteerCommand& cmd, const IndicatorSnapshot& ind);
     // feature:F7 resume-merge -- resolve the ego's ROUTE lane at its current
     // track/s (design doc resume_merge_trajectory_design.md section 2-0-1).
@@ -168,7 +181,7 @@ private:
     AdSteeringEnvelopeConfig ad_envelope_cfg_;
     AdSteeringEnvelopeState  ad_envelope_state_;
 
-    // feature:F7 resume-merge (docs/virtualdriver/resume_merge_trajectory_design.md).
+    // feature:F7 resume-merge (docs/virtualdriver/design/resume_merge_trajectory_design.md).
     // Config captured once at construction (not hot-reloaded), mirroring
     // ad_envelope_cfg_ above -- Step() gates ALL resume-merge logic behind
     // resume_merge_cfg_.enabled so the disabled path (shipped default) runs
@@ -181,6 +194,80 @@ private:
     ResumeMergeState   resume_merge_state_{};
     double             prev_heading_       = 0.0;
     bool               prev_heading_valid_ = false;
+
+    // vd-func:FUNC-055 AD lane-change initiation
+    // (docs/virtualdriver/design/lane_change_initiation.md). lc_init_cfg_/lc_init_state_ are this
+    // layer's OWN decision state (which hop, if any, is in progress); lc_merge_cfg_/lc_merge_state_
+    // are a SEPARATE ResumeMergeProfile instance driving that hop's trajectory -- deliberately NOT
+    // sharing storage with resume_merge_cfg_/resume_merge_state_ above (design doc section 8 tail).
+    // lc_prev_heading_/lc_prev_heading_valid_ mirror prev_heading_/prev_heading_valid_ above but are
+    // updated independently, gated only on lc_init_cfg_.enabled: sharing the resume-merge pair would
+    // silently starve a0_lat capture whenever resume_merge_enabled is false but this feature is on.
+    LaneChangeInitiationConfig lc_init_cfg_;
+    LaneChangeInitiationState  lc_init_state_{};
+    ResumeMergeConfig          lc_merge_cfg_;
+    ResumeMergeState           lc_merge_state_{};
+    double                     lc_prev_heading_       = 0.0;
+    bool                       lc_prev_heading_valid_ = false;
+    // design doc section 11-4: AD-LC indicator direction (pre-signal or armed); 0 = not
+    // requesting. Confirmed every frame inside the `if (lc_init_cfg_.enabled)` block in Step() --
+    // reset to 0 just BEFORE that block runs (unconditionally), so when the feature is disabled
+    // this member never leaves 0 (design doc section 8's default-OFF invariant: DetectManeuverDir()
+    // reads this member, so a disabled feature must never make it non-zero).
+    int lc_signal_dir_ = 0;
+    // Pre-signal latch (see the "chattering guard" comment at its use site in Step()): once
+    // ShouldSignalLaneChangeHop fires for a given target lane, the signal is held for the rest of
+    // that hop's candidacy rather than re-evaluated every frame, so a transient dip in the
+    // (1-frame-delayed) longitudinal acceleration reading cannot make the pre-signal flicker.
+    bool lc_signal_latched_      = false;  // latched pre-signal, independent of lc_init_state_.armed
+    int  lc_signal_latched_lane_ = 0;      // the hop target lane id this latch was raised for
+
+    // vd-func:FUNC-056 AD overtake maneuver (docs/virtualdriver/design/overtake_maneuver.md).
+    // Builds on FUNC-055's 1-hop mechanism run TWICE (out, then back) -- reuses lc_init_state_ /
+    // lc_merge_cfg_ / lc_merge_state_ above VERBATIM for both hops (design doc section 5: no third
+    // ResumeMergeConfig/State instance, since route-required LC and overtake are mutually exclusive
+    // by priority -- design doc section 5-3 / lane_change_initiation.md section 2). ot_cfg_ is
+    // built once in Init() (not hot-reloaded), same convention as lc_init_cfg_ above. ot_phase_ is
+    // the ONLY new state machine (design doc section 5's "その上に薄いフェーズ状態を1つ置く");
+    // the OvertakeManeuver.hpp free functions are pure and hold no state of their own.
+    OvertakeConfig ot_cfg_;
+    OvertakePhase  ot_phase_ = OvertakePhase::IDLE;
+    // The lead vehicle this pass targets, latched at IDLE->SIGNAL_OUT and held through PASS's
+    // HasClearedLead check (design doc section 5-1: re-resolving "nearest same-lane lead" every
+    // frame would swap targets the instant the lead is passed).
+    int    ot_lead_id_          = -1;
+    double ot_lead_length_m_    = 0.0;
+    int    ot_origin_lane_id_   = 0;   // the lane to return to (BACK's target)
+    int    ot_passing_lane_id_  = 0;   // the lane used to pass (OUT's target); same-direction or opposing
+    bool   ot_opposing_         = false;  // true if ot_passing_lane_id_ is the OPPOSING lane (design doc section 7)
+    // Pre-signal dwell timer (design doc section 1: "合図 -> ドウェルT秒 -> 発起", NOT
+    // lane_change_initiation's forward-projected ShouldSignalLaneChangeHop -- overtaking has no
+    // deadline to project against). < 0 means "not signaling yet"; set at SIGNAL_OUT/SIGNAL_BACK
+    // entry, read by SignalDwellSatisfied().
+    double ot_signal_start_time_s_ = -1.0;
+    double ot_t_pass_s_            = 0.0;  // EvaluateOvertakeTrigger's estimate, latched at commit
+    // Sticky "cleared the lead" fact for telemetry (design doc section 9-1's `cleared_lead`):
+    // set true the frame HasClearedLead fires in PASS, held through SIGNAL_BACK/BACK, reset to
+    // false at IDLE->SIGNAL_OUT (a fresh pass has not cleared anything yet).
+    bool   ot_cleared_lead_ = false;
+    // Sticky "this return was forced by the route deadline, not by having passed the lead"
+    // (design doc section 5-2). Latched alongside the PASS->SIGNAL_BACK transition and held
+    // through BACK so a matcher reading any frame of the return can tell the two apart; reset
+    // wherever ot_cleared_lead_ is. Surfaces as telemetry blocked_reason == "route_budget"
+    // during SIGNAL_BACK/BACK -- the same fixed-vocabulary token the IDLE-phase guard uses,
+    // because it is the same fact ("the route budget is what stopped the pass"), only later.
+    bool   ot_forced_by_route_ = false;
+
+    // Engine-dependent scans OvertakeManeuver.hpp deliberately does NOT do (it is pure-function
+    // only, see its header comment) -- mirrors ScanAdjacentLaneGap's split in LaneChangeInitiation.hpp.
+    // ScanOvertakeLead follows LeadVehicleAware.cpp's own same-lane-ahead pattern
+    // (Delta(..., false, lookahead), dLaneId==0 && ds>0 && |dt|<=lateral_tol). ScanOncomingGap is
+    // NOT a call into ScanAdjacentLaneGap: that function references the FOUND vehicle's REAR
+    // bumper offset (correct for a same-direction lead), which is the WRONG bumper for a vehicle
+    // facing the ego (its FRONT is the near side) -- see the .cpp for the confirmed Position::Delta
+    // fact this is built on (ds sign / dOppLane normalization / dDirection).
+    OvertakeLeadSample ScanOvertakeLead(double lookahead) const;
+    OncomingSample     ScanOncomingGap(int direction_step, double lookahead) const;
 
     // Manual indicator (turn-signal) control via input-source buttons, reusing
     // ManualDrive's auto-cancel FSM. When the human arms an indicator it takes
@@ -218,6 +305,26 @@ private:
     // that action's lifetime (see DetectManeuverDir).
     const void* lane_change_action_id_ = nullptr;
     int         lane_change_dir_       = 0;
+
+    // RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) -- per-frame "is the
+    // ego on a lane that still leads to the route's destination" diagnostic. See
+    // Step() for the evaluation and telemetry_.route_lane for the published
+    // snapshot; route_lane_plan_ itself is rebuilt only when the route changes
+    // (route_lane_cache_route_/route_lane_cache_hash_ below), not every frame.
+    RouteLanePlan route_lane_plan_;
+    const void*   route_lane_cache_route_ = nullptr;  // Route* identity the plan was built from
+    size_t        route_lane_cache_hash_  = 0;        // hash of the route's (track,lane) waypoint skeleton
+    bool          route_lane_warned_      = false;    // whether the CURRENT diagnostic has been logged
+    std::string   route_lane_warned_reason_;          // the diagnostic value that was last logged
+
+    // Previous frame's road/lane match, kept for the deviation check (did the ego
+    // just leave a road it was off its target lane(s) on) and its log message.
+    id_t             route_lane_prev_road_ = ID_UNDEFINED;
+    int              route_lane_prev_lane_ = 0;
+    std::vector<int> route_lane_prev_target_lanes_;
+    bool             route_lane_prev_on_target_ = true;
+    int              route_lane_deviations_      = 0;
+    id_t             route_lane_last_dev_road_   = ID_UNDEFINED;
 };
 
 scenarioengine::Controller* InstantiateControllerVirtualDriver(void* args);

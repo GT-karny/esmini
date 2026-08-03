@@ -17,6 +17,17 @@ must:
     road_id: 12                # only while on the junction connecting road
     after: { sim_time: 1.0 }
     reason: "No over-deceleration crossing a junction the ego drives straight through"
+  - event: indicator_leads_junction_turn
+    expect_dir: none           # negative check (design doc section 4-3): a straight
+                                # pass-through must never be classified as a turn, and the
+                                # indicator must never light for it. min_distance_m is not
+                                # meaningful for expect_dir: none and is intentionally omitted.
+    reason: "req-vd-ad:REQ-AD-021 negative guard: connecting road 12's heading delta (~0.046
+      rad) sits below kJunctionTurnHeadingThresholdRad (0.10 rad), so junction_turn.dir must
+      stay 0 and the indicator must stay dark through the whole straight crossing -- this is
+      the required negative resource for the new matcher per the design doc's section 4-3
+      table (the fix makes the indicator easier to light, which is exactly what makes a false
+      positive here likely if the change over-fires)"
 notes: >
   Geometry: route road3(lane -1) -> fabriksgatan junction connecting road 12 ->
   road1(lane -1). Connecting road 12 is a paramPoly3 with ~zero curvature, so both

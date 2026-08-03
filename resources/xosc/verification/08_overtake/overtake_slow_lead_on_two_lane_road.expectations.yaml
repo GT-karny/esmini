@@ -1,0 +1,82 @@
+scenario: overtake_slow_lead_on_two_lane_road
+category: 08_overtake
+# vd-func:FUNC-056 (overtake maneuver) / req-vd-ad:REQ-AD-023 acceptance ladder
+# step a-c: the clean success case. See the .xosc file's header comment for
+# the full distance-budget derivation (required=496.667 m against a
+# dist_to_connection=770.0 m budget -- a large 273.33 m margin, deliberately
+# NOT razor-thin, so this file isolates "does the overtake complete and
+# return" from the route-budget guard's edge behavior).
+#
+# MEASURED (2026-08-04, real Release build, coordinating session's own run):
+# t=0.05 signal_out (lamp=L, armed=False, lane=-2), t=3.00 out (armed=True,
+# dir=+1 -- outbound indicator lead 2.95s), t=5.00 lane=-1, t=6.40 pass,
+# t=10.25 signal_back (lamp=R), t=13.25 back (armed=True, dir=-1 -- inbound
+# indicator lead 3.00s), t=15.15 lane=-2, t=16.65 idle. Final route_lane:
+# track=2, on_target_lane=true, deviation_count=0. This confirms the
+# overtake completes and returns to the exit-connected lane exactly as
+# this file's arithmetic predicted (see the .xosc header comment).
+#
+# expect_phases deliberately does NOT start with "idle": Ego is constrained
+# by SlowLead from frame 1 (t=0.05 is already signal_out in the measured
+# trace above), so idle never appears at the START of the run -- this is
+# not a loosened threshold, it is what the scenario's own setup (Ego
+# already close behind a slow lead at t=0) actually produces. Nothing in
+# REQ-AD-023 requires starting from a demonstrably-not-overtaking state.
+must:
+  - event: overtake_decision_holds
+    expect_considered: true
+    reason: >
+      The overtake trigger (design doc section 3: delta_v=12.0 m/s,
+      t_pass=4.83s <= overtake_max_pass_time_s=10.0, and SlowLead is within
+      the LeadVehicleAware-style "constrained" gap) must actually fire at
+      least once -- this is the "偽PASS 検知の要" the design doc's section
+      9-1 calls out: a scenario where considered never becomes true would
+      make every other assertion in this file vacuous.
+  - event: overtake_decision_holds
+    expect_phases: [signal_out, out, pass, signal_back, back, idle]
+    reason: >
+      Confirms the full state machine (design doc section 5) runs end to
+      end: the guard passes (large margin, see header comment) so the
+      maneuver should never be blocked, complete the passing-lane hop,
+      clear SlowLead, and return to the exit-connected lane -2 well before
+      the junction, settling back to idle. MEASURED sequence matches
+      exactly (see the notes above): signal_out@0.05 -> out@3.00 ->
+      pass@6.40 -> signal_back@10.25 -> back@13.25 -> idle@16.65.
+  - event: overtake_decision_holds
+    expect_cleared_lead: true
+    reason: >
+      Confirms SlowLead was actually cleared (relative longitudinal
+      position exceeded g1(8.0) + L_ego/2 + L_lead/2 = 13.0 m ahead of it,
+      design doc section 5-1's PASS -> SIGNAL_BACK transition condition),
+      not just that the phase machine nominally advanced past PASS for some
+      other reason.
+  - event: indicator_leads_lane_change
+    window: [0.0, 8.0]
+    min_lead_s: 2.9
+    reason: >
+      Outbound hop (design doc section 9-3: the indicator matcher is called
+      TWICE, once per hop, with disjoint windows, since a single overtake
+      involves two lane changes). MEASURED: signal_active first true at
+      t=0.05 (lamp=L), armed(out) first true at t=3.00, lead=2.95s.
+      min_lead_s=2.9 is 3.0 (lane_change_indicator_lead_time_s, the legal
+      requirement) minus one frame's worth of quantization allowance
+      (dt=0.05) -- the same "2.9 = legal 3.0s minus dt slack, not a
+      loosened assertion" convention req-vd-ad:REQ-AD-018 steps b/c already
+      use elsewhere in this codebase.
+  - event: indicator_leads_lane_change
+    window: [9.0, 20.0]
+    min_lead_s: 2.9
+    reason: >
+      Inbound (return) hop, the section 9-3 second call with a disjoint
+      window. MEASURED: signal_active (lamp=R) first true at t=10.25,
+      armed(back) first true at t=13.25, lead=3.00s. Same 2.9 = 3.0 - dt
+      convention as the outbound entry above (not a threshold relaxation).
+      The indicator_leads_lane_change matcher's own direction check
+      (section 11-9's dir agreement) also confirms the lit side flips for
+      the return hop (dir=-1 here vs +1 outbound).
+notes: >
+  MEASURED (2026-08-04, real Release build, coordinating session). All
+  thresholds above reflect the actual observed trace, not the pre-build
+  arithmetic estimate this file originally carried (which predicted the
+  qualitative outcome correctly but did not predict exact frame timing --
+  see git history for the original UNVERIFIED version of this file).

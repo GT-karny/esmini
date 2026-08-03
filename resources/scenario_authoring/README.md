@@ -1,7 +1,7 @@
 # scenario_authoring — Layer-1 Catalog for VirtualDriver Phase 3d/3e
 
 This directory is the root of the parameterized scenario-authoring foundation described in
-`GT_esmini/docs/virtualdriver/scenario_authoring_foundation.md`.
+`GT_esmini/docs/virtualdriver/design/scenario_authoring_foundation.md`.
 
 It targets VirtualDriver **Phase 3d** (oncoming-vehicle yield / right-turn gap judgement)
 and **Phase 3e** (unsignalized junction priority) verification.
@@ -84,6 +84,28 @@ DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/
 DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/gen_4way_priority.py `
     --main ew --lanes 2 --no-signage
 ```
+
+### Signalised short block (two junctions, one block apart)
+
+`gen_signalized_short_block.py` builds two signalised T-junctions separated by a block SHORTER
+than the distance a stopped car needs to stand clear of the first one, with a vehicle traffic
+light at each. It is the road behind the `03_traffic_signals/junction_not_blocked.xosc`
+discriminator for the `policy:traffic_light` "don't block the box" junction guard
+(`JunctionStopGuard.hpp`): the second junction's stop line sits `--head-offset` metres past the
+first junction's exit, and the first junction's own head masks it until the ego is committed.
+
+```powershell
+# Default: 12 m block, stop line 3 m past junction A's exit -> signalized_short_block__b12
+DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/gen_signalized_short_block.py
+
+# Wider block / stop line further out (relaxes the geometry)
+DriverScript/.venv/Scripts/python.exe resources/scenario_authoring/road_catalog/gen_signalized_short_block.py `
+    --block-length 20 --head-offset 6
+```
+
+Ego path is `road 0 -> junction 100 (connector 100) -> road 2 -> junction 200 (connector 200) -> road 4`;
+signal ids are 0 (junction A head, on road 0) and 1 (junction B head, on road 2). The
+`road.meta.yaml` `layout` block records those ids so expectations can name the roads directly.
 
 ### Inject `<priority>` into an arbitrary generated xodr (standalone)
 
@@ -183,6 +205,11 @@ Rules:
 ## Design Reference
 
 Full rationale, taxonomy, and milestone roadmap:
-`GT_esmini/docs/virtualdriver/scenario_authoring_foundation.md`
+`GT_esmini/docs/virtualdriver/design/scenario_authoring_foundation.md`
 
 Tool dependencies and dev-freeze non-applicability: see §3.2 of that document.
+
+**Route Waypoint authoring rule (junction crossings)**: see §10 of that document (canonical —
+do not duplicate here). When a Route crosses a junction, every OpenDRIVE connecting road on the
+path needs its own Waypoint or esmini silently truncates the route. `make_route(..., xodr_path=...)`
+auto-inserts the missing Waypoint; `validate_catalog.py` static check (e) lints for it.

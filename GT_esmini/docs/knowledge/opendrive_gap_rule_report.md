@@ -1,21 +1,21 @@
 # OpenDRIVE gap-rule 監査 — Annex F 未実装ルールの自作 checker suite（拡張版）
 
 > qc-opendrive が実装しない Annex F 規範ルール（gap 259）を XML 直パースで自作 checker 化。
-> 19 カテゴリモジュール（`scratchpad/checks_gap/check_*.py`）を統合し 208 ファイルへ一括適用。
+> 19 カテゴリモジュール（`GT_esmini/docs/knowledge/opendrive_gap_checkers/check_*.py`）を統合し 215 ファイルへ一括適用。
 > 公式ASAM=校正セット（発火≒0が期待・発火は要精査） / GT自作=**監査対象** / 上流=対象外。
 > flag は error でなく **review**（助言）。
 
-- モジュール数 **19**  検査 **208** files（parse失敗 3／実行時例外 0）
-- 違反総数 **259**  ├ GT自作 **94**  └ 公式ASAM **21**
+- モジュール数 **19**  検査 **215** files（parse失敗 4／実行時例外 0）
+- 違反総数 **281**  ├ GT自作 **116**  └ 公式ASAM **21**
 
 ## origin別（files / 違反数）
 
 | origin | files | 違反 |
 | :-- | --: | --: |
-| GT:resources/xodr | 32 | 54 |
+| GT:resources/xodr | 34 | 55 |
 | GT:test | 10 | 16 |
 | GT:handauthored | 30 | 11 |
-| GT:generated | 13 | 13 |
+| GT:generated | 18 | 34 |
 | official(ASAM) | 36 | 21 |
 | upstream(対象外) | 58 | 138 |
 | other | 29 | 6 |
@@ -25,7 +25,7 @@
 | module | 件数 |
 | :-- | --: |
 | check_road_lane_core | 82 |
-| check_road_geometry_linkage | 60 |
+| check_road_geometry_linkage | 81 |
 | check_road_object_core | 29 |
 | check_road_signal_core_boards | 22 |
 | check_road_object_outline_surface | 21 |
@@ -33,8 +33,8 @@
 | check_road_signal_ref_validity | 10 |
 | check_misc_header_ids | 8 |
 | check_road_lane_layer_link_section | 6 |
+| check_junctions_elev_virtual | 4 |
 | check_road_corner_curve | 3 |
-| check_junctions_elev_virtual | 3 |
 | check_road_lane_attrs | 2 |
 | check_road_crg_cross_section | 1 |
 | check_junctions_core | 1 |
@@ -45,7 +45,7 @@
 | rule | 件数 |
 | :-- | --: |
 | road.lane.lane_listing | 78 |
-| road.geometry.spiral.curvature_change | 52 |
+| road.geometry.spiral.curvature_change | 73 |
 | road.signal.signal_type | 20 |
 | road.object.orientation | 13 |
 | road.object.circular_vs_angular | 11 |
@@ -56,9 +56,9 @@
 | road.linkage.both_sides_consistency | 4 |
 | road.lane.center_lane_no_width | 4 |
 | road.object.outline.exactly_one_outer | 4 |
+| junctions.virtual.connecting_roads_start_end | 4 |
 | road.object.repeating.attributes_with_outline_skeleton | 4 |
 | road.corner_local.first_id_zero | 3 |
-| junctions.virtual.connecting_roads_start_end | 3 |
 | road.geometry.arc.no_zero_curvature | 2 |
 | road.object.validty.check_parent_orientation | 2 |
 | road.object.validty.right_hand_traffic_lane_ids | 2 |
@@ -90,7 +90,7 @@
 | road.elevation.elem_asc_order | 1 |
 | road.length_sum_geometries | 1 |
 
-## ★ GT自作資産の違反（監査対象・全 94件、先頭150）
+## ★ GT自作資産の違反（監査対象・全 116件、先頭150）
 
 - **road.lane.layer.length_only_temporary** road 1 permanent層 laneSection s=0.0000000000000000e+00 が@lengthを使用（temporary層限定の属性） — GT_esmini/test/odr_fixtures/generated/g1_lanesection_length_19.xodr :: road 1 s=0.0000000000000000e+00  [GT:generated]
 - **road.lane.link.temporary_layer_section_link_permanent** road 1 temporary層区間開始(s=0) drivable lane -1(幅3.50) がpermanent層にリンクされていない — GT_esmini/test/odr_fixtures/generated/g2_lanes_layer_19.xodr :: road 1 s=0 lane -1  [GT:generated]
@@ -128,6 +128,27 @@
 - **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-0.0690948 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/4way_priority__main_ns.xodr :: road 103 s=10.4714  [GT:generated]
 - **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-0.0690948 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/4way_priority__main_ns.xodr :: road 104 s=10.4714  [GT:generated]
 - **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==0.0690948 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/4way_priority__main_ns.xodr :: road 105 s=10.4714  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-5e-10 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12.xodr :: road 100 s=5.33333  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12.xodr :: road 101 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12.xodr :: road 102 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-5e-10 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12.xodr :: road 200 s=5.33333  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12.xodr :: road 201 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12.xodr :: road 202 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-5e-10 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_hs4_sl8.xodr :: road 100 s=5.33333  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_hs4_sl8.xodr :: road 101 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_hs4_sl8.xodr :: road 102 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-5e-10 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_hs4_sl8.xodr :: road 200 s=5.33333  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_hs4_sl8.xodr :: road 201 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_hs4_sl8.xodr :: road 202 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-5e-10 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_sl8_fsa1.xodr :: road 100 s=5.33333  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_sl8_fsa1.xodr :: road 101 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_sl8_fsa1.xodr :: road 102 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-5e-10 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_sl8_fsa1.xodr :: road 200 s=5.33333  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_sl8_fsa1.xodr :: road 201 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-0.172737 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/signalized_short_block__b12_sl8_fsa1.xodr :: road 202 s=4.18855  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-5e-10 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/straight_restricted_exit__l800_lanes1_exitm1.xodr :: road 100 s=20  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==0.00878168 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/straight_restricted_exit__l800_lanes1_exitm1.xodr :: road 101 s=19.7965  [GT:generated]
+- **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-5e-10 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/straight_restricted_exit__l800_lanes2_exitm2.xodr :: road 100 s=20  [GT:generated]
 - **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-0.0690948 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/t_junction__a90.xodr :: road 101 s=10.4714  [GT:generated]
 - **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==0.0690948 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/t_junction__a90.xodr :: road 102 s=10.4714  [GT:generated]
 - **road.geometry.spiral.curvature_change** spiral curvStart==curvEnd==-0.0690948 (no curvature change; use <arc> or <line> instead) — resources/scenario_authoring/road_catalog/generated/t_junction_priority__a90.xodr :: road 101 s=10.4714  [GT:generated]
@@ -186,3 +207,4 @@
 - **road.object.validty.right_hand_traffic_lane_ids** object id=0 (RHT) @orientation='+' は負のレーンidのみ許容だが validity [-3,3] に正idを含む — resources/xodr/straight_500m_signs.xodr :: road 1 object id=0  [GT:resources/xodr]
 - **road.signal.signal_type** signal id=1: type='' subtype='' は非specific（type/subtypeともに未指定/-1/none） — resources/xodr/straight_500m_signs.xodr :: road 1 signal id=1  [GT:resources/xodr]
 - **road.lane_section.lane_long_zero_width** road 2 lane -2 が s=0〜300（300m）にわたり幅0 — resources/xodr/tunnels.xodr :: road 2 s=0 lane -2  [GT:resources/xodr]
+- **junctions.virtual.connecting_roads_start_end** virtual junction 888: connecting road 2（connection id=0）が mainRoad 1 に s=100 で接続（sStart=95 にも sEnd=105 にも一致しない） — resources/xodr/virtual_junction_23.xodr :: junction 888 road 2  [GT:resources/xodr]

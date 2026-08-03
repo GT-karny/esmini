@@ -1,0 +1,125 @@
+name: route_lane
+origin: vd-func:FUNC-050   # レーンレベル経路計画。RouteLanePlan の目標レーン帯診断(telemetry.route_lane)を検証する
+# RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) の常設回帰バッチ。
+# 最初の2本は同一の道路・出発点・目的地(highway_example_with_merge_and_split.xodr
+# junction 1、road0 lane -1 s=10 -> road2 lane -1 s=40)を共有し、Route の書き方
+# だけを変えて RouteLanePlan の2つの入口を突く対:
+#   - merge_required_for_exit_ramp: 粗い2 Waypoint。esmini 側で route が
+#     invalid 判定され丸ごと捨てられる -> diagnostic=="invalid_route"。
+#   - route_valid_off_target_lane_for_exit_ramp: connecting road(road4)を
+#     明示した3 Waypoint。route 自体は valid 判定されるが、ego は目標レーン帯
+#     {-4} に乗っていない -> target_lanes/on_target_lane/deviation_count が
+#     診断として機能する（"穴1" - docs/virtualdriver/design/route_lane_plan_design.md
+#     参照）。この2本は lane_change_initiation を有効化しない - vd-func:FUNC-055
+#     は「診断のみで是正しないこと」自体を確認する資産のため。
+#
+# 後半の2本は vd-func:FUNC-055（自発的レーンチェンジの発起、req-vd-ad:REQ-AD-017
+# 段c）の成功側を検証する。同じ道路・同じ Route の書き方（road4 を明示した3
+# Waypoint）を土台にしつつ、policies: [lane_change_initiation] で
+# lane_change_initiation_enabled=true を注入する（既定 OFF -
+# docs/virtualdriver/design/lane_change_initiation.md §8）：
+#   - lane_change_to_exit_ramp: 隣接車なし。発起そのものを分離して見る。
+#   - lane_change_to_exit_ramp_with_traffic: lane -3 に隣接車を1台配置し、
+#     ギャップ受容を刺激する（2026-08-02 に3ホップ構成から2ホップ構成へ再構成
+#     - 下の較正状態の段落を参照）。
+#
+# route_lane はテレメトリの追加ブロック（VirtualDriverTelemetryJson.cpp、OSI
+# scene 非依存）なので osi capture は不要 - このバッチは telemetry.jsonl のみで
+# 判定する。lane_change_initiation は ITrafficPolicy ではなく RouteLanePlan と
+# 同じ独立層だが（lane_change_initiation.md §4）、既定 OFF の機能を有効化する
+# 手段は traffic policy と同じ「policies: リスト -> gt_sim_test.py の
+# _POLICY_FLAG -> per-run virtual_driver.json + 絶対 ConfigFile 注入」経路を
+# 流用する（別の注入経路を増やさない）。
+#
+# しきい値の較正状態は4本それぞれで異なる。混同しないこと:
+#   - merge_required_for_exit_ramp / route_valid_off_target_lane_for_exit_ramp
+#     （前半2本）は**実測済み**。フレームトレースは各 expectations.yaml の
+#     notes: と docs/virtualdriver/design/route_lane_plan_design.md §4-4 にある。
+#   - lane_change_to_exit_ramp（隣接車なし）は**実測済み**（2026-08-02, 親セッション,
+#     lane_change_initiation を組み込んだ実ビルド）。PASS -
+#     max_deviations: 0 / expect_target_lanes: [-4] とも修正不要だった。詳細は
+#     このファイルの notes: を参照。
+#   - lane_change_to_exit_ramp_with_traffic（隣接車あり）も**実測済み**（2026-08-02,
+#     親セッション）。当初の3ホップ構成（ego が lane -1 から出発）は実測の結果 FAIL
+#     (deviation_count=1) となった - バグではなく、1ホップ目のギャップ待ちだけで
+#     190m 予算のうち約78mを消費し、残り2ホップ(必要約94m)に対して残り65mしか
+#     残らないという距離設計の問題だった（ギャップ受容自体は正しく機能）。
+#     2026-08-02 にこの反省を受けて ego の出発レーンを -2 に、隣接車を lane -3
+#     1台のみ（2ホップ構成）へ再構成し、**同日その再構成版を実測して PASS**
+#     (deviation_count=0、初回 arm 前に lead_gap 32 / rear_gap 46 フレームの
+#     実ギャップ待ち)。しきい値は据え置きで修正不要だった。詳細は当該
+#     expectations.yaml の notes: を参照。
+#
+# 4本すべてに design doc §11（方向指示器の先行点灯）の matcher
+# indicator_leads_lane_change は付いていない - 付いているのは後半2本のみ
+# （lane_change_initiation を有効化する2本）。実測リードは隣接車なし 0.40s
+# (t_sig=2.30 / t_arm=2.70、加速中なので §11-3 の既知の縮み)、隣接車あり 4.45s
+# (t_sig=3.10 / t_arm=7.55、ギャップ待ちを含む)。
+#
+# 後半2本追加(2026-08-03, vd-func:FUNC-061 / req-vd-ad:REQ-AD-018 の受入ラダー
+# 段b・段cを分離測定するため): 上の2本(lane_change_to_exit_ramp /
+# _with_traffic)はどちらも n_remaining=3(lane -1/-2発進)で、required_m=270m
+# が190m budgetを超え、発起が常にt=0で決まってしまう - リードが3.0s付近に
+# 落ち着く様子そのものを分離して見られない。以下2本は lane -3 発進
+# (n_remaining=1, required_m=103.3m)にして発起をrun中盤に来させる:
+#   - lane_change_to_exit_ramp_at_constant_speed: Init のみで速度を
+#     13.889 m/s に固定(Story側にランプなし)。段b「定速で法定3秒」用。
+#   - lane_change_to_exit_ramp_during_gradual_acceleration: 0->13.889 m/s を
+#     20.0秒かけて緩やかに加速(a~=0.694 m/s^2)。段c「加速中もリードが
+#     縮まないこと」用 - 既存2本の3.0秒ランプは強すぎて発起前に加速が終わる
+#     か、逆に初手から飽和するため、この目的には使えない。
+# どちらも expectations.yaml の indicator_leads_lane_change は未測定の
+# プレースホルダ(min_lead_s: 0.3) - 親セッションが実測して確定する。
+#
+# defaults.max_time を 30.0 -> 42.0 へ上げた理由(既存4本の挙動は変えない
+# 判断): gt_sim_test.py の batch() は per-scenario の max_time 上書きを
+# 読まない(defaults.max_time のみ・エントリ側の同名キーは無視される -
+# 実装未確認のまま個別上書きを書くと _during_gradual_acceleration が30sで
+# 打ち切られる)。
+# 既存4本への影響は**実測で確認済み**(2026-08-03、30.0 と 42.0 の両方で
+# batch を回して突き合わせた)。既存4本は break しない: StopTrigger=28s で
+# sim_time が 28.05 に凍結したまま、同じフレームが max_time まで複製記録
+# されるだけである(frames 600 -> 840、t_end はどちらも 28.05)。
+# したがって末尾値は完全に一致する(deviation_count 0/0/0/1、最終 track
+# 2/2/6/6)。増えるのは末尾の重複フレームだけで、matcher の判定材料は
+# 変わらない。ceiling を上げても既存4本の verdict は動かない。
+# (注: 「grace で break するから無影響」という説明は誤り。無影響なのは
+#  break するからではなく、凍結後の複製フレームが末尾値を変えないから。)
+# したがってスコープ外の script 修正を避けつつ defaults 側の引き上げを選んだ。
+#
+# Run:
+#   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/route_lane_batch.yaml --out test_results/web/route_lane
+defaults:
+  dt: 0.05
+  max_time: 42.0   # 既存4本(StopTrigger=28s)は末尾に重複フレームが増えるだけで末尾値は不変(実測済)。
+                   # _during_gradual_acceleration(StopTrigger=40s)のための引き上げ - 上のコメント参照。
+  snapshots: 3
+  osi: false
+scenarios:
+  - scenario: resources/xosc/verification/06_route_lane/merge_required_for_exit_ramp.xosc
+    expectations: resources/xosc/verification/06_route_lane/merge_required_for_exit_ramp.expectations.yaml
+    report: route_lane
+  - scenario: resources/xosc/verification/06_route_lane/route_valid_off_target_lane_for_exit_ramp.xosc
+    expectations: resources/xosc/verification/06_route_lane/route_valid_off_target_lane_for_exit_ramp.expectations.yaml
+    report: route_lane
+  - scenario: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp.xosc
+    expectations: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp.expectations.yaml
+    policies: [lane_change_initiation]
+    report: route_lane
+  - scenario: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_with_traffic.xosc
+    expectations: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_with_traffic.expectations.yaml
+    policies: [lane_change_initiation]
+    report: route_lane
+  - scenario: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_at_constant_speed.xosc
+    expectations: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_at_constant_speed.expectations.yaml
+    policies: [lane_change_initiation]
+    report: route_lane
+  - scenario: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_during_gradual_acceleration.xosc
+    expectations: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_during_gradual_acceleration.expectations.yaml
+    policies: [lane_change_initiation]
+    report: route_lane
+    # StopTrigger=40s (既存4本の28sより長い): 20.0秒ランプ + 発起(~17s) + 車線
+    # 変更完了 + 余裕が必要。max_time はここではなく defaults 側で 42.0 に
+    # 引き上げ済み(gt_sim_test.py はエントリ単位の上書きを読まないため -
+    # 上部のコメント参照)。

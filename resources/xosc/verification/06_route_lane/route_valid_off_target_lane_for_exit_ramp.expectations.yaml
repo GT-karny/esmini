@@ -1,0 +1,54 @@
+scenario: route_valid_off_target_lane_for_exit_ramp
+category: 06_route_lane
+# RouteLanePlan (control/virtualdriver/RouteLanePlan.hpp) covering the case esmini
+# itself cannot see: the route is VALID as far as Route::AddWaypoint is concerned,
+# but the ego is not in a lane that can actually follow it.
+#
+# Waypoints name the connecting road explicitly: road0/-1/s=10 -> road4/-1/s=50 ->
+# road2/-1/s=40. Because road 4 is one hop from road 0, RoadPath::Calculate's
+# "nextRoad == targetRoad" fast path fires and never checks lane connectivity for
+# that hop ("hole 1" in docs/virtualdriver/design/route_lane_plan_design.md §2), so
+# esmini logs no WARN at all and Route::IsValid() == true.
+#
+# At junction 1 <connection id="3">, only road 0's lane -4 has a <laneLink> into
+# road 4. The ego is teleported into lane -1 and never lane-changes on its own
+# (vd-func:FUNC-055 is out of scope by design), so the backward lane-band
+# propagation resolves cleanly -- band(road0)={-4}, band(road4)={-1}, no
+# discontinuity, no reroute -- and the mismatch shows up purely as
+# target_lanes / on_target_lane / deviation_count.
+must:
+  - event: route_lane_plan_holds
+    expect_diagnostic: ""
+    expect_rerouted: false
+    reason: >
+      The lane bands resolve on the first pass (no "lane_discontinuity"), so the
+      LaneIndependentRouter recovery path is never entered. A non-empty diagnostic
+      or rerouted==true here would mean the band propagation stopped finding the
+      junction laneLink it currently finds.
+  - event: route_lane_plan_holds
+    window: [0.0, 14.0]
+    expect_target_lanes: [-4]
+    expect_on_target_lane: false
+    reason: >
+      While still on road 0, RouteLanePlan must report the band it derives from
+      junction 1 connection id=3 ({-4}), and the ego -- in lane -1 -- must not be
+      on it. This is the diagnosis esmini itself never produces for this route.
+  - event: route_lane_plan_holds
+    min_deviations: 1
+    reason: >
+      The ego crosses off road 0 into road 3 (the through connector reachable from
+      lane -1) without ever reaching lane -4, so the deviation gate must fire.
+notes: >
+  Measured (600 frames, dt=0.05, GT_esminiLib.dll with route_lane telemetry):
+
+    t= 0.05  road=0  ego_lane=-1  target=[-4]  on_target=false  dist_to_connection=190.00
+    t=15.70  road=3  reason=off_plan_road  deviation_count=1  last_deviation_road_id=0
+
+  The diagnosis is already complete on frame 1, 190 m and ~15 s before esmini's own
+  "Entity Ego moved away from route at roadId=3" fires at t=15.70. That gap is the
+  point of this scenario.
+
+  The window [0.0, 14.0] on must #2 sits inside the measured road-0 stretch
+  (t=0.05..15.65, 279 frames gated) with ~1.6 s of margin before the junction
+  crossing. Widen only against a re-measured transition time, never to make a
+  failing assertion pass.

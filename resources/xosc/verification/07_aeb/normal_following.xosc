@@ -20,7 +20,7 @@
   constant-speed kinematics, i.e. ignoring that "lead" will actually comfort-brake),
   worst case at the t=13s StopTrigger is gap=24 m, TTC=12.0 s (4.8x the 2.5s gate),
   a_req=0.083 m/s^2 (36x under the 3.0 m/s^2 gate) - see
-  docs/virtualdriver/aeb_implementation_plan.md and the REQ-AD-013 negative-batch
+  docs/virtualdriver/archive/aeb_phase1_implementation_plan.md and the REQ-AD-013 negative-batch
   param check for the full per-instant table. Matcher: no_emergency_without_conflict
   (must PASS).
 

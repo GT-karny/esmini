@@ -154,10 +154,11 @@ TrafficPolicySnapshot StopYieldSignAware::Evaluate(const TrafficPolicyContext& c
     bool detail_done = false;
 
     std::vector<int> visible_stop_ids;
-    for (const auto& s : signals)
+    for (size_t i = 0; i < signals.size(); ++i)
     {
-        const int osi = effective_osi(s.signal);
-        const int id  = s.signal->GetId();
+        const ScannedSignal& s   = signals[i];
+        const int            osi = effective_osi(s.signal);
+        const int            id  = s.signal->GetId();
 
         if (osi == roadmanager::Signal::TYPE_GIVE_WAY)
         {
@@ -167,6 +168,9 @@ TrafficPolicySnapshot StopYieldSignAware::Evaluate(const TrafficPolicyContext& c
                 AddDetail(snap.detail, "gt.stop_yield.sign_id", id);
                 AddDetail(snap.detail, "gt.stop_yield.dist_m", s.distance_ahead);
                 AddDetail(snap.detail, "gt.stop_yield.phase", "yield");
+                // Stop-line pairing never applies to YIELD (design §7): it only
+                // decelerates to the sign itself, so there is no stop point to swap.
+                AddDetail(snap.detail, "gt.stop_yield.stop_line_used", false);
             }
             // YIELD: decelerate to a creep up to the sign. No stop (deferred to 3d).
             PolicyConstraint c;
@@ -181,11 +185,28 @@ TrafficPolicySnapshot StopYieldSignAware::Evaluate(const TrafficPolicyContext& c
             visible_stop_ids.push_back(id);
             stop_fsm::State& st         = stop_states_[id];
             const bool       first_sign = !detail_done;
+
+            // Stop-line pairing, per STOP sign. A miss (kill switch off, or no
+            // paired entry in window) leaves dist_ahead == s.distance_ahead, so
+            // dist_adj below is unchanged from the pre-pairing code.
+            double dist_ahead     = s.distance_ahead;
+            bool   stop_line_used = false;
+            if (cfg_.stop_line_aware_enabled)
+            {
+                const auto paired = FindPairedStopLine(signals, i, cfg_.stop_line_window);
+                if (paired)
+                {
+                    dist_ahead     = signals[*paired].distance_ahead;
+                    stop_line_used = true;
+                }
+            }
+
             if (first_sign)
             {
                 detail_done = true;
                 AddDetail(snap.detail, "gt.stop_yield.sign_id", id);
                 AddDetail(snap.detail, "gt.stop_yield.dist_m", s.distance_ahead);
+                AddDetail(snap.detail, "gt.stop_yield.stop_line_used", stop_line_used);
             }
             if (st.phase == stop_fsm::Phase::CLEARED)
             {
@@ -193,9 +214,10 @@ TrafficPolicySnapshot StopYieldSignAware::Evaluate(const TrafficPolicyContext& c
                 continue;  // already done
             }
 
-            // Target a point stop_margin before the sign so the front halts at the
-            // line and the sign stays in scan (FSM sees adjusted dist ~ 0 when stopped).
-            const double dist_adj = std::max(0.0, s.distance_ahead - cfg_.stop_margin);
+            // Target a point stop_margin before the sign (or the paired stop line)
+            // so the front halts at the line and the sign stays in scan (FSM sees
+            // adjusted dist ~ 0 when stopped).
+            const double dist_adj = std::max(0.0, dist_ahead - cfg_.stop_margin);
             PolicyConstraint c = stop_fsm::Update(st, dist_adj, v_ego, now, cfg_.stop);
             if (first_sign) AddDetail(snap.detail, "gt.stop_yield.phase", phase_token(st.phase));
             if (c.kind != PolicyConstraint::Kind::NONE)

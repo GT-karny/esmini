@@ -1,6 +1,6 @@
 # VirtualDriver 自動運転 / ADAS 対応シーン要求（namespace: req-vd-ad）
 #
-# status: DRAFT (phase 0). 設計軸は GT_esmini/docs/virtualdriver/adas_axis.md を参照。
+# status: DRAFT (phase 0). 設計軸は GT_esmini/docs/virtualdriver/design/adas_axis.md を参照。
 # 各要求は「動機層(tier) × 主体(agent)」の交点に置く。
 #   tier  : safety(安全機能) | compliance(法規遵守機能) | courtesy(譲り合い機能) | comfort(快適機能)
 #   agent : AD(連続計画・交渉) | ADAS(離散ガーディアン/アシスト)
@@ -34,11 +34,20 @@ kinds:
 #   response    : 要求される応答（定量。emergency_decel/警報リード 等）
 #   acceptance  : 合否（低速=完全回避 / 高速=衝突速度低減≥Δv）＋測定量
 #   source      : 出典標準（翻案元。Euro NCAP コード / UN R152）
+#   acceptance_ladder : 段階受入（2026-08-02 導入）。[{step, claim, met, verified_by}] の列。
+#                 `verified_by` は**段ごとの**判定資産（matcher:*）。graph.yaml の
+#                 `matcher -> verifies -> req` 辺は要求単位までしか表現できず、辺だけを見ると
+#                 「要求全体が検証済み」に読めてしまう。段ごとの実体はここが真実源で、
+#                 辺は「この要求のどこかを検証している」以上を主張しない。
+#                 「達成/未達」の2値でしか書けない粒度の要求は、途中まで進んだ実装を
+#                 全て "未達" に見せてしまい、正直に記帳するほど成果が消える。段で書けば
+#                 要求を割りすぎずに増分が見える。met: は実装状況であって承認状態ではない。
+#                 段を持つ要求は status に partial を使ってよい（全段達成で built）。
 # realized_by / verified_by / related は可読性のための冗長コピー（真実源は graph.yaml）。
 
 requirements:
   # ===== AEB 機能ファミリ（vd-func:FUNC-001 前方AEB / FUNC-002 VRU-AEB を落とす） =====
-  # 詳細と出典は GT_esmini/docs/virtualdriver/aeb_requirements.md。数値は要校正。
+  # 詳細と出典は GT_esmini/docs/virtualdriver/design/aeb_requirements.md。数値は要校正。
   - id: REQ-AD-001
     title: 先行車がカットイン後に急制動しても追突しない（複合・本命）
     tier: safety
@@ -220,3 +229,595 @@ requirements:
     verified_by: []                       # 交差点譲りの専用matcherは未整備（TODO）
     related: []
     status: draft
+
+  # ===== B1 ミッション/経路計画（strategic層。凍結例外としてID発行、2026-08-02 承認） =====
+  # capability_model.md §2.1 の layer 軸が炙り出した strategic built=0 に対する最初の①主張。
+  # 既存要求が全て「所与の経路上での挙動」だったのに対し、これらは経路そのものを主張する。
+  #
+  # **段階受入（acceptance_ladder）を使う 2 要求**。初出は 2026-08-02。
+  # 動機: 当初この 2 本は「起終点だけ与えて目的地まで走り切る」の 1 本だった。
+  # 「経路が分かる」と「経路どおりに走れる」は要素技術が別で、片方だけ完成しうるのに、
+  # 1 文にまとめたせいで RouteLanePlan 実装（レーン帯算出＋逸脱検出）の成果を写す場所が
+  # 無く、"未達" としか記帳できなかった。粗い要求は**あらゆる増分を失敗に見せる**。
+  # 対策は辺に partial を足すこと（＝症状への絆創膏）ではなく、要求を割り、
+  # かつ受入基準を段で書いて要求の内側で進捗が見えるようにすること。
+  - id: REQ-AD-016
+    title: 起点と目的地だけから走行可能な経路を導ける
+    tier: '-'                             # 動機層でなくタスク達成そのもの（vd-func:FUNC-049 と同じ扱い）
+    agent: AD
+    kind: positive
+    statement: >-
+      WHEN シナリオが自車の起点と目的地のみを与えたとき、VD は起点から目的地まで
+      レーン単位で連続する road/lane 列を導出し、経路として保持すること。
+    scenario: >-
+      未整備。junction を含む市街路で起点 arm と目的地 arm のみを指定するシナリオが要る。
+      既存の verification 資産は全て Waypoint 列を明示しており該当なし。
+    acceptance_ladder:
+      - { step: a, claim: 与えられた Waypoint 列の隙間を埋め、レーン単位で連続する経路に解決できる, met: false, verified_by: [] }
+      - { step: b, claim: 解決に失敗した場合それを検出し外へ出せる（沈黙しない）,                    met: true,  verified_by: [matcher:route_lane_plan_holds] }
+      - { step: c, claim: 起点と目的地のみから経路を探索できる（Waypoint 列を要さない）,             met: false, verified_by: [] }
+    acceptance: >-
+      段 a/c は導出経路がレーン単位で連続すること（静的に判定でき、走行を要しない）。
+      段 b は解決失敗が warning とテレメトリに出ること。定量閾値は未校正。
+    realized_by: [vd-func:FUNC-049]
+    verified_by: []                       # 経路連続性を静的に判定する matcher が未整備
+    related: [issue:31, issue:42, req-vd-ad:REQ-AD-017]
+    status: future
+    note: >-
+      段 b のみ 2026-08 の RouteLanePlan で達成（ルート解決失敗の可視化）。
+      段 a は esmini の Route が中間 road を自動補完するため部分的に成立するが、
+      レーン接続が切れている場合は失敗する（成否が道路依存＝実測で確認済み）。
+      段 c が「起終点だけ与える」の本体で未着手。
+
+  - id: REQ-AD-017
+    title: 与えられた経路のとおりに、必要な車線変更込みで走り切る
+    tier: '-'
+    agent: AD
+    kind: positive
+    statement: >-
+      WHILE 経路が与えられているとき、VD は経路上のレーン接続が要求する車線へ
+      自発的に移り、経路から逸脱せずに終点まで到達すること。
+    scenario: >-
+      段 a/b/c は整備済み。resources/xosc/verification/06_route_lane/ の4本
+      （route_lane_batch.yaml）が刺激。段 a/b は merge_required_for_exit_ramp と
+      route_valid_off_target_lane_for_exit_ramp（是正しないことの確認）。段 c は
+      lane_change_to_exit_ramp（隣接車なし・3ホップ）と
+      lane_change_to_exit_ramp_with_traffic（隣接車あり・2ホップ・ギャップ待ちを強制）。
+      段 d 用の「逸脱後に復帰する」シナリオは未整備。
+    acceptance_ladder:
+      - { step: a, claim: 経路が各 road で要求する目標レーン集合を算出できる,      met: true,  verified_by: [matcher:route_lane_plan_holds] }
+      - { step: b, claim: 現在レーンが目標レーン集合から外れていることを検出できる, met: true,  verified_by: [matcher:route_lane_plan_holds] }
+      - { step: c, claim: 接続点までに目標レーンへ自発的に車線変更する,             met: true,  verified_by: [matcher:route_lane_plan_holds] }
+      - { step: d, claim: 逸脱した場合に経路へ復帰する,                             met: false, verified_by: [] }
+      - { step: e, claim: 経路終点で安全に停車しミッション終了を宣言する,           met: false, verified_by: [] }
+    acceptance: >-
+      段 a/b は signal:route_lane_conformance をテレメトリで観測できること
+      （matcher:route_lane_plan_holds が判定）。段 c は接続点通過時に目標レーン内で
+      あること＝road 遷移時に逸脱を記録しないこと（matcher の max_deviations: 0 が判定。
+      deviation_count は road が切り替わる瞬間にしか増えないので、これは「接続点を
+      目標レーン帯に乗ったまま通過した」と同値）。段 d は逸脱後の on-route 復帰。
+      段 e は終点許容範囲内での停車。段 d/e の定量閾値は未校正。
+    realized_by: [vd-func:FUNC-050, vd-func:FUNC-052, vd-func:FUNC-054, vd-func:FUNC-055]
+    verified_by: []                       # 段 a/b/c は matcher:route_lane_plan_holds が acceptance_ladder[].verified_by
+                                          # で担保。要求そのものに verifies を張るのは段 d/e が未達のため overclaim
+    related: [issue:31, req-vd-ad:REQ-AD-016]
+    status: partial
+    note: >-
+      段 a/b は 2026-08 の RouteLanePlan（vd-component:route-lane-plan）で達成。
+      段 c は 2026-08-02 の LaneChangeInitiation（vd-component:lane-change-initiation、
+      vd-func:FUNC-055）で達成＝**目標レーンへ自分で寄せるようになった**。
+      **ただし既定 OFF**（lane_change_initiation_enabled）。有効化しない限り従来どおり
+      診断のみで是正せず、そのまま通過して逸脱を記録する。入れなかったときに通過して
+      逸脱を記録する振る舞い自体は有効時も維持（2026-08-02 の設計決定。復帰は段 d）。
+      issue #31 は本要求の段 c 不在が生んだ症状 — VD が車線を自分で寄せられないため、
+      レーン接続の辻褄を人間が Waypoint で手当てする必要があり、その記述漏れが表面化した。
+      段 c 達成により、その手当ての必要性は（機能を有効化すれば）原理的に解消する。
+  - id: REQ-AD-018
+    title: 進路変更の前から方向指示器で予告する
+    tier: compliance
+    agent: AD
+    kind: positive
+    statement: >-
+      WHILE 自発的な進路変更（車線変更）を行うとき、VD は変更を開始する前から
+      方向指示器で予告を始め、マニューバが完了するまで継続すること。
+    scenario: >-
+      resources/xosc/verification/06_route_lane/ の4本（route_lane_batch.yaml、
+      policies: [lane_change_initiation]）が刺激。段ごとに役割が違う:
+      lane_change_to_exit_ramp（強い加速、段 a）、lane_change_to_exit_ramp_with_traffic
+      （「合図してから待つ」、段 a）、lane_change_to_exit_ramp_at_constant_speed
+      （真の定速、段 b）、lane_change_to_exit_ramp_during_gradual_acceleration
+      （加速の継続中に発起、段 c）。後半2本は 2026-08-03 追加で、どちらも
+      ego を lane -3 発進（n_remaining=1）にして助走を確保している — lane -1/-2 発進では
+      required_m=270 m が道路の 190 m を超え、ego が生成時点で既にしきい値の内側に入る。
+      FUNC-056..059 由来の進路変更（追い越し・交差点・発進・合流）を刺激する資産は未整備。
+    acceptance_ladder:
+      - { step: a, claim: 車線変更の発起より前に方向指示器が点灯する,                     met: true,  verified_by: [matcher:indicator_leads_lane_change] }
+      - { step: b, claim: 定速走行時に法定のリード（進路変更の3秒前）を満たす,             met: true,  verified_by: [matcher:indicator_leads_lane_change] }
+      - { step: c, claim: 加速中もリードが縮まない,                                       met: true,  verified_by: [matcher:indicator_leads_lane_change] }
+      - { step: d, claim: 経路要求以外の車線変更発起（追い越し・車線外からの発進・非経路の合流）にも同期する, met: false, verified_by: [] }
+    acceptance: >-
+      段 a は signal:lane_change_signal_timing をテレメトリで観測できること
+      （matcher:indicator_leads_lane_change が判定。signal_active の立ち上がりが armed の
+      立ち上がりに先行し、その区間ランプが実際に点いていて、点灯側が hop の方向と一致）。
+      **段 a は「先行する」までしか主張しない — 秒数は主張しない。**
+      段 b/c の閾値は法定値 3.0 s（道路交通法 第53条第1項／同施行令 第21条第1項）。
+      段 b/c は**それぞれ専用の刺激で分離して測る**（2026-08-03 追加）。既存2本は
+      どちらも段 b/c の証拠にならない: 強い加速側は t=0 から合図が飽和して
+      「規則が3秒を計算した」のか「常時点灯」なのかを区別できず、ギャップ待ち側は
+      リードの大半が待ち時間だからである。
+      段 b = lane_change_to_exit_ramp_at_constant_speed（真の定速。**t_sig 近傍の加速度が
+      0.001 m/s² 未満であることも実測して示す** — 定速を名乗るだけでは足りない）。
+      段 c = lane_change_to_exit_ramp_during_gradual_acceleration（発起が加速の継続中に
+      起きるだけの助走を取る。飽和させない）。
+      どちらも matcher:indicator_leads_lane_change の min_lead_s で機械判定する。
+
+      段 d の範囲は 2026-08-03 に切り直した。以前は「FUNC-056..059 の実装待ち」と
+      1行で括っていたが、**4つは同じ粒度ではなく、括り方が誤っていた**:
+      - **FUNC-056 追い越し**: 該当する。動機が経路でなく先行車。
+        **2026-08-04 に実装・実測され、段 d のうち追い越しぶんは埋まった**
+        （req-vd-ad:REQ-AD-023 段 d。往路・復路の2回とも発起前から点灯し、実測リードは
+        往路 2.95 s / 復路 3.00 s、方向は L→R で逆転。matcher:indicator_leads_lane_change を
+        window で往路・復路に分けて2回呼んで機械判定している）。
+        **ただし段 d 全体は未達のまま** — 出庫（req-vd-ad:REQ-AD-022）と非経路の合流が残る。
+        なお追い越しの合図は**前進予測形ではなくタイマ形**で実現しており（追い越しには
+        締切が無いので待てばよい）、本要求が §11-11 で確立した前進予測形とは別機構である。
+      - **FUNC-057 交差点**: **本要求の対象外**。右左折は車線変更ではなく、法定も
+        「交差点の手前の側端から 30 m 手前」と**距離**規定で次元が違う。指示器も
+        別経路（DetectJunctionTurn）で既に点いている。→ req-vd-ad:REQ-AD-021 として分離
+      - **FUNC-058 発進**: カタログ上は `dim: lon` の縦方向動作（信号青・先行車発進を
+        見た Stop&Go の出口）で、**自車線内で動き出すだけなので指示器は不要**。
+        段 d が対象とすべきなのは「駐車枠・路肩など**車線の外から車線内へ横移動する**発進
+        （出庫）」である。**そのマヌーバは req-vd-ad:REQ-AD-022（出庫マヌーバの実行）が持つ**
+        （2026-08-03 に駐車機能側で起票。段 d が持つのは同マヌーバへの**合図の同期**であって
+        マヌーバ本体ではない — 「動作」と「合図」を1本の要求に畳まない REQ-AD-018 全体の
+        立て方に従う）
+      - **FUNC-059 合流**: 経路要求として現れる合流（加速車線が本線にしか繋がらない等）は
+        RouteLanePlan がホップを出すので**既に段 a-c の機構で合図が出る**。段 d に残るのは
+        経路要求でない合流と、合流の駆け引き（FUNC-039 との相互作用）側だけ
+
+      判別の軸は「止まっていたか」ではなく「**車線の外から車線内へ横移動するか**」である。
+      この軸なら Stop&Go の再発進と出庫を機械的に分けられる。
+    realized_by: [vd-func:FUNC-061]
+    verified_by: []                       # 段 a/b/c は matcher が担保（ladder 側に記載）。要求
+                                          # そのものに verifies を張るのは段 d が未達のため overclaim
+    related: [req-vd-ad:REQ-AD-017, vd-func:FUNC-055]
+    status: partial
+    note: >-
+      2026-08-02 に段 a 達成（lane_change_initiation.md §11、DetectManeuverDir を4段へ拡張し
+      lc_signal_dir_ で先行合図を出す）。**既定 OFF**（lane_change_initiation_enabled）。
+      実測（同日、実 Release ビルド）: 隣接車なし t_sig=2.30 / t_arm=2.70 = リード 0.40 s、
+      ギャップ待ちあり t_sig=3.10 / t_arm=7.55 = リード 4.45 s。
+      2026-08-03 に**段 b・段 c 達成**（同 §11-11）。距離形
+      `dist <= required(v) + v*T` を**前進予測形**へ置き換えた:
+      `dist - (v+v_pred)/2*T <= required(v_pred)`、`v_pred = min(v + max(0,a)*T, max(v, v_cap))`。
+      a=0 で旧式と厳密に一致するので**定速時の挙動は不変**（実測でも定速側のリードが
+      修正前後で 2.95 s のまま動かず、`t_arm` は4本とも完全に同一＝発起側は不変）。
+      実測（2026-08-03、実 Release ビルド、route_lane_batch.yaml）:
+      強い加速 0.40 → **2.30 s**、ギャップ待ち 4.45 → **7.00 s**、
+      定速 **3.05 s**（t_sig 近傍の加速度 0.00066 m/s²）、緩加速 2.10 → **3.05 s**。
+      チャタリングは4本とも signal_active・ランプの立ち上がりが各1回でゼロ。
+      **プロンプト段階で想定された数値微分形は採らなかった** — 実トレースに当てると 0.70 s
+      しか出ない。required_m が床の枝にいる間 微分が 0 になり、直後に来る枝の乗り換えを
+      予見できないためである（同 §11-11）。前進予測形は n_remaining を微分しないので、
+      ホップ完了時の不連続も微分のリセットも平滑化も要らない。
+      チャタリング対策は EMA ではなく**ホップ単位のラッチ**（時定数を正当化せずに済み、
+      §11-6「ギャップ待ちでも消さない」と筋が通る）。
+      なお最終バンド（dist_to_connection == -1）では ShouldAttemptLaneChangeHop が true・
+      ShouldSignalLaneChangeHop が false となり先行しない（同 §11-3 の「既知の非対称性」）。
+      **これは段 c の未達分ではなく独立した既知欠陥として残る**（発起側を変えることになり
+      車線変更そのものの挙動が動くため、今回もスコープ外とした）。
+      ウィーン条約（1968）は秒数を規定せず「マニューバ中継続・完了で消灯」のみ、独 StVO §5 は
+      定性規定、米国は多くの州が距離規定 — 次元が国ごとに違うため国別テーブルは作らず、
+      秒パラメータ1本を config で可変にして既定を日本の法定値に置く方針（同 §11-2）。
+
+  # ===== 駐車機能（凍結例外としてID発行、2026-08-03 承認） =====
+  # scene:SCN-014（駐停車・後退ファミリ、coverage: none）の第2段要求導出。
+  # OpenDRIVE <object type="parkingSpace"> は GT_RoadManager でパース済み・OSI GroundTruth
+  # 出力済みだが、VD側に消費経路が無い＝①主張が無い状態だった。REQ-AD-016/017 と同じ理由で
+  # 「枠を選ぶ」と「枠へ入る」を1本の要求にまとめない — 要素技術が別（探索・選定は認識/判断、
+  # マヌーバ実行は軌道生成/制御）で片方だけ完成しうるため、最初から2本に割って
+  # acceptance_ladder で段階受入にする。
+  - id: REQ-AD-019
+    title: 駐車枠の探索・選定
+    tier: '-'                             # 動機層でなくタスク達成そのもの（REQ-AD-016/017 と同じ扱い）
+    agent: AD
+    kind: positive
+    statement: >-
+      WHEN 自車が駐車を計画しているとき、VD は自車 route 近傍の parkingSpace
+      オブジェクトを列挙し、他車両の占有状況と access 属性を考慮して駐車候補枠を
+      選定し、選定後に枠が占有された場合は再選定すること。
+    scenario: >-
+      未整備。scene:SCN-014 の駐車場走行シーンで、複数の parkingSpace（一部占有・
+      一部 access=handicapped 等）を含む道路資産が要る。既存の検証資産は駐車場
+      デモ相当のものはあるが VD 挙動主張を発火させる構成でない（上流デモ/適合
+      フィクスチャに留まる）。
+    acceptance_ladder:
+      - { step: a, claim: 自車route近傍の parkingSpace オブジェクトを列挙し、駐車候補枠として認識できる,               met: false, verified_by: [] }
+      - { step: b, claim: 他車両が占有する枠を除外し空き枠を選定できる（枠ポリゴンと他エンティティOBBの交差判定）,     met: false, verified_by: [] }
+      - { step: c, claim: access属性（handicapped等）を尊重した選定ができる,                                          met: false, verified_by: [] }
+      - { step: d, claim: 選定枠が接近中に占有された場合、再探索できる,                                               met: false, verified_by: [] }
+    acceptance: >-
+      段ごとの受入基準は acceptance_ladder のとおり。定量閾値（探索半径・再探索の
+      トリガ距離等）は未校正。
+    realized_by: [vd-func:FUNC-076]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-020]
+    status: future
+    note: >-
+      OpenDRIVE の parkingSpace オブジェクトは面1（GT_RoadManager）で既にパース・OSI
+      GroundTruth 出力されており、本要求は VD 側（面2）の消費経路が無いことに対する
+      ①主張。実装（vd-func:FUNC-076）・検証資産とも未着手。
+
+  - id: REQ-AD-020
+    title: 駐車マヌーバの実行（前進・後退）
+    tier: '-'
+    agent: AD
+    kind: positive
+    statement: >-
+      WHEN 自車が選定済みの直角駐車枠へ進入するとき、VD は前進駐車または
+      バック駐車のマヌーバを実行し、枠内に許容範囲内の姿勢で停止すること。
+    scenario: >-
+      未整備。直角駐車枠（日本の普通車標準 2.5m×5.0m を検証基準とする）への
+      前進進入・後退進入（バック駐車）シナリオが要る。縦列駐車・非構造面
+      （レーン無し広場）は本要求のスコープ外（後続課題）。
+    acceptance_ladder:
+      - { step: a, claim: "前進駐車（直角枠）: 空き枠へ前進のみで進入し枠内に停止できる",                                  met: false, verified_by: [] }
+      - { step: b, claim: "バック駐車（直角枠）: 後退を含むマヌーバで枠内に停止できる（切り返し3回以内）",                 met: false, verified_by: [] }
+      - { step: c, claim: "定量基準の充足 — 必須: 車体外形が四輪とも枠内・ヨー偏差±5°以内・前後端はみ出しなし・切り返し3回以内 / 望ましい: ヨー偏差±3°以内（ISO 16787 の実務水準）・枠中心横偏差0.3m以内・切り返し1回以内", met: false, verified_by: [] }
+      - { step: d, claim: 複数回切り返しの高度化・縦列駐車（将来スコープ、本要求では未達でよい）,                          met: false, verified_by: [] }
+    acceptance: >-
+      段 a/b は枠内停止（四輪とも枠内）の到達可否。段 c は定量基準（必須/望ましい
+      の2水準）。段 d は将来スコープであり本要求の受入対象外。
+    realized_by: [vd-func:FUNC-077]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-019]
+    status: future
+    note: >-
+      設計方針（未実装）: 駐車モード方式（レーン追従から駐車専用コントローラへの
+      モード遷移）。軌道生成は幾何学的手法（直線＋円弧）＋クロソイド平滑化、
+      Reeds-Shepp曲線を入庫可能性の検算に併用。バック直角駐車は三画運動（通路幅
+      不足時は前進オフセット追加の五画運動）。終端姿勢が許容外の場合は小修正
+      マヌーバを再計画する修正ループを持つ。
+      精度基準の出典note: ヨー±3°は ISO 16787 (APS) の二次資料経由の値（原文未確認）。
+      枠寸法は日本の普通車標準 2.5m×5.0m を検証基準とする。
+
+
+  # ===== 右左折の合図時期（凍結例外としてID発行、2026-08-03 承認） =====
+  # req-vd-ad:REQ-AD-018（進路変更＝3秒前）の段 d を切り直す過程で分離した別軸。
+  # 右左折は施行令21条1項が「交差点の手前の側端から30メートル手前」と**距離**で規定し、
+  # 進路変更の「3秒前」とは次元が違う。lane_change_initiation.md §11-10 が
+  # config キーを2本（lane_change_indicator_lead_time_s / indicator_lead_time）に
+  # 分けているのと同じ理由で、1本の要求に畳むと片方を法定に合わせたときに
+  # もう片方が規定から外れる。したがって別要求として立てる。
+  - id: REQ-AD-021
+    title: 右左折の前から方向指示器で予告する
+    tier: compliance
+    agent: AD
+    kind: positive
+    statement: >-
+      WHILE 交差点で右左折を行うとき、VD は交差点の手前の側端から 30 m 手前の地点に
+      達した時点で方向指示器による予告を開始し、右左折が完了するまで継続すること。
+    scenario: >-
+      anticipation_driving_batch.yaml の3本（常設ゲート = run_regression_gate.ps1 Step 2.7
+      ＋ CI vd-behavioral-regression の両方で走る）。**接続路長の両極**を意図的に取ってある
+      — 旧実装の故障モードが接続路長に依存して2つに分かれていたため、片方だけでは
+      再発を捕まえられない:
+      正・短い接続路 `05_anticipation/decelerate_for_right_turn.xosc`（14.87 m）、
+      正・長い接続路 `05_anticipation/junction_turn_signal_long_connector.xosc`（33.2 m、新設）、
+      負・直進通過 `05_anticipation/cross_straight_junction.xosc`。
+    acceptance_ladder:
+      - { step: a, claim: 右左折の前に方向指示器が点灯する,                     met: true, verified_by: [matcher:indicator_leads_junction_turn] }
+      - { step: b, claim: 法定の 30 m 手前から点灯する,                         met: true, verified_by: [matcher:indicator_leads_junction_turn] }
+      - { step: c, claim: 低速進入（36 km/h 未満）でも 30 m を割らない,          met: true, verified_by: [matcher:indicator_leads_junction_turn] }
+    acceptance: >-
+      閾値は法定値 30 m（道路交通法 第53条第1項／同施行令 第21条第1項）。
+      matcher の下限は **29.5 m** だが、これは法定 30.0 に対する**フレーム量子化の余裕**で
+      あって主張の緩和ではない（junction_turn_signal.md §4-2。§11-9 が法定 3.0 秒に
+      min_lead_s: 2.9 を置いたのと同じ流儀）。**実測は両資産とも 30 m を上回っている**ので、
+      緑は余裕の側で取れている。
+
+      **段 c が段 b と別建てである理由と、それが実測で満たされたと言える根拠**:
+      不足は**低速域でだけ**現れる（旧式 `v*lead+10` は速度比例なので、曲がるために
+      減速するほど先読みが縮む）。高速側だけ測ると緑になり、交差点の実運用域を見逃す。
+      新実装のトリガは `max(indicator_min_distance_m, v*indicator_lead_time)` で、
+      **実測2本とも点灯時刻で `v*lead` = 22.5 m / 23.2 m と 30.0 を下回っており、
+      法定の床のほうが支配項だった**。つまり測れたのは「速度項が効かない領域で
+      床が効いている」という段 c そのものの状況である。交差点進入速度は
+      15.2 km/h / 17.8 km/h で、36 km/h を大きく下回る。
+    realized_by: [vd-func:FUNC-061]
+    verified_by: [matcher:indicator_leads_junction_turn]
+    related: [req-vd-ad:REQ-AD-018, vd-func:FUNC-057]
+    status: done
+    note: >-
+      **2026-08-04 に段 a/b/c すべて達成（実装＋検証、junction_turn_signal.md）。**
+      以下は経緯: 前半が 2026-08-03 の欠陥確定、後半が 2026-08-04 の是正である。
+
+      **是正後の実測（2026-08-04、実 Release ビルド、anticipation_driving_batch, dt=0.05）**:
+
+      | 資産 | 接続路 | 是正前 | 是正後 |
+      | :-- | --: | --: | --: |
+      | decelerate_for_right_turn | 14.87 m | 7.18 m | **30.63 m** |
+      | junction_turn_signal_long_connector | 33.2 m | **点灯0フレーム** | **30.32 m** |
+      | cross_straight_junction（負） | 15.5 m | — | 800フレーム全消灯 |
+
+      旋回中の継続も実測: 進入 11.85 s → 接続路を抜ける 14.90 s まで点灯継続
+      （是正前は進入 +0.30 s＝`indicator_min_on_time` ちょうどで消灯していた）。
+
+      **効いた設計判断は3つ**（詳細は junction_turn_signal.md §2）:
+      (1) 方向を**接続路自身の幾何**（進入/退出ヘディング差）から決め、出口側の腕まで
+      走査を届かせる要件をやめた → 接続路長への依存が構造的に消えた（欠陥1・2の根）。
+      (2) トリガを**距離第一級**にし `max(30.0, v*lead)` とした。旧 `v*lead+10` の
+      `+10` は接続路長に食われるぶんの代償で、法的にも運動学的にも根拠がなかったので削除。
+      (3) `start` 自身が junction 所属 road のとき**走査に入らず**その接続路の幾何から
+      方向を返す（ラッチではなく状態を持たない判定）→ 旋回中も合図が保たれ、
+      交差点内で信号待ち・譲り待ちで停止しても速度に依存せず落ちない（欠陥3）。
+
+      **さらに1フレーム先を見る項を足した**（`reach = trigger + v*dt`）。サンプリングが
+      離散なので `dist <= 30.0` を最初に満たすフレームは既に法定地点を通り過ぎており、
+      この項を入れる前の実測が接続路 33.2 m で **29.74 m** と法定をわずかに割っていた。
+      施行令21条1項は「合図を開始していなければならない地点」を定めるので、早い側に
+      外すのは適合・遅い側は不適合。車線変更側が §11-11 で採ったのと同じ動きである。
+
+      **副産物の確定事実**: `decelerate_for_right_turn` は**名前に反して幾何は左折**である
+      （接続路 road 13 は arc curvature +0.108108・length 14.8696 ＝ heading delta +1.608 rad、
+      進入 8.3°→退出 100.5°）。実測で left が点いたのは正しく、LHT/RHT やレーン符号の
+      取り違えではない。**改名は別サイクル**（manifest・expectations・baseline・KG の
+      参照が連動するため、指示器の修正と混ぜない）。expectations に `expect_dir: left` と
+      理由つきで書いてある。
+
+      ---
+
+      以下は 2026-08-03 時点の欠陥確定の記録（是正前）。
+      REQ-AD-018 段 d の棚卸し中に発見し、**同日に実測で追試して確定した**。
+      当初「v >= 10 m/s (36 km/h) なら 30 m に届く」と書いたが、これは
+      `RouteLookaheadJunctionTurnDirection` が junction に入った時点で返すと誤読したための
+      **楽観側の誤り**だった。同関数は junction 所属 road を素通りし、**その先の
+      非 junction road（出口側の腕）に到達して初めて**方向を返す（JunctionTurn.hpp:93-100）。
+      したがって点灯には `交差点入口までの距離 + 接続路長 < lookahead` が要る。
+
+      **実測（2026-08-03、実 Release ビルド、gt_sim_test run, dt=0.02）**:
+
+      - `t_junction__a90.xodr`（接続路 33.2 m）で ego が左折する走行 6 本（初速 5.0/8.33/11.1/
+        13.9/16.7 m/s ＋ 譲りあり）で、**指示器の点灯フレーム数が全て 0**。
+        `lane_change.signal_active` も 0（車線変更側の混入なし）、`ego.track` は 1→102→2 で
+        実際に左折している。**接続路長 33.2 m が単独で lookahead(≈19.8 m) を超える**ため
+        走査が出口へ到達できず、構造的に点灯不能。
+      - `fabriksgatan_traffic_lights.xodr`（接続路 14.87 m）の
+        `05_anticipation/decelerate_for_right_turn.xosc` では**点灯する**。ただし
+        t_sig=10.22 / t_junc=11.76、v@t_sig=5.315 m/s、**点灯距離は 7.18 m**
+        （予測 lookahead−接続路長 = 5.76 m と同オーダー。差は区間中の減速ぶん）。
+        立ち上がり1回・開始時消灯・車線変更由来の混入0。
+
+      **故障モードは2つあり、どちらも法定 30 m を満たさない**: 接続路が lookahead より長い
+      交差点では**一度も点かず**、短い交差点では**点くが 7 m 程度**（法定の約1/4）。
+      リポジトリの接続路長は 9.1〜40.0 m（fabriksgatan 9.1-15.5 / signalized_short_block
+      13.3-16.0 / multi_intersections 16.2-23.0 / 生成カタログ 33.2-40.0）で、**両モードが実在する**。
+
+      **速度を上げても解決しない。** 初速を 5.0〜16.7 m/s に振っても交差点進入時は全て
+      ~4.9 m/s に収束する（ManeuverAwareSpeedPlanner が scan_distance=300 m で曲率減速をかける）。
+      lookahead は速度比例なので、**曲がるために減速するほど先読みが縮む**。
+      REQ-AD-018 で直した「しきい値が速度に連動して自分の首を絞める」型と同じ構図が、
+      右左折側では別の形（接続路長に食われる ＋ 減速で縮む）で現れている。
+
+      **修正の方向（未着手・要判断）**: (1) 出口側の腕まで走査を届かせる要件をやめ、
+      接続路自身の幾何（進入/退出ヘディング差）から方向を決めれば接続路長依存が消える。
+      (2) 法定が距離規定である以上、トリガも距離を第一級にして下限 30 m を課す
+      （現在の `v*lead+10` は時間ベースで、法定と形が噛み合っていない）。
+      どちらも「今まで点かなかったところで点き始める」挙動変更なので、既存ベースラインへの
+      影響を見たうえで別サイクルで行う。
+      指示器そのものは実装済み: DetectJunctionTurn（ControllerVirtualDriver.cpp:1897-1905）が
+      経路に沿って前方を走査し、junction に入った時点で方向を返す
+      （JunctionTurn.hpp:61-）。点灯開始距離は先読み距離そのもので
+      `lookahead = max(15.0, v * indicator_lead_time + 10.0)`、`indicator_lead_time` 既定 2.0。
+      **`2v + 10 >= 30` すなわち `v >= 10 m/s`（36 km/h）でしか法定 30 m に届かない。**
+      18 km/h で 20.0 m、30 km/h で 26.7 m と不足する。交差点は通常それ以下で進入するため、
+      実運用域で法定距離を割っている可能性が高い。
+      なおこの式は「秒×速度＋定数」という**時間ベース**の形であり、法定が距離規定である
+      右左折には形そのものが噛み合っていない。修正するなら距離を第一級のパラメータに
+      置き直す（`indicator_lead_time` を残したまま下限 30 m を課す、等）判断が要る。
+      実装は vd-func:FUNC-061（指示器の自発操作）側、マヌーバは vd-func:FUNC-057（交差点発起）。
+
+  # ===== 出庫（unparking）マヌーバ（凍結例外としてID発行、2026-08-03 承認） =====
+  # scene:SCN-014 の第2段要求導出、続き。req-vd-ad:REQ-AD-019/020（入庫）と対を成す。
+  # 立案時の作業メモでは「REQ-AD-021」を予定していたが、並行編集で REQ-AD-021 が
+  # 「右左折の合図時期」に先着していた（d76fe733, 2026-08-03 23:21）ため、本要求は
+  # 次の空き番号 REQ-AD-022 として発行する（ID重複を避けるための採番ずれ、内容は
+  # 立案時の C 章から変更なし）。
+  - id: REQ-AD-022
+    title: 出庫マヌーバの実行
+    tier: '-'                             # REQ-AD-019/020 と同じ扱い（動機層でなくタスク達成そのもの）
+    agent: AD
+    kind: positive
+    statement: >-
+      WHEN 自車が駐車枠内に停止しているとき、VD は枠からの退出マヌーバ（前進
+      または後退を含む）を実行し、通路の交通に譲ってから発進し、隣接する
+      driving レーンへ合流してレーン追従を再開すること。
+    scenario: >-
+      未整備。parking_lot.xosc の Target5 マヌーバ（storyboard 駆動の負速度＋
+      反転 FollowTrajectory）が出庫の実例として既にあるが VD 挙動主張を発火
+      させる構成でない。scene:SCN-014 は「路肩停車からの合流」「Start」を含み
+      出庫を最初から射程に入れている。
+    acceptance_ladder:
+      - { step: a, claim: "バック入庫状態からの前進出庫: 枠から前進で退出し通路drivingレーンへ復帰、レーン追従を再開できる", met: false, verified_by: [] }
+      - { step: b, claim: "前進入庫状態からの後退出庫: 後退を含む退出（切り返し3回以内）で通路レーンへ復帰できる",           met: false, verified_by: [] }
+      - { step: c, claim: "通路交通への譲り: 通路の接近車両・歩行者がある間は退出を開始しない（クリア後に発進）",           met: false, verified_by: [] }
+      - { step: d, claim: "退出品質の定量基準と合図運用: レーン復帰完了時の横偏差・ヨーがレーン追従正常域内であること、退出中の合図（ハザード/方向指示器）の運用", met: false, verified_by: [] }
+    acceptance: >-
+      段ごとの受入基準は acceptance_ladder のとおり。段cはFUNC-058（発進判断）と
+      概念的に接続する（通路のクリアを待って発進する点が発進判断の一種）が、
+      対象は「車線外（枠内）から車線内へ横移動する発進」であり FUNC-058 の
+      dim:lon Stop&Go 出口とは横移動の有無で区別される。段dの定量閾値
+      （横偏差・ヨー許容域）と合図運用の詳細はフェーズE設計で確定する。
+    realized_by: [vd-func:FUNC-078]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-020, vd-func:FUNC-058]
+    status: future
+    note: >-
+      実装フェーズE（入庫完了後）に位置づけ。部品の大半は入庫と共通 — 出庫経路は
+      入庫経路の時間反転とほぼ同型（Han円弧幾何・RS検算・操舵レート制限・修正
+      ループ・後退ギア経路・ハザードは流用）。出庫固有の新規2点: (1) モード順序の
+      反転＝枠内（レーン外）初期位置からの駐車モード起動→レーン走行への合流
+      （既存パイプラインはレーン上前提）、(2) 通路交通への譲り判断（後退出庫は
+      死角側への進出。既存 conflict/crosswalk ポリシーの適用範囲拡張 or 出庫専用
+      ガード）。実装（vd-func:FUNC-078）・検証資産とも未着手。
+
+  # ===== 追い越し（凍結例外としてID発行、2026-08-04 承認） =====
+  # 追い越しの要求は req-vd-ad に存在しなかった（vd-func:FUNC-056 に realizes 辺が1本も
+  # 無い＝主張が未接続の状態だった）。2本に割るのは要素技術が別で片方だけ完成しうるため。
+  # REQ-AD-023 は先行車認識とギャップ受容、REQ-AD-024 は経路計画との突き合わせ。
+  # REQ-AD-016/017 および REQ-AD-019/020 と同じ立て方（/kg スキル §4「要求の粒度」）。
+  - id: REQ-AD-023
+    title: 遅い先行車を追い越して巡航速度へ戻る
+    tier: comfort
+    agent: AD
+    kind: positive
+    statement: >-
+      WHILE 目標速度より遅い先行車に拘束されているとき、VD は安全な隙間を選んで
+      追い越しレーンへ移り、先行車を抜いたのち元のレーンへ復帰すること。
+    scenario: >-
+      resources/xosc/verification/08_overtake/ の4本（overtake_batch.yaml、
+      policies は overtake と lead）。段 a-d は overtake_slow_lead_on_two_lane_road
+      （片側2車線・同方向追い越しの完遂）、段 e は
+      overtake_into_oncoming_lane_when_clear（片側1車線・対向車線を使う追い越し、
+      policies に overtake_opposing_lane を追加）。道路は生成器
+      resources/scenario_authoring/road_catalog/gen_straight_restricted_exit.py
+      の出力（800 m 直線＋接続レーンを1本に絞った分岐）。既存 xodr には
+      「直線・片側2車線以上・数百 m・その先に junction」を満たすものが無かった。
+    acceptance_ladder:
+      - { step: a, claim: 目標速度より遅く自車を拘束している先行車を追い越しの動機として検出できる, met: true,  verified_by: [matcher:overtake_decision_holds] }
+      - { step: b, claim: 追い越しレーンの隙間を受容して追い越しレーンへ移る,                       met: true,  verified_by: [matcher:overtake_decision_holds] }
+      - { step: c, claim: 先行車を抜いたのち元のレーンへ復帰する,                                   met: true,  verified_by: [matcher:overtake_decision_holds] }
+      - { step: d, claim: 往路・復路の両方で進路変更の前から方向指示器で予告する,                   met: true,  verified_by: [matcher:indicator_leads_lane_change] }
+      - { step: e, claim: 同方向の追い越しレーンが無い道路で対向車線を使って追い越す,               met: true,  verified_by: [matcher:overtake_decision_holds] }
+      - { step: f, claim: 追い越し禁止区間・実線を遵守して発起を抑止する,                           met: false, verified_by: [] }
+      - { step: g, claim: 対向車線追い越しで見通し距離（遮蔽）を考慮する,                           met: false, verified_by: [] }
+    acceptance: >-
+      段 a は signal:overtake_decision の considered が真になること。**この段は
+      他の全段の前提でもある** — considered が一度も立たない緑は、機能が働いた
+      証拠ではなく「そもそも検討していない」偽 PASS である（overtake_maneuver.md §9-1）。
+      段 b/c は phase が signal_out → out → pass → signal_back → back → idle の順に
+      観測されること（matcher の expect_phases は部分列一致）。段 c の完遂側は
+      cleared_lead が真になることで、中断側（req-vd-ad:REQ-AD-024 段 c）と
+      **同じフィールドの逆極性**で判定する — 定数のフィールドは何も判別しないので、
+      2本の刺激が逆極性を主張して初めてこの観測量は意味を持つ。
+      段 d は matcher:indicator_leads_lane_change を **window で往路・復路に分けて
+      2回**呼ぶ（matcher は窓内の最初の signal_active / armed しか拾わないため）。
+      閾値 min_lead_s 2.9 は法定 3.0 s（道交法 第53条第1項／同施行令 第21条第1項）から
+      フレーム量子化（dt=0.05）ぶんを引いた値で、主張の緩和ではない
+      （req-vd-ad:REQ-AD-018 段 b/c と同じ根拠づけ）。
+      **段 f は未達＝本実装は追い越し禁止区間を無視して追い越す。** vd-func:FUNC-030 が
+      未実装であり、道路標示データを読む層が無い。対向車線追い越しを
+      overtake_use_opposing_lane_enabled で二重に閉じ既定 OFF にしているのはこのため。
+      **段 g も未達** — overtake_oncoming_lookahead_m（既定 400 m、AASHTO 追い越し視距の
+      設計速度 60 km/h 相当）は**スキャン距離であって見通し距離ではない**。縦断勾配・
+      カーブ・遮蔽物による視距のモデルはこの層に無く、「その範囲に対向車が居ないこと」
+      しか主張しない。
+    realized_by: [vd-func:FUNC-056, vd-func:FUNC-061]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-017, req-vd-ad:REQ-AD-018, req-vd-ad:REQ-AD-024, vd-func:FUNC-030, vd-func:FUNC-044]
+    status: partial
+    note: >-
+      2026-08-04 実装（vd-component:overtake-maneuver、vd-func:FUNC-055 の1ホップ機構の上に
+      「動機」を1つ足す形）。**既定 OFF**（overtake_enabled。lane_change_initiation_enabled
+      とは独立キー — 同居させると「経路追従の車線変更だけ欲しい」利用者が追い越しまで
+      有効化してしまう）。
+      設計の主題は「**追い越しには締切が無い**」こと（overtake_maneuver.md §1）。
+      vd-func:FUNC-055 は「3秒前に合図する」を時間で遡れないので距離で解いた（同 §11-1）が、
+      追い越しは待つことに代償が無いので**合図してから T 秒待って発起するタイマ形**にした。
+      結果として法定リードは近似ではなく設計上ちょうど T になる。前進予測形も v_cap の罠も
+      チャタリング用ラッチも要らない。
+      **「遅い」に定数を置いていない。** 追い抜きは相対的に L_clear = g0 + g1 + L_ego + L_lead だけ
+      前へ出る運動なので、t_pass = L_clear / dv <= overtake_max_pass_time_s に畳むと
+      速度差の下限 dv_min = L_clear / t_max が**導出量**になり config に現れない。
+      t_max の既定 10.0 s は AASHTO 追い越し視距の左車線占有時間 t2（9.3-11.3 s）由来の
+      **出典ベースの設計値であって本プロジェクトの実測ではない**。
+      追い越しレーンは「レーン id が 0 に近づく側の隣接レーン」の1規則で RHT/LHT 両方が
+      正しくなる（どちらもセンターライン側＝追い越し側）。
+      **制限速度は守り切る** — v_pass = min(last_action_target_, GetSpeedLimit())
+      （respect_speed_limit 既定 true）。追い越し中だけ速度を上乗せする経路は無い。
+      帰結として自車が制限速度に張り付いていると dv が小さくなり t_pass が伸びて
+      pass_too_long で見送られる＝閾値を別に置かずに構造的に抑止される。
+      **実測（2026-08-04、実 Release ビルド、dt=0.05、overtake_batch.yaml 4/4 pass・21/21 must）**:
+      overtake_slow_lead_on_two_lane_road は signal_out@0.05 → out@3.00（**往路リード 2.95 s**、
+      dir=+1・ランプ L）→ lane -2→-1@5.00 → pass@6.40 → signal_back@10.25 →
+      back@13.25（**復路リード 3.00 s**、dir=-1・ランプ R）→ lane -1→-2@15.15 → idle@16.65。
+      最終 route_lane は road_id=2 / on_target_lane=true / **deviation_count=0** で、
+      ego は track 0→101→2 と junction を実際に渡っている（deviation_count は road が
+      切り替わる瞬間にしか増えないので、渡っていなければ 0 のまま自明に緑になる）。
+      対向車線側は lane -1 → **+1** → -1 で同じリード（2.95 / 3.00 s）。
+      Position::Delta は基準レーンを跨ぐとき dLaneId の絶対値を1減らすので
+      対向レーンへの direction_step は **±1**（±2 ではない。RoadManager.cpp:12279-12287）。
+      判別子は dOppLane と dDirection で、dLaneId だけでは同方向隣接レーンと区別できない。
+
+  - id: REQ-AD-024
+    title: 追い越しによって経路上の分岐・右左折を逃さない
+    tier: safety
+    agent: AD
+    kind: positive
+    statement: >-
+      WHILE 経路が与えられているとき、VD は追い越しのために目標レーン帯を離れる前に
+      「離れて戻り、戻ったあと経路上の残りの車線変更を完了する」のに要る距離を見積もり、
+      接続点までの距離に収まらない場合は追い越しを発起しないこと。
+    scenario: >-
+      resources/xosc/verification/08_overtake/overtake_declined_before_route_branch.xosc
+      （段 b、ガードが抑止する側）と overtake_aborted_for_route_branch.xosc
+      （段 c、追い越し中に締切が来て中断する側）。前者は overtake_slow_lead_on_two_lane_road と
+      **同一の道路・同一の先行車設定**で ego の生成位置だけを分岐に近づけてあり、
+      「ガードが効いた」以外の差分が無い。
+    acceptance_ladder:
+      - { step: a, claim: 追い越しマニューバの所要距離を見積もれる,                                met: true,  verified_by: [matcher:overtake_decision_holds] }
+      - { step: b, claim: 復帰後に経路上の残ホップを完了できない配置では追い越しを発起しない,      met: true,  verified_by: [matcher:overtake_decision_holds] }
+      - { step: c, claim: 追い越し中に経路の締切が来たら追い抜きを中断して経路を優先する,          met: true,  verified_by: [matcher:overtake_decision_holds] }
+      - { step: d, claim: 中断して戻ろうとしたが隙間が空かない場合の振る舞いが観測できる,          met: false, verified_by: [] }
+    acceptance: >-
+      許可条件は
+      d_out + d_pass + d_back + RequiredLaneChangeDistance(n_back, v, cfg) + reserve <= dist_to_connection
+      （overtake_maneuver.md §2）。**n_back は「現在レーンから」ではなく
+      「追い越しレーンから」目標レーン帯までのホップ数である** — 追い越しは
+      on_target_lane == true の状態から始まるので、現在レーンを基準に取ると
+      n_remaining == 0 で式が自明に通り、ガードが素通りになる（同 §2-1）。
+      段 b の一次証拠は **considered == true かつ blocked_reason == route_budget かつ
+      phase が終始 idle** の3点同時成立である。considered を落とすと
+      「そもそも追い越しを検討していないから緑」＝偽 PASS と区別できない。
+      段 c は phase が pass → signal_back へ移り、かつ **cleared_lead == false が全フレームで
+      成立**すること（＝抜き切らずに戻った）と blocked_reason == route_budget が
+      signal_back/back で立つこと。**段 d は未達** — 復路の隙間が空かない場合は
+      追い越しレーンに留まり既存の deviation_count が逸脱を記録する設計だが
+      （overtake_maneuver.md §5-2、lane_change_initiation.md §5 の決定を継承）、
+      それを発火させる刺激が未整備で一度も観測していない。
+    realized_by: [vd-func:FUNC-056]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-017, req-vd-ad:REQ-AD-023]
+    status: partial
+    note: >-
+      2026-08-04 実装・実測。**ガードは事前条件であって保証ではない** — 発起の時点で
+      「戻れるだけの距離がある」ことしか確かめないので、発起後に隣が詰まって復路の隙間が
+      空かなければ距離があっても戻れない（段 d）。この残余リスクは消したことにしない。
+      緩和として §5-2 の安全弁（追い越し中に経路の締切が来たら追い抜きを打ち切って戻りにかかる）を
+      1つ置いてある。
+      **dist_to_connection == -1 の極性が3か所で全部違う**（RouteLanePlan.hpp:77 の
+      「-1 = unknown / 接続点なし」）: ShouldAttemptLaneChangeHop は true（もう待つ先が無いので即断）、
+      ShouldSignalLaneChangeHop は false（負のセンチネルに <= は常に真＝出っぱなしになる）、
+      **本ガードは true（逃す分岐がそもそも無い）**。単体テストで明示的に固定してある。
+      **安全弁は「合図しきい値」で開く（2026-08-04、実測にもとづく訂正）。** 当初
+      ShouldAttemptLaneChangeHop（発起しきい値）で書いたところ、開いた時点で残距離が
+      ちょうど1ホップぶんしかなく法定ドウェルを置く余地が無いため、初回実装は締切時に
+      ドウェルを飛ばしていた。**実測で復路の指示器リードが 0.05 s**（クリア経路では 3.00 s）となり
+      req-vd-ad:REQ-AD-023 段 d を破っていた。ShouldSignalLaneChangeHop へ替えて解決
+      （合図しきい値は発起しきい値より v×T だけ手前にあり、その v×T こそドウェルが使う距離）。
+      **締切はギャップ受容も飛ばさない** — 安全でないと判定した隙間へ分岐に間に合わせるために
+      突っ込む取引はこの層ではしない。
+      **実測（2026-08-04、実 Release ビルド）**: overtake_declined_before_route_branch は
+      全フレーム phase=idle・considered=true・blocked_reason=route_budget
+      （required=496.667 m > dist_to_connection=399.0 m）。
+      overtake_aborted_for_route_branch は signal_out@0.05 → out@3.00 → pass@6.40 →
+      **signal_back@31.75（route_budget_m=199.1 ≒ 合図しきい値 140+60）** →
+      back@34.75（route_budget_m=139.1 ≒ 発起しきい値 140。**ドウェルが合図しきい値の買った
+      距離をちょうど使い切っている**）→ idle@38.15、cleared_lead は全 1240 フレームで false、
+      最終 deviation_count=0。
+      **cleared_lead の意味論は実装当初壊れていた（2026-08-04 修正）。** PASS の判定が
+      弁と幾何クリア判定を1つのフラグに畳んで短絡していたため、**弁で戻った場合も
+      cleared_lead=true を publish していた**＝「抜かずに諦めた」と「抜いて戻った」が
+      区別できず、§9-1 がこの観測量を作った目的そのものを壊していた。幾何判定を
+      無条件評価に変え、cleared_lead はそこからのみ立て、戻った理由は blocked_reason へ
+      分離した。**検知器の両極性は2本の刺激が逆極性を主張することで実証してある。**

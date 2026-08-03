@@ -430,7 +430,7 @@ edges:
 
   # ---- VD 機能軸フェーズ0: ADAS/AD トレーサビリティ (vd-func / req-vd-ad) ----
   # 3段チェーン: policy -> realizes -> vd-func(機能) -> realizes -> req-vd-ad(要求)。
-  # matcher -> verifies -> 要求。設計軸: GT_esmini/docs/virtualdriver/adas_axis.md。
+  # matcher -> verifies -> 要求。設計軸: GT_esmini/docs/virtualdriver/design/adas_axis.md。
 
   # --- policy -> realizes -> vd-func（実装済み/部分機能の実装元マッピング） ---
   - from: policy:lead
@@ -520,6 +520,36 @@ edges:
     type: realizes
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: 交差点優先権規則が交差点譲り要求を充足
+  # REQ-AD-016（経路を導ける）と REQ-AD-017（経路どおりに走り切る）は 2026-08-02 に
+  # 1本の要求から分割した。要素技術が別で片方だけ完成しうるのに 1 文だったため、
+  # RouteLanePlan の成果（レーン帯算出＋逸脱検出）を写す先が無かった。
+  - from: vd-func:FUNC-049
+    to: req-vd-ad:REQ-AD-016
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 目的地ルーティング（road/lane 列の導出と保持）が経路導出要求の中核
+  - from: vd-func:FUNC-050
+    to: req-vd-ad:REQ-AD-017
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: レーンレベル経路計画が段 a/b（目標レーンの算出と逸脱検出）を充足
+  - from: vd-func:FUNC-055
+    to: req-vd-ad:REQ-AD-017
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: >-
+      自発的な車線変更の発起が段 c（接続点までに目標レーンへ移る）を充足。
+      2026-08-02 実装済み（vd-component:lane-change-initiation、既定 OFF）
+  - from: vd-func:FUNC-052
+    to: req-vd-ad:REQ-AD-017
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: ルート維持・逸脱復帰が段 d を充足。未実装
+  - from: vd-func:FUNC-054
+    to: req-vd-ad:REQ-AD-017
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 到達判定・ミッション終了が段 e（終点で安全に停車する）を充足。未実装
 
   # --- matcher -> verifies -> req-vd-ad（検証） ---
   - from: matcher:maintained_following_distance
@@ -550,13 +580,210 @@ edges:
   - from: matcher:impact_speed_below
     to: req-vd-ad:REQ-AD-001
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 回避不能域の緩和=初回接触の閉じ(衝突)速度が床以下（07_aeb直進, NCAPカラーバンド思想）
   - from: matcher:no_emergency_without_conflict
     to: req-vd-ad:REQ-AD-013
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本）
+
+  # --- vd-component -> realizes -> vd-func（非 ITrafficPolicy の実装ユニット。2026-08-02
+  #     に vd-component 名前空間を新設して張れるようになった辺） ---
+  - from: vd-component:route-lane-plan
+    to: vd-func:FUNC-050
+    type: realizes
+    source: GT_esmini/docs/virtualdriver/design/route_lane_plan_design.md
+    note: >-
+      目標レーン帯の算出と逸脱・ルート解決失敗の可視化。FUNC-050 の実現範囲は診断までで、
+      寄せる動作（自発的な車線変更）は vd-func:FUNC-055 のスコープ
+  - from: vd-component:lane-change-initiation
+    to: vd-func:FUNC-055
+    type: realizes
+    source: GT_esmini/docs/virtualdriver/design/lane_change_initiation.md
+    note: >-
+      route-lane-plan の目標レーン帯へ自発的に寄せる実装。決断距離（残ホップ数比例）・
+      ギャップ受容（隣接レーンの前後車）・軌道（ResumeMergeProfile 流用、アンカーを
+      目標レーンへ）・優先順位（storyboard LC > resume-merge > AD発起）を担う。
+      FUNC-055 のうち**経路要求を動機とする発起のみ**を実現し、遅い先行車・専用レーン
+      回避を動機とする発起は範囲外（追い越しは vd-func:FUNC-056）
+  - from: vd-component:lane-change-initiation
+    to: vd-func:FUNC-061
+    type: realizes
+    source: GT_esmini/docs/virtualdriver/design/lane_change_initiation.md
+    note: >-
+      発起した車線変更に方向指示器を同期させる（DetectManeuverDir を storyboard LC →
+      AD発起LC → **先行合図** → 0 の4段へ拡張し、発起時に方向をラッチ）。2026-08-03 に
+      先行合図の判定を前進予測形へ置き換えて REQ-AD-018 段 b/c を達成（§11-11）。
+      FUNC-055 分はこれで埋まり、**2026-08-04 に vd-func:FUNC-056（追い越し）分も埋まった**
+      （vd-component:overtake-maneuver。往路・復路の2回とも発起前から点灯、実測 2.95 / 3.00 s。
+      ただしそちらは前進予測形ではなく**合図→ドウェル T 秒→発起のタイマ形**で、
+      追い越しには締切が無いので待てばよいという別機構）。**残るは出庫・非経路の合流**
+      （旧記載の「FUNC-056..059」は括りが誤っていた。REQ-AD-018 の acceptance 参照）。
+
+  # --- matcher -> verifies -> req-vd-ad（RouteLanePlan 分。2026-08-02 に宛先を差し替えた） ---
+  # 当初は vd-func:FUNC-050 を直接指していた（「policy を経由しないので3段チェーンが使えない」
+  # という判断）。しかし matcher(face:3) -> vd-func(face:2) は capability_model.md §0.2 の
+  # 「面3→面2 の直結＝coupling debt」に該当し、結合監査が正しく検出した（誤検知ではない）。
+  # 実際には vd-func:FUNC-050 -[realizes]-> req-vd-ad:REQ-AD-017 が既にあり、要求経由で
+  # FUNC-050 への追跡可能性は保たれる。既存 verifies 辺 11/12 も宛先は req-vd-ad で、
+  # 面3→面3 に収まっている。**検知器とテスト期待値は一切変えず、グラフ側を厳格な既存
+  # パターンへ寄せる**ことで解消した（期待値を緩めるのは許容差の緩和にあたるため採らない）。
+  # 検証しているのは REQ-AD-017 の段 a/b のみ。**どの段を検証済みかは要求側の
+  # acceptance_ladder[].verified_by が持つ**（辺の粒度では段を表現できないため。
+  # 辺だけを見て要求全体が検証済みと読まないこと）。
+  - from: matcher:route_lane_plan_holds
+    to: req-vd-ad:REQ-AD-017
+    type: verifies
+    source: GT_esmini/docs/virtualdriver/design/route_lane_plan_design.md
+    note: >-
+      route_lane_batch.yaml の4シナリオで検証。段 a/b は merge_required_for_exit_ramp
+      （invalid_route 診断）と route_valid_off_target_lane_for_exit_ramp（目標レーン帯からの
+      逸脱を検出。route_lane_plan_design.md §4-4 実測）。**段 c** は
+      lane_change_to_exit_ramp（隣接車なし・3ホップ）と lane_change_to_exit_ramp_with_traffic
+      （隣接車あり・2ホップ）で、max_deviations: 0 が「接続点を目標レーン帯に乗ったまま
+      通過した」ことを判定する（2026-08-02 実測: 前者は -1→-2→-3→-4 と移り road4→road2 へ、
+      後者は 7.5s ギャップを拒否してから 2 ホップ、いずれも deviation_count=0）。
+      **REQ-AD-017 の段 a/b/c まで**。段 d/e（逸脱復帰・終点停車）は未実装で検証対象外＝
+      この辺は要求全体の充足を主張しない。どの段を検証済みかは要求側の
+      acceptance_ladder[].verified_by が持つ。
+  # req-vd-ad:REQ-AD-018（進路変更の前から方向指示器で予告する）は 2026-08-02 新設。
+  # FUNC-061 には接続済みの要求が1件も無く、既存 REQ-AD-001..017 のどれも合図に触れていない
+  # ため、matcher の宛先が存在しなかった（面3→面2 の結合負債を作らずに済ませる唯一の道が
+  # 要求の新設だった）。凍結名前空間への追加につきユーザー承認済み。
+  - from: matcher:indicator_leads_junction_turn
+    to: req-vd-ad:REQ-AD-021
+    type: verifies
+    source: GT_esmini/docs/virtualdriver/design/junction_turn_signal.md
+    note: >-
+      anticipation_driving_batch.yaml の3本で検証する（junction_turn_signal.md §4-3）。
+      **接続路長の両極を意図的に取ってある** — 旧実装の故障モードが接続路長に依存して
+      2つに分かれていたためで、片方だけでは再発を捕まえられない:
+
+      - 正・短い接続路: decelerate_for_right_turn（14.87 m）`min_distance_m: 29.5`,
+        `expect_dir: left`。旧実装ではここが 7.18 m しか出なかった。
+        **資産名は「right」だが幾何は左折である**（同 §5。接続路 road 13 は
+        arc curvature +0.108108・length 14.8696 ＝ heading delta +1.608 rad、東向き→北向き）。
+        名前に合わせて expect_dir を right に「直す」と赤くなる。
+      - 正・長い接続路: junction_turn_signal_long_connector（33.2 m）`min_distance_m: 29.5`,
+        `expect_dir: right`。旧実装ではここが**点灯フレーム0**だった（接続路長が単独で
+        lookahead を超え、走査が出口の腕に届かないため構造的に点灯不能）。
+      - 負・直進通過: cross_straight_junction `expect_dir: none`。今回の修正は
+        「点きやすくする」方向なので偽陽性が出やすく、負の資産が要る。
+
+      min_distance_m の 29.5 は法定 30.0 に対する**フレーム量子化の余裕**であって主張の
+      緩和ではない（同 §4-2）。コード側は dist<=30.0 の最初のフレームで点灯するので実測は
+      30.0 を僅かに下回る。§11-9 が法定 3.0 秒に min_lead_s: 2.9 を置いたのと同じ流儀。
+
+      **段 a/b/c のどれを検証済みかは要求側の acceptance_ladder[].verified_by が持つ。**
+
+  - from: matcher:indicator_leads_lane_change
+    to: req-vd-ad:REQ-AD-018
+    type: verifies
+    source: GT_esmini/docs/virtualdriver/design/lane_change_initiation.md
+    note: >-
+      route_lane_batch.yaml で lane_change_initiation を有効化する4本で検証。
+      **REQ-AD-018 の段 a・段 b・段 c**を担う（2026-08-03 に段 b/c を追加）。
+      段ごとに刺激が違い、min_lead_s の意味も違う:
+
+      - 段 a（先行する）: lane_change_to_exit_ramp `min_lead_s: 2.0`（実測 2.30s）、
+        lane_change_to_exit_ramp_with_traffic `3.0`（実測 7.00s）。後者を測定値の近くに
+        置かないのは、7.00 の大半がギャップ待ち時間で、隣接車の配置を触っただけで
+        赤くなるからである（無関係な変更で鳴る検知器は警報疲れを育てる）。法定値 3.0
+        そのものを下限に置いてある。
+      - 段 b（定速で法定3秒）: lane_change_to_exit_ramp_at_constant_speed
+        `min_lead_s: 2.9`（実測 3.05s）。2.9 は法定値を下回るが、これは
+        **フレーム量子化（dt=0.05）のぶんの余裕**であって主張の緩和ではない。
+      - 段 c（加速中も縮まない）: lane_change_to_exit_ramp_during_gradual_acceleration
+        `min_lead_s: 2.9`（実測 3.05s）。修正前は同じ刺激で 2.10s だった。
+
+      **この matcher だけでは段 b が「定速で」を保証しない。** min_lead_s は秒数しか見ず、
+      刺激が本当に定速かは検査しない。定速性は t_sig 近傍の加速度を別途実測して示す
+      （2026-08-03 実測 0.00066 m/s²）。刺激の素性を matcher に代弁させないこと。
+      どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。
+  - from: vd-func:FUNC-061
+    to: req-vd-ad:REQ-AD-021
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: >-
+      同じ「方向指示器の自発操作」が右左折側も担う。ただし**法定の次元が違う**（進路変更＝
+      3秒前 / 右左折＝交差点手前の側端から 30 m 手前）ため要求は REQ-AD-018 と分けてある。
+      実装経路も別で、こちらは DetectJunctionTurn（ControllerVirtualDriver.cpp:1897-1905）が
+      `lookahead = max(15.0, v*indicator_lead_time + 10.0)` で前方を走査する側。
+      2026-08-03 の指摘: `2v+10 >= 30` すなわち v >= 10 m/s (36 km/h) でしか法定 30 m に
+      届かない。交差点の実運用域はそれ以下なので低速側で不足する（コード読解＋算術。実測は未）。
+  - from: vd-func:FUNC-061
+    to: req-vd-ad:REQ-AD-018
+    type: realizes
+    source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
+    note: >-
+      方向指示器の自発操作が段 a/b/c を充足（2026-08-03、§11-11 の前進予測形で段 b/c 達成）。
+      **段 d は未達**。ただし 2026-08-03 に範囲を切り直しており、以前の
+      「FUNC-056..059 由来の発起にも同期」は誤った括りだった:
+      FUNC-057（交差点）は右左折であって車線変更でなく req-vd-ad:REQ-AD-021 へ分離、
+      FUNC-058（発進）は dim:lon の Stop&Go 出口で指示器不要（対象は出庫＝REQ-AD-022）、
+      FUNC-059（合流）は経路要求として現れる分は既に段 a-c の機構で合図が出る。
+      段 d に残る実体は vd-func:FUNC-056（追い越し）・出庫・非経路の合流の3つ。
+  - from: matcher:route_lane_plan_holds
+    to: req-vd-ad:REQ-AD-016
+    type: verifies
+    source: GT_esmini/docs/virtualdriver/design/route_lane_plan_design.md
+    note: >-
+      merge_required_for_exit_ramp シナリオの invalid_route 診断が
+      **REQ-AD-016 の段 b のみ**（経路解決の失敗を検出して外へ出す＝沈黙しない）を検証する。
+      段 a/c（経路の補完・起終点のみからの探索）は検証対象外。
+
+  # ---- 駐車機能（req-vd-ad:REQ-AD-019/020、vd-func:FUNC-076/077）: 2026-08-03 新設 ----
+  # 凍結名前空間（req-vd-ad / vd-func）への追加につきユーザー承認済み。scene:SCN-014
+  # （駐停車・後退ファミリ、coverage: none）の第2段要求導出。実装・検証資産とも未着手のため
+  # matcher -> verifies -> req 辺は張らない（実体の無い辺は overclaim）。
+  - from: vd-func:FUNC-076
+    to: req-vd-ad:REQ-AD-019
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 駐車枠探索・選定が駐車枠の探索・選定要求を充足。未実装
+  - from: vd-func:FUNC-077
+    to: req-vd-ad:REQ-AD-020
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 駐車マヌーバ実行が駐車マヌーバの実行要求を充足。未実装
+  - from: req-vd-ad:REQ-AD-019
+    to: openx:Domain#Parking
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 駐車枠の探索・選定が対象とするODD軸。scene:SCN-014 と同じ openx 概念を共有
+  - from: req-vd-ad:REQ-AD-020
+    to: openx:Domain#Parking
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 駐車マヌーバ実行が対象とするODD軸。scene:SCN-014 と同じ openx 概念を共有
+  - from: req-vd-ad:REQ-AD-020
+    to: openx:Domain#MoveBackward
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: バック駐車（後退を含むマヌーバ）が対象とするODD軸
+
+  # ---- 出庫機能（req-vd-ad:REQ-AD-022、vd-func:FUNC-078）: 2026-08-03 新設 ----
+  # 凍結名前空間（req-vd-ad / vd-func）への追加につきユーザー承認済み。scene:SCN-014
+  # の第2段要求導出、入庫（REQ-AD-019/020）と対を成す。立案時の作業メモの予定番号
+  # REQ-AD-021 は並行編集（d76fe733, 右左折の合図時期）に先着されていたため
+  # REQ-AD-022 として発行（内容は立案時の C 章から変更なし）。実装・検証資産とも
+  # 未着手のため matcher -> verifies -> req 辺は張らない。
+  - from: vd-func:FUNC-078
+    to: req-vd-ad:REQ-AD-022
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 出庫マヌーバ実行が出庫マヌーバの実行要求を充足。未実装
+  - from: req-vd-ad:REQ-AD-022
+    to: openx:Domain#Parking
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 出庫マヌーバの実行が対象とするODD軸。scene:SCN-014・REQ-AD-019/020 と同じ openx 概念を共有
+  - from: req-vd-ad:REQ-AD-022
+    to: openx:Domain#MoveBackward
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 前進入庫状態からの後退出庫（段b）が対象とするODD軸
 
   # --- 要求 -> concerns/depends-on ---
   - from: req-vd-ad:REQ-AD-002
@@ -567,91 +794,91 @@ edges:
   - from: req-vd-ad:REQ-AD-001
     to: proposal:P12
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/adas_axis.md
+    source: GT_esmini/docs/virtualdriver/design/adas_axis.md
     note: collision-free 不変条件（衝突検出）が回帰固化の前提
   - from: req-vd-ad:REQ-AD-001
     to: proposal:P11
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/adas_axis.md
+    source: GT_esmini/docs/virtualdriver/design/adas_axis.md
     note: 必要減速度/TTC メトリクスが緊急介入判定・検証の前提
 
   # ---- AEB 機能ファミリ（REQ-AD-010..015、NCAP/R152逆算）: aeb_requirements.md ----
   - from: vd-func:FUNC-001
     to: req-vd-ad:REQ-AD-010
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 前方AEB→停止先行車回避(CCRs)
   - from: vd-func:FUNC-001
     to: req-vd-ad:REQ-AD-011
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 前方AEB→等速/制動先行車回避(CCRm/CCRb)
   - from: vd-func:FUNC-002
     to: req-vd-ad:REQ-AD-012
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: VRU-AEB→横断歩行者/自転車回避(CPNA/CPFA/CBNA)
   - from: vd-func:FUNC-001
     to: req-vd-ad:REQ-AD-013
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 前方AEB→誤作動抑止(negative, R152)
   - from: vd-func:FUNC-001
     to: req-vd-ad:REQ-AD-014
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 前方AEB→快適優先の層調停(arbitration)
   - from: vd-func:FUNC-001
     to: req-vd-ad:REQ-AD-015
     type: realizes
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 前方AEB→作動包絡線/応答フロア(regulatory, R152)
 
   - from: matcher:min_obb_separation_above
     to: req-vd-ad:REQ-AD-010
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 停止先行車との衝突ゼロ
   - from: matcher:min_obb_separation_above
     to: req-vd-ad:REQ-AD-011
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 先行車との衝突ゼロ
   - from: matcher:min_obb_separation_above
     to: req-vd-ad:REQ-AD-012
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 歩行者/自転車との衝突ゼロ
   - from: matcher:deceleration_profile_smooth
     to: req-vd-ad:REQ-AD-014
     type: verifies
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 快適域で滑らかな減速（緊急制動不発火）
 
   - from: req-vd-ad:REQ-AD-010
     to: proposal:P12
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 衝突検出(collision-free)が検証前提
   - from: req-vd-ad:REQ-AD-011
     to: proposal:P11
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 必要減速度/衝突速度低減メトリクスが検証前提
   - from: req-vd-ad:REQ-AD-011
     to: proposal:P12
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 衝突検出が検証前提
   - from: req-vd-ad:REQ-AD-012
     to: proposal:P12
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 衝突検出が検証前提
   - from: req-vd-ad:REQ-AD-013
     to: proposal:P11
     type: depends-on
-    source: GT_esmini/docs/virtualdriver/aeb_requirements.md
+    source: GT_esmini/docs/virtualdriver/design/aeb_requirements.md
     note: 誤作動ゼロ判定に緊急制動発火メトリクスが必要
 
   # ---- ②刺激: req -> stimulated-by -> policy / scenario-variant（capability_model.md §5） ----
@@ -689,7 +916,7 @@ edges:
       score_aeb_c2c_grid.py（obb_separation/_closing_speed を vd_metrics から流用）で帯分類。
       2026-07-24 実測: 全セル avoid(no_aeb)＝AEB は armed だが不発火（min TTC 2.78s > 閾2.5s）、
       回避は AD 層（max 3.9 m/s²）。aeb はバックストップとして毎フレーム gt.aeb.* で観測済み。
-      行列は GT_esmini/docs/virtualdriver/aeb_c2c_grid_matrix.md に固化。
+      行列は GT_esmini/docs/virtualdriver/measurements/aeb_c2c_grid_matrix.md に固化。
   - from: req-vd-ad:REQ-AD-011
     to: policy:aeb
     type: stimulated-by
@@ -880,6 +1107,45 @@ edges:
     source: GT_esmini/web/backend/services/vd_metrics.py
     note: policy.constraints[].source == "aeb"（負matcher＝誤作動ゼロ）
 
+  # ---- ④観測: RouteLanePlan (vd-func:FUNC-050) ----
+  - from: matcher:route_lane_plan_holds
+    to: signal:route_lane_conformance
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      vd_metrics.py:1520-1677 の route_lane_plan_holds 分岐が frames[i]["route_lane"]
+      （VirtualDriverTelemetryJson.cpp 由来の route_lane ブロック）を読む。target_lanes/
+      on_target_lane/dist_to_connection/deviation_count/diagnostic の各チェックは呼び出し側の
+      must が指定したものだけ評価する（何もチェックしない must は skip 扱い＝「何も評価しない
+      ものを pass にしない」規律、domain_split_holds と同型）。
+
+  # ---- ④観測: 指示器の先行点灯 (vd-func:FUNC-061 / req-vd-ad:REQ-AD-018) ----
+  - from: matcher:indicator_leads_lane_change
+    to: signal:lane_change_signal_timing
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      vd_metrics.py:1708-1836 の indicator_leads_lane_change 分岐が、frames[i]["lane_change"]
+      の signal_active/armed/direction と frames[i]["indicator"] の left/right を**両方**読む。
+      片方だけでは判定にならない（lane_change_initiation.md §11-8）: signal_active だけだと
+      意図が AutoIndicatorPolicy に握り潰されていても真になり、indicator だけだと
+      DetectJunctionTurn の交差点旋回による点灯と区別できない。両ブロックとも欠けていれば
+      skip（「何も評価しないものを pass にしない」規律、route_lane_plan_holds と同型）。
+
+  - from: matcher:indicator_leads_junction_turn
+    to: signal:junction_turn_signal_distance
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      vd_metrics.py:1838- の indicator_leads_junction_turn 分岐が、frames[i]["junction_turn"]
+      の dir/dist_to_entry_m/on_connector と frames[i]["indicator"] の left/right を**両方**読む。
+      **on_connector が無いと成立しない**: テレメトリ単体では road id から junction 所属を
+      判定できず、検証ハーネスは xodr を読めないため、「交差点に進入したフレーム」を
+      機械判定する手段が他に無い（junction_turn_signal.md §3-4）。
+      距離は ego.x/y のフレーム間ユークリッド距離の積算で測る（domain_split_holds と同型。
+      speed×dt の積分より頑健で、バッチ末尾の同一 sim_time 重複フレームにも耐える）。
+      どちらのブロックも欠けていれば skip（「何も評価しないものを pass にしない」規律）。
+
   # ---- ⑥常設: matcher -> sustained-by -> gate（capability_model.md §5, フェーズ1） ----
   # 常設ゲート gate:vd-behavior-regression（12シナリオ）が実際に発火させる matcher だけを引く。
   # car_following_traffic_control_batch.yaml が参照する expectations を機械集計した結果＝6件（2026-07-20実測）。
@@ -961,6 +1227,18 @@ edges:
     type: sustained-by
     source: resources/xosc/verification/anticipation_driving_batch.yaml
     note: 4シナリオ（curve/right_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。
+  - from: matcher:indicator_leads_junction_turn
+    to: gate:anticipation-driving-regression
+    type: sustained-by
+    source: resources/xosc/verification/anticipation_driving_batch.yaml
+    note: >-
+      3シナリオ（decelerate_for_right_turn / junction_turn_signal_long_connector /
+      cross_straight_junction）。このバッチは run_regression_gate.ps1 Step 2.7 と CI の
+      vd-behavioral-regression ジョブの**両方**で走るため、新しい gate を起こさずに
+      ⑥常設を満たせる（junction_turn_signal.md §4-3）。
+      **req-vd-ad:REQ-AD-018 が sustained-by 未結線のまま放置されている状態を再生産しない**
+      ために、matcher の新設と同じサイクルで結線した（あちらの route_lane_batch.yaml は
+      baseline すら無く、ゲートにも CI にも載っていない孤立 matcher になっている）。
   - from: matcher:lane_keep
     to: gate:anticipation-driving-regression
     type: sustained-by
@@ -1186,3 +1464,177 @@ edges:
     type: sustained-by
     source: GT_esmini/test/CMakeLists.txt
     note: OverrideManagerTest 10ケースが傘バイナリ常設（片方向ラッチ仕様の固定＋RESUMEエッジ復帰）。フルサイクルsmoke(scripts/vd_override_smoke.py)はCI未統合＝手動のため計上しない
+
+  # ---- 引けなかった辺: RouteLanePlan (vd-func:FUNC-050, 2026-08) ----
+  # 縦串3辺の結線時に検討したが張らなかった2辺と、その理由（一次記録）。
+  #
+  # ★ 2026-08-02 更新: (2) は **解消済み**。vd-component 名前空間を新設し
+  #   vd-component:route-lane-plan -> realizes -> vd-func:FUNC-050 を結線した（上記）。
+  #   下の (2) の記述は「なぜ当時張れなかったか」の一次記録として残す。判断自体は正しく、
+  #   欠けていたのはノード型のほうだった（同じ欠落は function_catalog の by: に
+  #   'planner'/'driver' という未登録の擬似ID として前から露出していた）。
+  #   併せて req-vd-ad:REQ-AD-016 を 016（経路を導ける）/ 017（経路どおりに走り切る）へ
+  #   分割し、段階受入（acceptance_ladder）で部分達成を要求の内側に書けるようにした。
+  #   (1) は未解消のまま残る（手書き検証 xosc を指す face:3 名前空間は、--spine-report の
+  #   ②刺激欠を全数見てから設計する。母数を見ずに切ると片肺の語彙が増えるため）。
+  #
+  # (1) req-vd-ad:REQ-AD-016 -> stimulated-by -> [06_route_lane の刺激資産]
+  #   資産は実在し実行済み（resources/xosc/verification/06_route_lane/
+  #   merge_required_for_exit_ramp.xosc, route_valid_off_target_lane_for_exit_ramp.xosc、
+  #   route_lane_batch.yaml 経由、overall=pass）。しかし face:3 の登録ハンドルが無い:
+  #   (a) scenario_authoring 生成物ではない手書き xosc なので scenario-variant 命名
+  #       （[a-z0-9_]+__p[0-9]{3}）に該当しない。
+  #   (b) 07_aeb/06_lead/03/04 の先例（scenario-variant 未登録でも policy を「唯一の登録
+  #       ハンドル」として stimulated-by の to にする回避策、上記コメント参照）がここでは
+  #       使えない。RouteLanePlan は ITrafficPolicy を経由しない独立層
+  #       （route_lane_plan_design.md §3-2、route_lane_batch.yaml 自身のコメントも明記）
+  #       ＝ 迂回先の policy 自体が存在しない。
+  #   資産と要求/機能の対応は route_lane_batch.yaml の `origin: vd-func:FUNC-050`
+  #   フィールド（バッチファイルのメタデータ、graph.yaml の辺ではない）に残る。
+  #
+  # (2) [RouteLanePlan 実装] -> realizes -> vd-func:FUNC-050
+  #   既存の realizes 辺は全て `policy:<slug> -> vd-func` の形を取る（policy は face:2 の
+  #   閉じた列挙、namespaces.yaml OPAQUE_LEGACY_NAMESPACES に凍結登録済み＝新値追加は
+  #   lint が拒否する）。RouteLanePlan は design doc が「policies/ に ITrafficPolicy
+  #   実装として置くのは不採用」と明記した独立層のため、policy 列挙に新値を足すのは
+  #   (a) 凍結違反 (b) アーキテクチャ判断への逆行の両方で不適当。実装そのものを指せる
+  #   既存の登録名前空間が無い＝**登録提案**（親判断・本セッションでは新設しない）。
+  #   FUNC-050 の部分実現は現状 matcher:route_lane_plan_holds -> verifies -> vd-func:FUNC-050
+  #   （上記）と function_catalog_vd_ad.yaml の status: partial 更新のみで表現しており、
+  #   同カタログの by: フィールドも意図的に空のまま残している（実装元は policy:slug /
+  #   planner / driver / road のいずれかが期待される書式だが、どれも RouteLanePlan の
+  #   実体を正しく表さないため、根拠の無い値を書くより空欄の方が正直と判断した）。
+  #
+  # 両者とも「名前の類似で辺を張らない・根拠が薄い辺は張らない（誤った辺 > 欠けた辺）」に
+  # 従い未結線のまま残す。新設が要るなら: (i) face:3 に「手書き検証 xosc」用の名前空間、
+  # または (ii) policy とは別の「VD 実装層（非 ITrafficPolicy）」名前空間の登録が候補。
+  # いずれも新設していない（凍結名前空間ポリシーの遵守）。
+
+  # ===== 追い越し（vd-func:FUNC-056 / req-vd-ad:REQ-AD-023 / REQ-AD-024、2026-08-04） =====
+  - from: vd-func:FUNC-056
+    to: req-vd-ad:REQ-AD-023
+    type: realizes
+    note: >-
+      追い越しの発起・完遂が「遅い先行車を追い越して巡航速度へ戻る」を充足。2026-08-04 実装
+      （vd-component:overtake-maneuver、既定 OFF）。段 a-e まで実測で達成、
+      段 f（追い越し禁止区間）と段 g（見通し距離）は未達で、それぞれ vd-func:FUNC-030 待ちと
+      視距モデル不在による。**この辺は要求全体の充足を主張しない** — どの段まで達成したかは
+      要求側の acceptance_ladder[].verified_by が持つ。
+    source: GT_esmini/docs/virtualdriver/design/overtake_maneuver.md
+
+  - from: vd-func:FUNC-056
+    to: req-vd-ad:REQ-AD-024
+    type: realizes
+    note: >-
+      同じ実装が「追い越しによって経路上の分岐を逃さない」も担う。要求を2本に割ったのは
+      要素技術が別（先行車認識＋ギャップ受容 / 経路計画との突き合わせ）で片方だけ完成しうるため。
+      経路ガードは追い越しレーンから目標レーン帯までのホップ数 n_back を
+      RequiredLaneChangeDistance へ渡す形で、**新しい距離の概念を持ち込んでいない**。
+      段 a-c は実測で達成、段 d（復路の隙間が空かない場合）は刺激が未整備で未観測。
+    source: GT_esmini/docs/virtualdriver/design/overtake_maneuver.md
+
+  - from: vd-component:overtake-maneuver
+    to: vd-func:FUNC-056
+    type: realizes
+    note: >-
+      追い越しの純関数層（trigger / 経路ガード / 対向ギャップ / 追い越しレーン選択 /
+      クリア判定 / 合図ドウェル）と、その上のフェーズ状態機械。
+      **vd-component:lane-change-initiation の1ホップ機構を無改造で2回まわす**構成で、
+      軌道生成（ResumeMergeProfile）にも指示器経路（lc_signal_dir_）にも新しい経路を作っていない。
+      DetectManeuverDir への変更は enable ゲート1行のみ。
+    source: GT_esmini/docs/virtualdriver/design/overtake_maneuver.md
+
+  - from: vd-component:overtake-maneuver
+    to: vd-component:lane-change-initiation
+    type: depends-on
+    note: >-
+      追い越しは車線変更の「動機」を1つ足す層であり、ホップ機構
+      （ArmLaneChangeHop / ArmResumeMerge / ScanAdjacentLaneGap / EvaluateGapAcceptance /
+      RequiredLaneChangeDistance / ShouldSignalLaneChangeHop）を丸ごと借りている。
+      ただし**enable フラグは独立**（overtake_enabled と lane_change_initiation_enabled）。
+      同居させると「経路追従の車線変更だけ欲しい」利用者が追い越しまで有効化してしまうため。
+      安全弁が ShouldAttemptLaneChangeHop / ShouldSignalLaneChangeHop を呼ぶときだけ
+      cfg.enabled=true に上書きしたコピーを渡す（両関数が enabled を内部で見るため）。
+    source: GT_esmini/docs/virtualdriver/design/overtake_maneuver.md
+
+  - from: vd-component:overtake-maneuver
+    to: vd-func:FUNC-061
+    type: realizes
+    note: >-
+      追い越しの往路・復路それぞれに方向指示器を同期させる（req-vd-ad:REQ-AD-018 段 d の
+      **追い越しぶん**）。既存の lc_signal_dir_ に同じ契約で書き込むだけで、
+      DetectManeuverDir の段構造は変えていない。
+      **FUNC-055 の前進予測形は流用していない** — あれは dist_to_connection と n_remaining を
+      引数に取る締切専用の述語で、追い越しには対応する量が存在しない。
+      追い越しには締切が無いので「合図してから T 秒待って発起する」タイマ形で足り、
+      法定リードは近似ではなく設計上ちょうど T になる（実測 往路 2.95 s / 復路 3.00 s）。
+    source: GT_esmini/docs/virtualdriver/design/overtake_maneuver.md
+
+  - from: matcher:overtake_decision_holds
+    to: signal:overtake_decision
+    type: observes
+    note: >-
+      vd_metrics.py の overtake_decision_holds 分岐が frames[i]["overtake"] を読む。
+      must で指定されたキー（expect_considered / expect_blocked_reason / expect_phases /
+      forbid_phases / expect_cleared_lead）だけを評価し、**何も指定しない must は skip**
+      （route_lane_plan_holds / indicator_leads_lane_change と同じ「何も評価しないものを
+      pass にしない」規律）。overtake ブロックを持つフレームが窓に1つも無ければ skip＝
+      古い DLL の検出。
+    source: GT_esmini/docs/virtualdriver/design/overtake_maneuver.md
+
+  - from: matcher:overtake_decision_holds
+    to: req-vd-ad:REQ-AD-023
+    type: verifies
+    note: >-
+      overtake_batch.yaml の4本で検証。段 a は expect_considered、段 b/c は expect_phases
+      （signal_out → out → pass → signal_back → back → idle の部分列）と expect_cleared_lead、
+      段 e は同じ判定を対向車線シナリオで。**段 d（指示器）はこの matcher では判定しない** —
+      matcher:indicator_leads_lane_change の担当。段 f/g は未達で検証対象外。
+      どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。
+    source: resources/xosc/verification/overtake_batch.yaml
+
+  - from: matcher:overtake_decision_holds
+    to: req-vd-ad:REQ-AD-024
+    type: verifies
+    note: >-
+      段 b は overtake_declined_before_route_branch で **considered=true かつ
+      blocked_reason=route_budget かつ phase が終始 idle** の3点同時成立を判定する
+      （forbid_phases で「一度も合図すらしていない」ことも押さえる）。
+      considered を落とすと「そもそも検討していないから緑」＝偽 PASS と区別できない。
+      段 c は overtake_aborted_for_route_branch で **cleared_lead=false（全フレーム）**
+      と blocked_reason=route_budget を判定する。
+      この2本は完遂側 overtake_slow_lead_on_two_lane_road と**同じフィールドの逆極性**を
+      主張しており、それによって検知器の両極性が実証されている。
+    source: resources/xosc/verification/overtake_batch.yaml
+
+  - from: matcher:indicator_leads_lane_change
+    to: req-vd-ad:REQ-AD-023
+    type: verifies
+    note: >-
+      **段 d のみ**（往路・復路の両方で進路変更の前から予告する）。追い越しは車線変更が2回なので、
+      同 matcher を **window で往路・復路に分けて2エントリ**呼ぶ — matcher は窓内の最初の
+      signal_active / armed しか拾わないため（vd_metrics.py の next(...)）。
+      matcher 自体は変更していない。direction と点灯側の一致検査が入っているので、
+      復路で左右が反転していることも同時に検査される。
+      実測 2026-08-04: 往路 t_sig=0.05 / t_arm=3.00 = 2.95 s、復路 t_sig=10.25 / t_arm=13.25 = 3.00 s。
+      min_lead_s: 2.9 は法定 3.0 s からフレーム量子化（dt=0.05）ぶんを引いた値で主張の緩和ではない。
+    source: resources/xosc/verification/08_overtake/overtake_slow_lead_on_two_lane_road.expectations.yaml
+
+  - from: req-vd-ad:REQ-AD-024
+    to: req-vd-ad:REQ-AD-017
+    type: depends-on
+    note: >-
+      経路ガードは RouteLanePlan が出す target_lanes / dist_to_connection にそのまま依存する。
+      **現在バンドの target_lanes には下流の要求が既に畳み込まれている**（BuildRouteLanePlan が
+      最終ウェイポイントから後ろ向きに伝播させるため）ので、追い越しガードは次のバンドを
+      先読みする必要が無い。REQ-AD-017 段 a/b が成立していなければこのガードは成立しない。
+    source: GT_esmini/docs/virtualdriver/design/overtake_maneuver.md
+
+  # req-vd-ad:REQ-AD-023 -[depends-on]-> vd-func:FUNC-030 の辺は**意図的に張らない**。
+  # 要求(面3)から機能(面2)への直結は正規IF signal を経由しない近道で、
+  # scripts/test_check_knowledge_graph.py の「面3→面2 直結辺」検知器が正しく発火する
+  # （既知の stimulated-by(req→policy) 以外は 0 件であることを恒久化した検査）。
+  # 「段 f は FUNC-030 待ち」という事実は3か所に載っており辺は要らない:
+  #   (1) REQ-AD-023 の acceptance_ladder 段 f が met: false
+  #   (2) 同 related に vd-func:FUNC-030
+  #   (3) FUNC-030 の note に「FUNC-056 実装で本項の不在が実害になった」旨

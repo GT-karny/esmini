@@ -39,13 +39,34 @@ Copy-Item build/GT_esmini/Release/GT_Sim.exe, build/GT_esmini/Release/GT_RoadGen
    文言変更がDLLに反映されない疑いがあれば: 対象cppをtouch→再ビルド→
    `Select-String -Path <dll> -Pattern '<新文言>' -Encoding ascii` で機械確認。
 3. **10分級の長時間ビルドはdetached起動**。Claude Codeの`run_in_background`タスクは
-   ホストプロセス再起動（ウィンドウリロード/拡張再起動）で子プロセスごと死ぬ:
+   ホストプロセス再起動（ウィンドウリロード/拡張再起動）で子プロセスごと死ぬ。
+   **必ず次の形を使う**（PowerShellを噛ませずcmakeを直接起動する）:
    ```powershell
-   $p = Start-Process powershell -ArgumentList '-NoProfile','-Command',
-        'cmake --build build --config Release *> <scratchpad>/build.log' `
+   $env:VSLANG = "1033"          # MSBuildを英語出力に。文字化けした日本語はgrepできない
+   $p = Start-Process -FilePath "cmake" `
+        -ArgumentList "--build","build","--config","Release" `
+        -RedirectStandardOutput "<scratchpad>/build.log" `
+        -RedirectStandardError  "<scratchpad>/build.err" `
         -WindowStyle Hidden -PassThru
-   # 完了検知はログのtail + プロセスID生存チェック（Get-Process -Id $p.Id）
+   # 完了検知 = $p.HasExited / 判定 = $p.ExitCode（ログの文言で判定しない）
    ```
+
+   > **この形でなければならない理由（2回踏んだ罠。次も踏む）**
+   >
+   > | やりがちな書き方 | 何が起きるか |
+   > | :--- | :--- |
+   > | `powershell -Command '... *> build.log'` | **ログが UTF-16LE で書かれる**。`grep "BUILD_EXIT="` も `grep "error C"` も**永久に一致しない**（`B` と `U` の間に `\x00` が入るため）。ビルドは正常なのに待機ループが延々空回りする |
+   > | `Write-Host "BUILD_EXIT=$LASTEXITCODE" >> build.log` | **1バイトも書かれない**。`>>` は成功ストリーム(1)を捨てるが `Write-Host` は情報ストリーム(6)に書くため。完了マーカーが永遠に現れない |
+   > | 完了を「ログ末尾の文言」で判定 | MSBuildは最終サマリを出さずに終わることがある。**プロセスの終了とExitCodeだけが信頼できる** |
+   >
+   > `Start-Process -RedirectStandardOutput` は子プロセスの生バイトをそのまま書くので
+   > PowerShellのエンコーディングが介在しない。どうしても `*>` を使うなら、読む側で
+   > UTF-16 をデコードすること（`python -c "open(p,'rb').read().decode('utf-16')"`）。
+4. **ビルド後の「入ったか」判定はDLLのタイムスタンプとシンボル探索でやらない**。
+   - `GT_Sim.exe` の日付が古いのは**stale ではない**（DLLを動的ロードする薄い殻なので再リンクされない）
+   - 非エクスポート関数はDLLの文字列に出ないので、シグネチャ変更の確認に文字列grepは使えない
+   - **決定的なのはユニットテストの実行**。`build/GT_esmini/test/Release/test_ScenarioReaderParsing.exe
+     --gtest_filter=*<対象>*` を叩き、新規テストが実在して緑になることで確認する
 
 ## トラブルシューティング
 

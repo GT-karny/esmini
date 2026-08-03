@@ -31,6 +31,13 @@ FRONTEND_DIR = REPO_ROOT / "GT_esmini" / "web" / "frontend"
 FRONTEND_DIST = FRONTEND_DIR / "dist"
 PYINSTALLER_DIR = Path(__file__).resolve().parent
 SPEC_FILE = PYINSTALLER_DIR / "gt_sim_web.spec"
+VERIFICATION_BUILDER = (
+    REPO_ROOT
+    / "GT_esmini"
+    / "scripts"
+    / "verification"
+    / "build_verification_project.py"
+)
 
 # Files to copy from build/GT_esmini/Release/
 # GT_RoadGen.exe: parallel OpenDRIVE->.osgb road-mesh generator. GT_esminiLib spawns it (co-located
@@ -256,6 +263,24 @@ def _copy_dirs(src_dir: Path, dst_dir: Path, dirnames: list[str]) -> None:
             shutil.copytree(src, dst_dir / dname, ignore=IGNORE_PATTERNS)
 
 
+def _build_verification_project(pkg_dir: Path) -> None:
+    """Bundle VD verification scenarios into their own packaged GUI project.
+
+    Written to data/projects/ (not resources/xosc/) so ``sync_projects()``
+    (GT_esmini/web/backend/services/project_service.py) auto-registers it as a
+    project separate from the Built-in Samples one on first launch, instead of
+    the verification scenarios sitting invisible/mixed inside resources/xosc/.
+    """
+    out_dir = pkg_dir / "data" / "projects" / "VirtualDriver Verification"
+    result = subprocess.run(
+        [sys.executable, str(VERIFICATION_BUILDER), "--out", str(out_dir)],
+        cwd=str(REPO_ROOT),
+    )
+    if result.returncode != 0:
+        print("[FAIL] VirtualDriver Verification project build failed.")
+        sys.exit(1)
+
+
 def _copy_licenses(pkg_dir: Path) -> None:
     """Copy all required license texts into the package.
 
@@ -365,6 +390,12 @@ def assemble_package(version: str, output_dir: Path) -> Path:
         shutil.copytree(docs_src, pkg_dir / "docs", ignore=IGNORE_PATTERNS)
         log("docs/: copied")
 
+    # 7c. data/projects/VirtualDriver Verification — packaged as its own GUI
+    # project (see _build_verification_project docstring), distinct from the
+    # Built-in Samples project backed by resources/.
+    _build_verification_project(pkg_dir)
+    log("data/projects/: VirtualDriver Verification project bundled")
+
     # 8. Licenses (MPL-2.0 / EPL-2.0 / BSD / OSG / Python / SDL2 …)
     # Critic-1: the ZIP must ship all bundled-library license texts.
     _copy_licenses(pkg_dir)
@@ -392,8 +423,14 @@ bin/           - Simulation engine (GT_Sim.exe) and DLLs
 server/        - Web server (do not modify)
 resources/     - Scenarios (.xosc), Roads (.xodr), 3D Models
 config/        - Configuration files (editable)
-data/          - Runtime data, simulation results
+data/          - Runtime data, simulation results, projects
 docs/          - Documentation
+
+Projects
+--------
+The app lists two projects on first launch:
+  Built-in Samples          - general esmini/GT_esmini sample scenarios (resources/)
+  VirtualDriver Verification - VirtualDriver regression/verification scenarios
 """
     (pkg_dir / "README.txt").write_text(content, encoding="utf-8")
 

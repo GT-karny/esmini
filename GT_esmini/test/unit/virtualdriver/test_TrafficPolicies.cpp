@@ -6,8 +6,15 @@
 #include "gt_esmini/control/virtualdriver/policies/ConflictPointResolver.hpp"
 #include "gt_esmini/control/virtualdriver/policies/RouteCrosswalkScan.hpp"
 #include "gt_esmini/control/virtualdriver/policies/CrosswalkPedestrianAware.hpp"
+#include "gt_esmini/control/virtualdriver/policies/JunctionStopGuard.hpp"
+
+#include "RoadManager.hpp"  // roadmanager::LampIcon — the head-type tests speak in real icon names
 
 #include <cmath>
+#include <cstdint>
+#include <initializer_list>
+#include <limits>
+#include <vector>
 
 using namespace gt_esmini;
 
@@ -59,6 +66,263 @@ TEST(TrafficLightDecision, YellowStopsWhenRoomProceedsWhenClose)
     // braking distance at 10 m/s = 100 / (2*4) = 12.5 m.
     EXPECT_TRUE(TrafficLightShouldStop(TrafficLightPhase::YELLOW, 40.0, 10.0, p));   // far -> stop
     EXPECT_FALSE(TrafficLightShouldStop(TrafficLightPhase::YELLOW, 10.0, 10.0, p));  // close -> go
+}
+
+// ──────────────── Phase 3b: which heads govern the ego ────────────────────
+// The route scan cannot separate a pedestrian head from a vehicle head: both are
+// dynamic signals (so both promote to TrafficLight) and a pedestrian head may
+// declare the ego's own driving lane in its <validity> — fabriksgatan_traffic_lights
+// road 3 does exactly that for its two type-1000002 heads, which is how a red
+// DONT_WALK lamp used to halt the ego at a green light. The lamp icons decide.
+
+namespace
+{
+// Icon sets exactly as RoadManager's traffic_light_type_map bakes them per type.
+std::vector<int> Icons(std::initializer_list<roadmanager::LampIcon> icons)
+{
+    std::vector<int> out;
+    for (roadmanager::LampIcon i : icons) out.push_back(static_cast<int>(i));
+    return out;
+}
+}  // namespace
+
+TEST(TrafficLightHead, PedestrianHeadDoesNotGovern)
+{
+    // type 1000002 = 2 lamps {DONT_WALK, WALK}; 1000002.30 = 3 lamps.
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_DONT_WALK, roadmanager::ICON_WALK})));
+    EXPECT_FALSE(IsVehicleTrafficLightHead(
+        Icons({roadmanager::ICON_DONT_WALK, roadmanager::ICON_DONT_WALK, roadmanager::ICON_WALK})));
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_PEDESTRIAN})));
+}
+
+TEST(TrafficLightHead, VehicleHeadGoverns)
+{
+    // type 1000001 = the plain 3-lamp vehicle head; its icons are ICON_NONE.
+    EXPECT_TRUE(IsVehicleTrafficLightHead(
+        Icons({roadmanager::ICON_NONE, roadmanager::ICON_NONE, roadmanager::ICON_NONE})));
+}
+
+TEST(TrafficLightHead, ArrowHeadGoverns)
+{
+    // type 1000011.10 = 3-lamp left-arrow head. Direction matching is a separate
+    // concern; an arrow head is unambiguously addressed to vehicles.
+    EXPECT_TRUE(IsVehicleTrafficLightHead(
+        Icons({roadmanager::ICON_ARROW_LEFT, roadmanager::ICON_ARROW_LEFT, roadmanager::ICON_ARROW_LEFT})));
+}
+
+TEST(TrafficLightHead, BicycleAndTramHeadsDoNotGovern)
+{
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_BICYCLE, roadmanager::ICON_BICYCLE})));
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_TRAM})));
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_PEDESTRIAN_AND_BICYCLE})));
+    EXPECT_FALSE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_BUS_AND_TRAM})));
+}
+
+TEST(TrafficLightHead, MixedIconsGovern)
+{
+    // One vehicle-facing lamp is enough: a combined head still speaks to the ego.
+    EXPECT_TRUE(IsVehicleTrafficLightHead(Icons({roadmanager::ICON_NONE, roadmanager::ICON_DONT_WALK})));
+}
+
+TEST(TrafficLightHead, EmptyLampListDoesNotGovern)
+{
+    // Unknown type/subtype combos leave nr_lamps_ == 0, so no phase can be read.
+    // Such a head must not mask a real vehicle head standing behind it.
+    EXPECT_FALSE(IsVehicleTrafficLightHead({}));
+}
+
+TEST(TrafficLightHead, UnclassifiedIconsStayVehicleFacing)
+{
+    // Fallback direction: anything not explicitly a non-vehicle icon keeps the
+    // pre-filter behaviour (govern), so an unmapped icon cannot silently make the
+    // ego ignore a real light.
+    EXPECT_TRUE(IsVehicleLampIcon(roadmanager::ICON_UNKNOWN));
+    EXPECT_TRUE(IsVehicleLampIcon(roadmanager::ICON_OTHER));
+    EXPECT_TRUE(IsVehicleLampIcon(roadmanager::ICON_COUNTDOWN_SECONDS));
+}
+
+// ───────────── Phase 3b: don't block the box (junction stop guard) ─────────
+//
+// Reference geometry (the measured defect): ego on the approach road, a junction
+// connecting road 17.7 m long, and a red head 3 m past its exit. Wanting to halt
+// `stop_margin` short of that head puts the stop target INSIDE the junction, and
+// the pre-guard policy emitted it there — the ego halted mid-intersection and
+// never moved again.
+
+namespace
+{
+JunctionStopGuardParams GuardParams()
+{
+    JunctionStopGuardParams p;  // stop_margin 3.0, exit_clearance 5.0, decel 2.0
+    return p;
+}
+
+// A junction ahead of the ego: [entry, entry+length].
+RouteJunctionSpan SpanAhead(double entry, double length, std::uint32_t id = 146)
+{
+    return {entry, entry + length, id, false};
+}
+}  // namespace
+
+TEST(JunctionStopGuard, StopLineBeforeAJunctionIsUntouched)
+{
+    // The ordinary signalised approach: head at the road end, so the target lands
+    // AT or BEFORE the junction entry. Must resolve HOLD, bit-identical target —
+    // this is what every existing traffic-light gate exercises.
+    const std::vector<RouteJunctionSpan> spans = {SpanAhead(24.0, 17.0)};
+
+    const auto res = ResolveJunctionSafeStop(21.0, spans, 8.0, GuardParams());
+    EXPECT_EQ(res.action, JunctionStopAction::HOLD);
+    EXPECT_FALSE(res.blocked);
+    EXPECT_NEAR(res.s_stop, 21.0, 1e-9);
+}
+
+TEST(JunctionStopGuard, NoJunctionsAtAllIsAlwaysHold)
+{
+    const auto res = ResolveJunctionSafeStop(12.0, {}, 10.0, GuardParams());
+    EXPECT_EQ(res.action, JunctionStopAction::HOLD);
+    EXPECT_NEAR(res.s_stop, 12.0, 1e-9);
+}
+
+TEST(JunctionStopGuard, TargetPastTheJunctionExitClearsIt)
+{
+    // Long block after the junction: the ego can stand well clear, so nothing to do.
+    const std::vector<RouteJunctionSpan> spans = {SpanAhead(20.0, 17.0)};  // exit 37
+    const auto res = ResolveJunctionSafeStop(50.0, spans, 10.0, GuardParams());
+    EXPECT_EQ(res.action, JunctionStopAction::HOLD);
+    EXPECT_FALSE(res.blocked);
+}
+
+TEST(JunctionStopGuard, TargetInsideTheJunctionPullsBackWhenReachable)
+{
+    // The measured geometry, seen from 60 m out at 10 m/s: braking distance
+    // 100/(2*2) = 25 m, room to the pull-back point 60 - 3 = 57 m. Stop before it.
+    const std::vector<RouteJunctionSpan> spans = {SpanAhead(60.0, 17.7)};
+    const auto res = ResolveJunctionSafeStop(74.7, spans, 10.0, GuardParams());
+    EXPECT_EQ(res.action, JunctionStopAction::PULL_BACK);
+    EXPECT_TRUE(res.blocked);
+    EXPECT_EQ(res.junction_id, 146u);
+    EXPECT_NEAR(res.s_stop, 57.0, 1e-9);
+}
+
+TEST(JunctionStopGuard, TargetJustPastTheExitStillCountsAsBlocking)
+{
+    // 2 m past the exit is less than the 5 m stand-clear distance: the tail would
+    // still be in the box.
+    const std::vector<RouteJunctionSpan> spans = {SpanAhead(40.0, 15.0)};  // exit 55
+    const auto res = ResolveJunctionSafeStop(57.0, spans, 8.0, GuardParams());
+    EXPECT_EQ(res.action, JunctionStopAction::PULL_BACK);
+    EXPECT_NEAR(res.s_stop, 37.0, 1e-9);
+}
+
+TEST(JunctionStopGuard, TooLateToStopShortSuppressesInsteadOfBraking)
+{
+    // 6 m from the entry at 10 m/s: braking distance 25 m >> the 3 m left. Braking
+    // now would strand the ego in the box, so the constraint is dropped and the
+    // ego clears the intersection.
+    const std::vector<RouteJunctionSpan> spans = {SpanAhead(6.0, 17.7)};
+    const auto res = ResolveJunctionSafeStop(20.7, spans, 10.0, GuardParams());
+    EXPECT_EQ(res.action, JunctionStopAction::SUPPRESS);
+    EXPECT_TRUE(res.blocked);
+    EXPECT_EQ(res.junction_id, 146u);
+}
+
+TEST(JunctionStopGuard, AlreadyInsideTheJunctionAlwaysSuppresses)
+{
+    // THE reported defect. ego_inside, so there is no "short of it" left — not
+    // even standing still (v=0 makes the braking distance 0, which would otherwise
+    // read as "we can stop here" and re-park the ego in the box forever).
+    const std::vector<RouteJunctionSpan> spans = {{0.0, 17.5, 146u, true}};
+
+    for (double v : {10.0, 4.5, 0.0})
+    {
+        const auto res = ResolveJunctionSafeStop(14.7, spans, v, GuardParams());
+        EXPECT_EQ(res.action, JunctionStopAction::SUPPRESS) << "v=" << v;
+        EXPECT_TRUE(res.blocked) << "v=" << v;
+    }
+}
+
+TEST(JunctionStopGuard, InsideAJunctionButStoppingWellBeyondItIsAllowed)
+{
+    // Clearing junction A and then stopping for a light far down the next block is
+    // ordinary driving: the guard must not swallow that constraint too.
+    const std::vector<RouteJunctionSpan> spans = {{0.0, 17.5, 146u, true}};
+    const auto res = ResolveJunctionSafeStop(40.0, spans, 8.0, GuardParams());
+    EXPECT_EQ(res.action, JunctionStopAction::HOLD);
+    EXPECT_FALSE(res.blocked);
+    EXPECT_NEAR(res.s_stop, 40.0, 1e-9);
+}
+
+TEST(JunctionStopGuard, CommittedHoldSurvivesTheShrinkingBrakingDistance)
+{
+    // Approaching the pull-back point at walking pace: 1.5 m left, braking
+    // distance 4/(2*2) = 1 m -> still feasible, PULL_BACK either way.
+    const std::vector<RouteJunctionSpan> spans = {SpanAhead(4.5, 17.7)};
+    EXPECT_EQ(ResolveJunctionSafeStop(19.2, spans, 2.0, GuardParams()).action, JunctionStopAction::PULL_BACK);
+
+    // Same geometry, but the ego has not slowed enough (5 m/s -> 6.25 m needed).
+    // Uncommitted that reads as "too late" and releases into the box...
+    EXPECT_EQ(ResolveJunctionSafeStop(19.2, spans, 5.0, GuardParams()).action, JunctionStopAction::SUPPRESS);
+    // ...but once the caller has committed to holding here, the target stands.
+    const auto committed = ResolveJunctionSafeStop(19.2, spans, 5.0, GuardParams(), true);
+    EXPECT_EQ(committed.action, JunctionStopAction::PULL_BACK);
+    EXPECT_NEAR(committed.s_stop, 1.5, 1e-9);
+}
+
+TEST(JunctionStopGuard, PullBackClampsAtTheEgoAndNeverGoesNegative)
+{
+    // Entry nearer than stop_margin: the target clamps to 0 (halt here) rather
+    // than becoming a negative, behind-us distance.
+    const std::vector<RouteJunctionSpan> spans = {SpanAhead(1.0, 17.7)};
+    const auto res = ResolveJunctionSafeStop(15.7, spans, 0.0, GuardParams());
+    EXPECT_EQ(res.action, JunctionStopAction::PULL_BACK);
+    EXPECT_NEAR(res.s_stop, 0.0, 1e-9);
+}
+
+TEST(JunctionStopGuard, UnknownExitReadsAsUnclearable)
+{
+    // A junction still open at the scan horizon carries exit = +inf. Anything past
+    // its entry blocks: an unknown exit must not be optimistically treated as near.
+    const std::vector<RouteJunctionSpan> spans = {
+        {30.0, std::numeric_limits<double>::infinity(), 7u, false}};
+    const auto res = ResolveJunctionSafeStop(45.0, spans, 5.0, GuardParams());
+    EXPECT_EQ(res.action, JunctionStopAction::PULL_BACK);
+    EXPECT_NEAR(res.s_stop, 27.0, 1e-9);
+}
+
+TEST(JunctionStopGuard, ChainedJunctionsTighterThanTheClearanceSuppress)
+{
+    // Two junctions 4 m apart (< the 5 m stand-clear distance): pulling back out of
+    // the second lands inside the first. There is no safe target, so emit none.
+    const std::vector<RouteJunctionSpan> spans = {SpanAhead(20.0, 12.0, 1u),   // 20..32
+                                                  SpanAhead(36.0, 12.0, 2u)};  // 36..48
+    const auto res = ResolveJunctionSafeStop(50.0, spans, 5.0, GuardParams());
+    EXPECT_EQ(res.action, JunctionStopAction::SUPPRESS);
+    EXPECT_EQ(res.junction_id, 2u);
+}
+
+TEST(JunctionStopGuard, TheNEARESTBlockingJunctionDecides)
+{
+    // A far target crossing two junctions must pull back before the FIRST one, not
+    // the last: entering junction 1 already commits the ego to a box it cannot clear.
+    const std::vector<RouteJunctionSpan> spans = {SpanAhead(30.0, 12.0, 1u),   // 30..42
+                                                  SpanAhead(48.0, 12.0, 2u)};  // 48..60
+    const auto res = ResolveJunctionSafeStop(44.0, spans, 6.0, GuardParams());
+    EXPECT_EQ(res.action, JunctionStopAction::PULL_BACK);
+    EXPECT_EQ(res.junction_id, 1u);
+    EXPECT_NEAR(res.s_stop, 27.0, 1e-9);
+}
+
+TEST(JunctionStopGuard, ZeroClearanceStillGuardsTheJunctionItself)
+{
+    // exit_clearance 0 = "standing on the exit line counts as clear". The inside of
+    // the junction is still off limits.
+    JunctionStopGuardParams p = GuardParams();
+    p.exit_clearance          = 0.0;
+    const std::vector<RouteJunctionSpan> spans = {SpanAhead(40.0, 15.0)};  // 40..55
+
+    EXPECT_EQ(ResolveJunctionSafeStop(50.0, spans, 5.0, p).action, JunctionStopAction::PULL_BACK);
+    EXPECT_EQ(ResolveJunctionSafeStop(56.0, spans, 5.0, p).action, JunctionStopAction::HOLD);
 }
 
 // ─────────────────────── Phase 3c: STOP-sign FSM ──────────────────────────
@@ -715,17 +979,24 @@ struct ClassifierFixture
 
     bool Blocked(const std::vector<PedState>& peds) const
     {
+        return CrosswalkBlocked(peds, fp, path, s, s_entry, s_exit, params).blocked;
+    }
+
+    // Same call, but keeping the identity of the ped that did the blocking.
+    crosswalk_decide::BlockResult BlockedBy(const std::vector<PedState>& peds) const
+    {
         return CrosswalkBlocked(peds, fp, path, s, s_entry, s_exit, params);
     }
 };
 
-PedState MakePed(double x, double y, double vx = 0.0, double vy = 0.0)
+PedState MakePed(double x, double y, double vx = 0.0, double vy = 0.0, int osi_id = -1)
 {
     PedState p;
-    p.x  = x;
-    p.y  = y;
-    p.vx = vx;
-    p.vy = vy;
+    p.x      = x;
+    p.y      = y;
+    p.vx     = vx;
+    p.vy     = vy;
+    p.osi_id = osi_id;
     return p;
 }
 }  // namespace
@@ -789,6 +1060,48 @@ TEST(CrosswalkClassify, WaitingHysteresisWidensBandWhileCommitted)
     EXPECT_FALSE(f.Blocked({hovering}));
     f.params.committed = true;
     EXPECT_TRUE(f.Blocked({hovering}));
+}
+
+// ── Identity carry-through: WHICH pedestrian blocked (OSI id space) ──────────
+// The classifier flattens entities into anonymous positions, so before this the
+// policy could report that a crosswalk held the ego but never which body did it.
+// The id is opaque to the classifier — it must come back out unchanged.
+
+TEST(CrosswalkClassify, CrossingBlockNamesTheBlockingPed)
+{
+    ClassifierFixture f;
+    const auto r = f.BlockedBy({MakePed(10.0, 0.5, 0.0, 0.0, /*osi_id=*/57)});
+    EXPECT_TRUE(r.blocked);
+    EXPECT_EQ(r.ped_osi_id, 57);
+}
+
+TEST(CrosswalkClassify, WaitingBlockNamesTheBlockingPed)
+{
+    ClassifierFixture f;
+    const auto r = f.BlockedBy({MakePed(10.0, 4.5, 0.0, 0.0, /*osi_id=*/58)});
+    EXPECT_TRUE(r.blocked);
+    EXPECT_EQ(r.ped_osi_id, 58);
+}
+
+TEST(CrosswalkClassify, UnblockedResultCarriesNoPedId)
+{
+    ClassifierFixture f;
+    // Beyond the wait margin -> free, and no subject to name.
+    const auto r = f.BlockedBy({MakePed(10.0, 6.0, 0.0, 0.0, /*osi_id=*/59)});
+    EXPECT_FALSE(r.blocked);
+    EXPECT_EQ(r.ped_osi_id, -1);
+}
+
+TEST(CrosswalkClassify, ExemptPedIsNotNamedWhenAnotherBlocks)
+{
+    ClassifierFixture f;
+    // First ped is on the footprint but out of band and departing (exempt, see
+    // CrossingOutOfBandMovingAwayExempt); the second one blocks. The reported id
+    // must be the blocker's, not merely the first ped scanned.
+    const auto r = f.BlockedBy({MakePed(10.0, 2.5, 0.0, 1.5, /*osi_id=*/60),
+                                MakePed(10.0, 0.5, 0.0, 0.0, /*osi_id=*/61)});
+    EXPECT_TRUE(r.blocked);
+    EXPECT_EQ(r.ped_osi_id, 61);
 }
 
 // ─────────────── Phase 3e (F3): junction priority resolution ────────────────

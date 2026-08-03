@@ -5,7 +5,14 @@ category: 03_traffic_signals
 # TrafficLightAware policy that over-triggers on green. Passes pre- and post-3b.
 must:
   - event: min_speed_above
-    threshold: 8.0
+    # 12.0, not the original 8.0: cruise is 13.889 and the floor has to be tight
+    # enough to catch a brief full-brake event, not just a stall. Measured
+    # 2026-08-02 — before TrafficLightAware filtered non-vehicle heads the ego
+    # brake-dipped to 9.17 here (the red pedestrian head at s=114 became the
+    # nearest signal once the origin passed s=109) and 8.0 let it through; with
+    # the filter the minimum is 13.98. See pedestrian_signal_ignored for the
+    # dedicated discriminator.
+    threshold: 12.0
     road_id: 3
     after: { sim_time: 5.0 }   # skip launch-from-rest; cruising by here
     reason: "青信号では減速・停止しない(road3 区間で巡航維持)"
