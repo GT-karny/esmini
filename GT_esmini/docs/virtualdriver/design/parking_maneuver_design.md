@@ -1,8 +1,9 @@
 # VD 駐車機能 — 枠探索とマヌーバ実行の設計
 
 > ステータス: **未実装（設計のみ）**。
-> 知識グラフ: `req-vd-ad:REQ-AD-019`（駐車枠の探索・選定）/ `req-vd-ad:REQ-AD-020`（駐車マヌーバの実行）、
-> `vd-func:FUNC-076`（枠探索・選定）/ `vd-func:FUNC-077`（マヌーバ実行）。受け皿シーンは `scene:SCN-014`。
+> 知識グラフ: `req-vd-ad:REQ-AD-019`（駐車枠の探索・選定）/ `req-vd-ad:REQ-AD-020`（駐車マヌーバの実行）/
+> `req-vd-ad:REQ-AD-022`（出庫マヌーバの実行、§12）、`vd-func:FUNC-076`（枠探索・選定）/
+> `vd-func:FUNC-077`（マヌーバ実行）/ `vd-func:FUNC-078`（出庫マヌーバ実行）。受け皿シーンは `scene:SCN-014`。
 > 正文は `GT_esmini/docs/knowledge/requirements_vd_ad.yaml` の該当 ID を見ること。
 
 ## 1. 目的とスコープ
@@ -64,7 +65,7 @@ Step()
 これは `REQ-AD-016`（起点と目的地だけからの経路生成）の完成を前提にしない代替であり、目的地ルーティングが実装されるまでの
 **暫定条件**として扱う。
 `REQ-AD-016` が完成した時点で、目的地が駐車枠であることをルーティング層が直接教える形に置き換わる見込みである。
-この置き換えは本設計のスコープ外とし、§12 のオープン課題に送る。
+この置き換えは本設計のスコープ外とし、§13 のオープン課題に送る。
 
 **終了条件**は3通りある。
 
@@ -104,14 +105,36 @@ Step()
 ### 3-1. 列挙
 
 `roadmanager::Road::GetNumberOfObjects()` / `GetRoadObject(idx)` で route 近傍の road を走査し、
-`RMObject::GetParkingSpace()`（`RoadManager.hpp:2309`）が既定値でない（＝`<parkingSpace>` 子要素を持つ）オブジェクトを
+`RMObject::GetType() == ObjectType::PARKINGSPACE`（`RoadManager.hpp:2621`。`GetType()` 自体は `:2687`）のオブジェクトを
 候補として拾う。
 この走査パターンは `GT_esmini/src/road/odr_side/OdrObjectExtras.cpp`（`GetNumberOfObjects`/`GetRoadObject` を road ごとに
 回す）に前例がある。
+
+**訂正（2026-08-03）**: 当初この判定には `RMObject::GetParkingSpace()`（`RoadManager.hpp:2832`）が既定値でないこと
+（＝`<parkingSpace>` 子要素を持つこと）を使うと書いていたが、これは判定として機能しない。
+`ParkingSpace` のデフォルト構築値は `access_=ACCESS_ALL`（`RoadManager.hpp:2328`）であり、`<parkingSpace access="all"/>`
+のパース結果とビット単位で同一になる。
+実際、`GT_RoadManager.cpp:5359-5406` の実装では、access 属性が `"all"` の場合（`:5366-5368`）と、値が空または未知の
+場合のフォールバック（`:5398-5401`）のどちらも `ACCESS_ALL` に落ちており、両者は区別できない。
+つまり access 属性を明示しない通常の枠は「既定値でない」を満たさず、候補から漏れてしまう。
+
+`<object>` の type 属性（オブジェクト種別そのもの。`"parkingSpace"` は `object_type_str[]` に登録されている、
+`GT_RoadManager.cpp:97-100`）と `<parkingSpace>` 子要素（access/restrictions の付帯情報、`:5359-5406`）は別の情報であり、
+`ObjectType::PARKINGSPACE` は前者から立つ。
+`ObjectType` は `NONE` を独立した値として持つ enum（`:2609-2638`）であるため、`<parkingSpace>` 子要素の有無に関わらず
+type が parkingSpace かどうかを取り違えなく判定できる。
+`GetParkingSpace()` は候補判定からは**格下げ**し、access/restrictions を読み出す用途（§3-3）専用として扱う。
+
 parkingSpace のパースは既に面1（`GT_RoadManager.cpp` の `parking_space_node` 処理、`Set/GetParkingSpace()` 経由の保持）で
 完了しており、`GT_OSIReporter.cpp` が OSI `StationaryObject`（`TYPE_OTHER`、`source_reference` に `restrictions:` 識別子）
 として出力もしている。
 本ユニットが新設するのは**この既存出力を VD 側が消費する経路**であり、パース自体は再実装しない。
+
+**入力契約の注意**: `create_parking_lot.py`（`scripts/scenario_scripts/`）は `Type=xodr.ObjectType.parkingSpace` を
+設定するが（`:247`）、`add_parking_space()` を呼ばないため `<parkingSpace>` 子要素を付けない。
+同スクリプトが生成する枠は `GetType()==PARKINGSPACE` の判定は通るが、`GetParkingSpace()` は常にデフォルト値
+（`access_=ACCESS_ALL`）のままであり、access 属性を検証する資産には使えない。
+access 属性を扱う検証は、資産側の拡張（§10-4、方式B）を前提とする。
 
 ### 3-2. 占有判定
 
@@ -214,7 +237,7 @@ Han (2022) と Ma & Qian (2025) のいずれも**前進駐車の閉形式を持�
 バック駐車では後角（枠の奥）が最初にクリアすべき境界だが、前進駐車では前角（枠の入口側の対向縁）が最初にクリアすべき
 境界になる。
 この当たり点の反転を含む前進駐車の衝突チェック式は、両論文に裏付けを持たない**自前導出**であることを明記する。
-導出の妥当性検証は §12 のオープン課題とする。
+導出の妥当性検証は §13 のオープン課題とする。
 
 ### 4-5. Ma & Qian (2025) — 半径候補の採点層
 
@@ -266,7 +289,7 @@ esmini のシミュレーション上の車両には、据え切り（停車中�
 ただしこの是正の確認範囲は力2水準・速度1点・timing1パターンに限られる。
 駐車の「停車中に転舵 → レート制限下でランプ」という timing パターンはこの確認範囲に含まれないため、同じ機序が別文脈で
 再発する余地が残る。
-これは §12 のオープン課題として扱う。
+これは §13 のオープン課題として扱う。
 
 ### 5-2. スルーレート制限の定義
 
@@ -492,7 +515,7 @@ xosc の `LightStateAction` が `WARNING_LIGHTS` を明示制御している場�
 （`VehicleLightBridge.cpp:111-121` のコメント）を持つが、これは「ネイティブ `LightStateAction` が握るスロットを尊重する」
 仕組みであり、**VD が `MANUAL_DRIVE` ソースで書いた `WARNING_LIGHTS` を `AutoLightController` が上書きしない保証までは
 含まない**。
-両者が同一 ego に同時適用される構成が実運用でありうるかは §12 のオープン課題とする。
+両者が同一 ego に同時適用される構成が実運用でありうるかは §13 のオープン課題とする。
 
 ## 10. 観測・検証結線
 
@@ -515,11 +538,18 @@ xosc の `LightStateAction` が `WARNING_LIGHTS` を明示制御している場�
 | (a) VD テレメトリに hazard bool を追加 | `VirtualDriverTelemetryJson.cpp:157` の indicator ブロック（`vd-func:FUNC-061` の `lane_change_initiation.md` 前例と同型）に倣い、`hazard.active` を追加する。最小工数 |
 | (b) `gt_sim_test.py` の OSI パーサを拡張し `light_state` を取る | signal の canonical 面は OSI（`GT_OSIReporter_Moving.cpp:547-600, 1030-1057` が `light_state.indicator_state=INDICATOR_STATE_WARNING` を毎フレーム出力済み）。非 VD 車（SUMO 等）のハザードにも同じ経路で効く |
 
-**(b) を推奨**する。
+正典としては **(b) を推奨**する。
 `signal_catalog.yaml` の方針（OSI/HVD に対応概念があるものは canonical=OSI 側を優先し、無いものだけ frame 面の VD 独自
 テレメトリにする）に整合し、駐車機能に限らない汎用の拡張になるためである。
 ただし着手コストは (a) より大きく、`gt_sim_test.py` の OSI パーサ本体を触る変更になるため、フェーズD（§11）の中でも
 別スコープとして切り出す。
+
+**実装順序の決定（2026-08-03）**: フェーズCの完了条件（§11）は「マヌーバ区間でハザードが点灯し続ける」ことを含み、
+かつ §11 で新たに課す「対応する負matcherが緑であること」（`parking_hazard_off_outside_maneuver`）もこの観測経路を
+前提にする。
+(b) を待つとフェーズCの完了条件そのものが検証できないため、**(a) をフェーズC内へ前倒し**して先に実装する。
+(a) は工数最小の暫定策ではなく、VD 車の hazard 状態を frame 経由で直接読む経路として今後も残る。
+(b) はフェーズDの汎用変更のまま据え置き、非VD車（SUMO等）のハザードにも同じ判定を効かせたい場合に別途追加する。
 `signal_catalog.yaml:572-587` の `lane_change_signal_timing`/`vehicle_lights` の二重 signal 化（意図と実態を別 signal で
 持つ）は、駐車マヌーバ区間の「意図（ハザードを点けるべき区間）」と「実態（実際に点滅しているか）」を分けて観測する場合の
 前例になる。
@@ -535,23 +565,85 @@ matcher の ID は `namespaces.yaml` の `matcher` エントリが enum 形式�
 
 ### 10-4. 刺激資産
 
-`create_parking_lot.py` 派生の xodr（枠2.5m×5.0m）と、前進/バック各シナリオの xosc、それらを束ねるバッチ yaml を新設
-する。
-回帰ゲートへの常設は既存の F系ゲート（`car_following_traffic_control_batch.yaml` 等）と同じ形（`gt_sim_test.py batch`
-+ `check_regression_baseline.py`）に従う。
+観点カタログ・資産マトリクス・matcher拡充の詳細は検証計画文書
+（[parking_verification_plan.md](parking_verification_plan.md)）に切り出す。
+本節では資産生成方式の決定だけを記す。
+
+**資産生成方式の決定（2026-08-03、方式B）**: `create_parking_lot.py`（上流由来、`scripts/scenario_scripts/`）は
+直接改変しない。
+直接改変は上流差分を増やし R1 Clean Core（EnvironmentSimulator/上流由来スクリプトを無傷に保つ方針）に反するため、
+この案（方式A）は退けた。
+代わりに **GT 側のポスト処理／派生ジェネレータとして分離**し、`resources/scenario_authoring/` の既存生成カタログ流儀
+（`road_catalog/gen_*.py`・`scenario_templates/gen_*.py` が `generated/` へ出力する形）に載せる（R2 Extension First、
+上流差分ゼロ）。
+
+パラメータ化が必要な軸は、枠寸法（幅2.5m基準±）・通路幅・access属性の枠別割当・`<parkingSpace>`子要素の注入である。
+占有は xodr でなく **xosc 側のエンティティ配置**で表現する。
 
 ## 11. 実装フェーズ分割
 
 | フェーズ | 内容 | 完了条件 |
 | :--- | :--- | :--- |
-| **A** | 枠探索（§3）。`parking-space-finder` の新設、列挙・占有判定・access判定・RS検算連携 | parkingSpace を含む合成 xodr で、占有枠の除外と access 判定がユニットテストで確認できる |
-| **B** | 駐車モード遷移（§2）+ 前進駐車（§4-4）。`parking-trajectory-planner`/`parking-maneuver-fsm` の新設、既存パイプラインとの切替 | 前進駐車シナリオで枠内停止まで完走し、§1 の必須水準を満たす |
-| **C** | バック駐車（§4-2/4-3）+ 自動ハザード（§9）+ 後退指令経路（§8）+ 操舵速度制限（§5）の統合 | バック駐車シナリオで切り返し3回以内に必須水準を満たし、マヌーバ区間でハザードが点灯し続け、`v_δ` 制限下でも実ホイール追従（G29構成を使う場合）が破綻しない |
-| **D** | 検証結線（§10） | 新設 signal/matcher が回帰ゲートに常設され、バッチ実行でベースライン比較が通る |
+| **A** | 枠探索（§3）。`parking-space-finder` の新設、列挙・占有判定・access判定・RS検算連携 | parkingSpace を含む合成 xodr で、占有枠の除外と access 判定がユニットテストで確認できる。対応する負matcher（`parking_slot_excludes_occupied`/`parking_access_mismatch_only` 相当、検証計画文書 §matcher拡充を見よ）が緑であること |
+| **B** | 駐車モード遷移（§2）+ 前進駐車（§4-4）。`parking-trajectory-planner`/`parking-maneuver-fsm` の新設、既存パイプラインとの切替 | 前進駐車シナリオで枠内停止まで完走し、§1 の必須水準を満たす。対応する負matcher（`parking_mode_not_entered_without_trigger`）が緑であること |
+| **C** | バック駐車（§4-2/4-3）+ 自動ハザード（§9）+ 後退指令経路（§8）+ 操舵速度制限（§5）の統合 + ハザード観測テレメトリ案(a)（§10-2、`VirtualDriverTelemetryJson.cpp` への `hazard.active` 追加）の前倒し実装 | バック駐車シナリオで切り返し3回以内に必須水準を満たし、マヌーバ区間でハザードが点灯し続け、`v_δ` 制限下でも実ホイール追従（G29構成を使う場合）が破綻しない。対応する負matcher（`parking_hazard_off_outside_maneuver`/`parking_no_reselection_during_maneuver`）が緑であること |
+| **D** | 検証結線（§10）。ハザード観測テレメトリ案(b)（OSIパーサ拡張、§10-2）を含む汎用化 | 新設 signal/matcher が回帰ゲートに常設され、バッチ実行でベースライン比較が通る。対応する負matcher（§Dで新設する全負matcherの一覧、検証計画文書を見よ）が緑であること |
+| **E** | 出庫マヌーバの実行（`REQ-AD-022`/`FUNC-078`）。§12 に設計を分離する | 出庫シナリオで通路drivingレーンへの復帰まで完走し、`REQ-AD-022` acceptance_ladder 段a/bの必須水準を満たす。対応する負matcher（通路交通クリア前の発進禁止=段c）が緑であること |
 
-各フェーズは独立にコミットし、`REQ-AD-019`/`REQ-AD-020` の acceptance_ladder 該当段を `met: true` へ更新する。
+各フェーズは独立にコミットし、`REQ-AD-019`/`REQ-AD-020`/`REQ-AD-022` の acceptance_ladder 該当段を `met: true` へ更新する。
+1本のシナリオ完走だけを完了条件にすると境界・負系を要求できないため、各フェーズの完了条件には対応する負matcherの緑化を
+必ず含める（検証計画文書の観点カタログ・matcher拡充がこの対応の正典）。
 
-## 12. オープン課題
+## 12. 出庫マヌーバの実行（REQ-AD-022）
+
+> 知識グラフ: `req-vd-ad:REQ-AD-022`（出庫マヌーバの実行）/ `vd-func:FUNC-078`（出庫マヌーバ実行）。
+> 実装は §11 のフェーズE。トラッキングは Issue #43。
+
+### 12-1. 実装フェーズと部品の流用
+
+出庫は §11 のフェーズE（入庫完了後）に置く。
+部品の大半は入庫と共通する。
+出庫経路は入庫経路の**時間反転**とほぼ同型であり、次を流用できる。
+
+- Han (2022) の円弧幾何（§4）
+- Reeds-Shepp 検算（§6）
+- 操舵速度制限（§5）
+- 修正ループ（§7）
+- 後退ギア指令経路（§8）
+- 自動ハザード（§9）
+
+### 12-2. 出庫固有の新規2点
+
+流用できない、出庫固有の要素は次の2点である。
+
+**(1) モード順序の反転**。
+既存パイプライン（§2）はレーン上を走行中であることを前提に駐車モードへ入る（§2-2 の開始条件）。
+出庫は逆に、枠内（レーン外）の初期位置から駐車モードを起動し、走行を終える先がレーン走行への合流である。
+既存の開始条件・終了条件（§2-2）はこの向きを想定していないため、出庫専用の開始条件（「枠内に停止している」を起点に
+する）と、合流完了をもってレーン追従モードへ戻す終了条件を新設する必要がある。
+
+**(2) 通路交通への譲り判断**。
+後退出庫は死角側（後方）への進出を伴う。
+既存の `ConflictPointResolver`/`CrosswalkPedestrianAware` は交差点・横断歩道の交通を対象にしており、駐車場アイルの
+死角進出はこれらの適用範囲外である。
+既存ポリシーの適用範囲を拡張するか、出庫専用の譲りガードを新設するかは、実装時に選ぶ判断として残す（§13 のオープン
+課題）。
+`REQ-AD-022` acceptance_ladder 段cが要求する「通路の接近車両・歩行者がある間は退出を開始しない」は
+`vd-func:FUNC-058`（発進判断）と概念的に接続するが、対象は「車線外（枠内）から車線内へ横移動する発進」であり
+FUNC-058 の dim:lon Stop&Go 出口とは横移動の有無で区別される。
+
+### 12-3. 既存実証と受け皿シーン
+
+`resources/xosc/parking_demo.xosc` の `Target5UnparkManuever`（`Target5UnparkEvent`）は、storyboard 駆動の出庫実例として
+既に存在する。
+負の目標速度（`-0.01` → `-5`）で後退方向を確立したのち、`ClothoidSpline`（曲率 `0.0 -> -0.3 -> 0.0`）の
+`FollowTrajectoryAction` で後退軌道をたどり、完了後に正の目標速度（`30/3.6`）へ切り替えて前進へ転じる。
+ただしこれは VD の駐車モードを発火させる構成ではなく、storyboard が直接姿勢を作る実例に留まる。
+
+受け皿シーンは `scene:SCN-014`（summary「路上駐車車両の回避、駐車場走行、後退、路肩停車からの合流」）で、出庫を
+最初から射程に入れている。
+
+## 13. オープン課題
 
 - **前進駐車の衝突チェック式**（§4-4）は自前導出であり、文献による裏付けがない。実装後、代表的な枠幅・オフセットの
   組み合わせで幾何的に検算し、当たり判定の反転が正しく効いているかを確認する必要がある。
@@ -567,8 +659,14 @@ matcher の ID は `namespaces.yaml` の `matcher` エントリが enum 形式�
   `REQ-AD-016` 完成後に置き換わる見込みである。
 - **AutoLight 併用時のハザード競合**（§9-6）は、両コントローラが同一 ego に同時適用される構成が実運用でありうるかを
   含めて未検証である。
+- **通路長制約（`Xmin`/`Ymin`、§4-2）と RS 検算（§6）の接続が未設計**。どちらも「入らない」ことを判定できるが、
+  通路長不足をどちらの段で弾くか（枠選定時の RS 検算に含めるか、通路への進入前に別途 `Xmin`/`Ymin` を検算するか）は
+  実装時に決める。
+- **`crosswalk-policy-coexistence` の優先関係が未設計**。既存の `CrosswalkPedestrianAware`（横断歩道ポリシー）と駐車
+  モードが同一 ego・同一区間で重なる構成での優先関係は未検討であり、検証計画文書の観点カタログでも未設計のまま
+  リスクとして記載する。
 
-## 13. 参考文献
+## 14. 参考文献
 
 - Han, I. (2022). Geometric Path Plans for Perpendicular/Parallel Reverse Parking in a Narrow Parking Spot with
   Surrounding Space. *Vehicles*, 4(4), 1195-1208. https://doi.org/10.3390/vehicles4040063 [^han2022]
