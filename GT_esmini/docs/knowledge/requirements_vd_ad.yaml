@@ -362,3 +362,74 @@ requirements:
       定性規定、米国は多くの州が距離規定 — 次元が国ごとに違うため国別テーブルは作らず、
       秒パラメータ1本を config で可変にして既定を日本の法定値に置く方針（同 §11-2）。
 
+  # ===== 駐車機能（凍結例外としてID発行、2026-08-03 承認） =====
+  # scene:SCN-014（駐停車・後退ファミリ、coverage: none）の第2段要求導出。
+  # OpenDRIVE <object type="parkingSpace"> は GT_RoadManager でパース済み・OSI GroundTruth
+  # 出力済みだが、VD側に消費経路が無い＝①主張が無い状態だった。REQ-AD-016/017 と同じ理由で
+  # 「枠を選ぶ」と「枠へ入る」を1本の要求にまとめない — 要素技術が別（探索・選定は認識/判断、
+  # マヌーバ実行は軌道生成/制御）で片方だけ完成しうるため、最初から2本に割って
+  # acceptance_ladder で段階受入にする。
+  - id: REQ-AD-019
+    title: 駐車枠の探索・選定
+    tier: '-'                             # 動機層でなくタスク達成そのもの（REQ-AD-016/017 と同じ扱い）
+    agent: AD
+    kind: positive
+    statement: >-
+      WHEN 自車が駐車を計画しているとき、VD は自車 route 近傍の parkingSpace
+      オブジェクトを列挙し、他車両の占有状況と access 属性を考慮して駐車候補枠を
+      選定し、選定後に枠が占有された場合は再選定すること。
+    scenario: >-
+      未整備。scene:SCN-014 の駐車場走行シーンで、複数の parkingSpace（一部占有・
+      一部 access=handicapped 等）を含む道路資産が要る。既存の検証資産は駐車場
+      デモ相当のものはあるが VD 挙動主張を発火させる構成でない（上流デモ/適合
+      フィクスチャに留まる）。
+    acceptance_ladder:
+      - { step: a, claim: 自車route近傍の parkingSpace オブジェクトを列挙し、駐車候補枠として認識できる,               met: false, verified_by: [] }
+      - { step: b, claim: 他車両が占有する枠を除外し空き枠を選定できる（枠ポリゴンと他エンティティOBBの交差判定）,     met: false, verified_by: [] }
+      - { step: c, claim: access属性（handicapped等）を尊重した選定ができる,                                          met: false, verified_by: [] }
+      - { step: d, claim: 選定枠が接近中に占有された場合、再探索できる,                                               met: false, verified_by: [] }
+    acceptance: >-
+      段ごとの受入基準は acceptance_ladder のとおり。定量閾値（探索半径・再探索の
+      トリガ距離等）は未校正。
+    realized_by: [vd-func:FUNC-076]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-020]
+    status: future
+    note: >-
+      OpenDRIVE の parkingSpace オブジェクトは面1（GT_RoadManager）で既にパース・OSI
+      GroundTruth 出力されており、本要求は VD 側（面2）の消費経路が無いことに対する
+      ①主張。実装（vd-func:FUNC-076）・検証資産とも未着手。
+
+  - id: REQ-AD-020
+    title: 駐車マヌーバの実行（前進・後退）
+    tier: '-'
+    agent: AD
+    kind: positive
+    statement: >-
+      WHEN 自車が選定済みの直角駐車枠へ進入するとき、VD は前進駐車または
+      バック駐車のマヌーバを実行し、枠内に許容範囲内の姿勢で停止すること。
+    scenario: >-
+      未整備。直角駐車枠（日本の普通車標準 2.5m×5.0m を検証基準とする）への
+      前進進入・後退進入（バック駐車）シナリオが要る。縦列駐車・非構造面
+      （レーン無し広場）は本要求のスコープ外（後続課題）。
+    acceptance_ladder:
+      - { step: a, claim: "前進駐車（直角枠）: 空き枠へ前進のみで進入し枠内に停止できる",                                  met: false, verified_by: [] }
+      - { step: b, claim: "バック駐車（直角枠）: 後退を含むマヌーバで枠内に停止できる（切り返し3回以内）",                 met: false, verified_by: [] }
+      - { step: c, claim: "定量基準の充足 — 必須: 車体外形が四輪とも枠内・ヨー偏差±5°以内・前後端はみ出しなし・切り返し3回以内 / 望ましい: ヨー偏差±3°以内（ISO 16787 の実務水準）・枠中心横偏差0.3m以内・切り返し1回以内", met: false, verified_by: [] }
+      - { step: d, claim: 複数回切り返しの高度化・縦列駐車（将来スコープ、本要求では未達でよい）,                          met: false, verified_by: [] }
+    acceptance: >-
+      段 a/b は枠内停止（四輪とも枠内）の到達可否。段 c は定量基準（必須/望ましい
+      の2水準）。段 d は将来スコープであり本要求の受入対象外。
+    realized_by: [vd-func:FUNC-077]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-019]
+    status: future
+    note: >-
+      設計方針（未実装）: 駐車モード方式（レーン追従から駐車専用コントローラへの
+      モード遷移）。軌道生成は幾何学的手法（直線＋円弧）＋クロソイド平滑化、
+      Reeds-Shepp曲線を入庫可能性の検算に併用。バック直角駐車は三画運動（通路幅
+      不足時は前進オフセット追加の五画運動）。終端姿勢が許容外の場合は小修正
+      マヌーバを再計画する修正ループを持つ。
+      精度基準の出典note: ヨー±3°は ISO 16787 (APS) の二次資料経由の値（原文未確認）。
+      枠寸法は日本の普通車標準 2.5m×5.0m を検証基準とする。
+

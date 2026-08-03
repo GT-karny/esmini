@@ -169,3 +169,9 @@ functions:
   # 台帳が育たない。網羅性の穴（ManualDrive 中の ADAS 全停止）を分母に載せるため
   # FUNC-075 を例外的に追加する（体系の内容 slug 移行時に他 FUNC と一緒に移行する）。
   - { id: FUNC-075, tier: safety, layer: '-', kind: behavior, agent: ADAS, dim: both, status: none, by: '', note: "運転主体によらない ADAS 並行稼働。実車では手動運転中も AEB は監視し続け、LKA/ACC と手動操作は共存する。本 repo では未実装4点の重なりで ManualDrive 中は ADAS 全停止（① GetADASStates 恒久スタブ ControllerManualDrive.hpp:36 ② AebSafety は ITrafficPolicy として VD 専属生成 ③「横だけ自動」の実体は ManualDriveCoordinator の素の OSC 追従 ④ OSI DriverOverride 未populate。詳細 signal:manualdrive_adas_states / capability_model.md §7 derived-report-lint 積み残し(b)）。規模は AebSafety の VD からの切り出し＋ドメイン別スタック拡張＝別プログラム。layer='-'（コントローラ横断）" }
+
+  # ----- 2026-08-03 追加: 駐車機能（scene:SCN-014、req-vd-ad:REQ-AD-019/020 に対応） -----
+  # ★凍結例外（ユーザー判断 2026-08-03）: FUNC-075 の前例と同じ理由（機能台帳そのものであり
+  # 完全凍結では網羅性の穴＝strategic「駐車」軸が分母に載らない）で FUNC-076/077 を追加する。
+  - { id: FUNC-076, tier: '-', layer: strategic, kind: behavior, agent: AD, dim: both, status: none, by: '', note: "駐車枠探索・選定。場内アイル走行中に parkingSpace（OpenDRIVE object type=parkingSpace、面1で既にパース・OSI出力済）を列挙・占有判定し目標枠を決める。req-vd-ad:REQ-AD-019 対応。tier='-'＝動機でなくタスク達成そのもの（FUNC-049/050 と同じ扱い）。未実装" }
+  - { id: FUNC-077, tier: '-', layer: operational, kind: behavior, agent: AD, dim: both, status: none, by: '', note: "駐車マヌーバ実行。駐車モードへの遷移、幾何軌道生成（前進/バック直角駐車、直線+円弧+クロソイド、Reeds-Shepp曲線で入庫可能性を検算）、後退ギア指令、精密停止、終端姿勢が許容外の場合の修正ループ。req-vd-ad:REQ-AD-020 対応。未実装" }

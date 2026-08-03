@@ -675,6 +675,36 @@ edges:
       **REQ-AD-016 の段 b のみ**（経路解決の失敗を検出して外へ出す＝沈黙しない）を検証する。
       段 a/c（経路の補完・起終点のみからの探索）は検証対象外。
 
+  # ---- 駐車機能（req-vd-ad:REQ-AD-019/020、vd-func:FUNC-076/077）: 2026-08-03 新設 ----
+  # 凍結名前空間（req-vd-ad / vd-func）への追加につきユーザー承認済み。scene:SCN-014
+  # （駐停車・後退ファミリ、coverage: none）の第2段要求導出。実装・検証資産とも未着手のため
+  # matcher -> verifies -> req 辺は張らない（実体の無い辺は overclaim）。
+  - from: vd-func:FUNC-076
+    to: req-vd-ad:REQ-AD-019
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 駐車枠探索・選定が駐車枠の探索・選定要求を充足。未実装
+  - from: vd-func:FUNC-077
+    to: req-vd-ad:REQ-AD-020
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 駐車マヌーバ実行が駐車マヌーバの実行要求を充足。未実装
+  - from: req-vd-ad:REQ-AD-019
+    to: openx:Domain#Parking
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 駐車枠の探索・選定が対象とするODD軸。scene:SCN-014 と同じ openx 概念を共有
+  - from: req-vd-ad:REQ-AD-020
+    to: openx:Domain#Parking
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 駐車マヌーバ実行が対象とするODD軸。scene:SCN-014 と同じ openx 概念を共有
+  - from: req-vd-ad:REQ-AD-020
+    to: openx:Domain#MoveBackward
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: バック駐車（後退を含むマヌーバ）が対象とするODD軸
+
   # --- 要求 -> concerns/depends-on ---
   - from: req-vd-ad:REQ-AD-002
     to: openx:Domain#FollowRoadUser
