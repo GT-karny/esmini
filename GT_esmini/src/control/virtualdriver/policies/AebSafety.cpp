@@ -1,5 +1,7 @@
 #include "gt_esmini/control/virtualdriver/policies/AebSafety.hpp"
 
+#include "gt_esmini/control/common/OsiIdentity.hpp"
+
 #include "Entities.hpp"
 #include "RoadManager.hpp"
 
@@ -121,6 +123,11 @@ TrafficPolicySnapshot AebSafety::Evaluate(const TrafficPolicyContext& ctx)
     {
         AddDetail(snap.detail, "gt.aeb.gap_m", gap);
         AddDetail(snap.detail, "gt.aeb.v_close_mps", v_close);
+        // The admitted candidate, in the OSI id space (OsiIdentity.hpp). Emitted
+        // on the same condition as the gate internals -- i.e. also on the frames
+        // where AEB looked and did NOT fire, which is the case that needs a
+        // subject the most.
+        AddDetail(snap.detail, "gt.aeb.lead_osi_id", OsiIdOf(best));
         aeb::AppendGateDetail(snap.detail, gate);
     }
 

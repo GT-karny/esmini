@@ -243,6 +243,10 @@ signals:
       `MovingObject.future_trajectory` は規格コメントが「被検体に見せるべきでない」と
       明示する GT 側の欄＝流用は GroundTruth の意味を壊す（§2.2）。生の予測は debug に留め、
       予測の当否は挙動から間接検証する。
+      **ただし governing other の「id そのもの」はこの限りではない**（2026-08-04 訂正）:
+      `gt.conflict_point.other_id` は PolicyDetail 経由で HVD custom_detail まで出ており、
+      OSI id 版は signal:interaction_partner_id に分離した。debug 扱いなのは
+      **region span / 予測経路**であって相手の同定ではない。
 
   - id: conflict_pet
     title: 交差点調停の PET（post-encroachment time）
@@ -275,6 +279,31 @@ signals:
       作動しなかったフレームでも出る＝負の判断の診断が可能に。ただし
       **これを読む matcher は現状0件**＝(b)。`gt.aeb.*` は `gt.dbg.*` ではないので
       verdict-trust の対象**内**（命名規約は PolicyDetail.hpp）。
+
+  - id: interaction_partner_id
+    title: VD が反応している相手（車両 / 歩行者 / 横断歩道）の OSI id
+    exposure: [osi, hvd, frame]
+    state: "(b)"
+    emit: >-
+      LeadVehicleAware.cpp `gt.lead_vehicle.lead_osi_id` ／ AebSafety.cpp
+      `gt.aeb.lead_osi_id` ／ ConflictPointResolver.cpp
+      `gt.conflict_point.other_osi_id` ／ CrosswalkPedestrianAware.cpp
+      `gt.crosswalk.ped_osi_id` `gt.crosswalk.object_osi_id` → PolicyDetail →
+      HVD custom_detail。加えて VirtualDriverTelemetryJson.cpp `overtake.lead_osi_id`
+      （PolicyDetail 経由ではないので HVD には載らない＝frame 面のみ）
+    note: >-
+      **id 空間が2つあることが本質**。`Object::GetId()` はシナリオのエンティティ番号、
+      OSI が publish するのは `Object::g_id_`（road object は `RMObject::GetGlobalId()`）で、
+      両者は別の数（実測: Ego=10/Lead=11 に対しエンティティ番号は 0/1）。被検体と突き合わせられるのは
+      後者だけなので、相手を名指す診断は `*_osi_id` を必ず併記する。採番は CommonMini の
+      単一グローバルカウンタ＝moving と stationary で一意だが、**OpenDrive ロード時に
+      リセットされる**ため id の照合は同一 run 内でのみ有効（in-process バッチでは run ごとに振り直し）。
+      既存の `gt.conflict_point.other_id` / `gt.crosswalk.object_id` は
+      エンティティ番号 / ODR object id のまま残す（人が xosc・esmini ログと突き合わせる側の番号）。
+      取得ヘルパは control/common/OsiIdentity.hpp の一点に集約。
+      **これを読む matcher は現状0件**＝(b)。実測の突き合わせは
+      GT_esmini/scripts/verification/verify_osi_id_join.py（OSI GroundTruth と同一フレームで照合。
+      単体テストでは原理的に検証できない＝両側とも実行時採番のため）。
 
   - id: aeb_a_req
     title: AEB の必要減速度 a_req

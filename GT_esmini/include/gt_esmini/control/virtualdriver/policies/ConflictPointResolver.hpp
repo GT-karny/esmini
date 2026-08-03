@@ -160,7 +160,13 @@ private:
     // increment — one crossing dominates the approach.
     bool   committed_              = false;  // currently holding a yield stop
     double committed_stop_s_       = 0.0;    // ego route-s to the governing region entry (refreshed while held)
-    int    committed_other_id_     = -1;     // governing oncoming entity id
+    int    committed_other_id_     = -1;     // governing oncoming entity id (scenario index; used to re-find the object)
+    // The same governing other in the OSI id space (control/common/OsiIdentity.hpp;
+    // -1 == gt_esmini::kNoOsiId, spelled literally here because this header stays
+    // engine-header-free for the pure-decision unit tests). Captured at commit
+    // rather than resolved at emit time, so the diagnostic still names the partner
+    // on a frame where the entity has already left ctx.entities.
+    int    committed_other_osi_id_ = -1;
     // World XY of the governing other's region EXIT (the far edge of the conflict
     // region along the other's route). The hold releases once the other has driven
     // its body past this point by `release_buffer` — a robust positional test that

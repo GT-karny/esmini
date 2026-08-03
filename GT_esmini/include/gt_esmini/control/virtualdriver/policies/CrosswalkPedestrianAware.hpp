@@ -68,6 +68,21 @@ struct PedState
     double y  = 0.0;
     double vx = 0.0;  // world velocity [m/s] (engine-maintained, not heading-reconstructed)
     double vy = 0.0;
+    // WHICH pedestrian this is, in the OSI id space (filled by the engine-facing
+    // wrapper via control/common/OsiIdentity.hpp; -1 == gt_esmini::kNoOsiId,
+    // spelled literally so this decision layer stays engine-header-free). The
+    // classifier never interprets it — it only carries it back out on the
+    // pedestrian that blocked, so the policy can name its subject.
+    int    osi_id = -1;
+};
+
+// Outcome of the blocking test for one crosswalk. `blocked` alone used to be the
+// whole answer, which made the resulting stop unattributable: the diagnostics
+// could say a crosswalk was holding the ego but never which body did it.
+struct BlockResult
+{
+    bool blocked    = false;
+    int  ped_osi_id = -1;  // PedState::osi_id of the blocking ped; -1 when !blocked
 };
 
 // Scalar knobs + precomputed gates for one crosswalk's blocking decision.
@@ -94,13 +109,15 @@ struct BlockParams
 // `ego_path`/`ego_s` = the walked route polyline + cumulative arc lengths;
 // `s_entry`/`s_exit` = the crosswalk's route span (passage-band window is
 // [s_entry-5, s_exit+5]).
-bool CrosswalkBlocked(const std::vector<PedState>&           peds,
-                      const std::vector<crosswalk_geom::Pt>& footprint,
-                      const std::vector<crosswalk_geom::Pt>& ego_path,
-                      const std::vector<double>&             ego_s,
-                      double                                 s_entry,
-                      double                                 s_exit,
-                      const BlockParams&                     p);
+// Returns the FIRST blocking pedestrian found in `peds` order (the scan stops
+// there — the policy needs one subject for its single stop, not a census).
+BlockResult CrosswalkBlocked(const std::vector<PedState>&           peds,
+                             const std::vector<crosswalk_geom::Pt>& footprint,
+                             const std::vector<crosswalk_geom::Pt>& ego_path,
+                             const std::vector<double>&             ego_s,
+                             double                                 s_entry,
+                             double                                 s_exit,
+                             const BlockParams&                     p);
 
 }  // namespace crosswalk_decide
 
@@ -156,6 +173,14 @@ private:
     unsigned int committed_road_id_   = 0;
     unsigned int committed_object_id_ = 0;
     double       committed_stop_s_    = 0.0;  // ego route-s of the governing footprint entry
+    // The pedestrian currently holding the ego, in the OSI id space. Refreshed
+    // every frame like stop_s (the blocking body can change while the latch on
+    // the crosswalk itself persists), -1 when the latch is not held.
+    int          committed_ped_osi_id_ = -1;
+    // The governing crosswalk itself in the OSI id space (RMObject::GetGlobalId
+    // -> StationaryObject.id). Kept next to committed_object_id_, which is the
+    // OpenDRIVE <object id> and a different number.
+    int          committed_cw_osi_id_  = -1;
 };
 
 }  // namespace gt_esmini

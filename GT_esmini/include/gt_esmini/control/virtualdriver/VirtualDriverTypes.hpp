@@ -257,6 +257,9 @@ struct OvertakeSnapshot
     std::string phase           = "idle";  // OvertakePhaseName(OvertakePhase) -- fixed vocabulary
     bool        considered      = false;   // section 3's trigger was satisfied this frame (see struct doc above)
     int         lead_id         = -1;      // the lead vehicle EvaluateOvertakeTrigger was run against; -1 = none
+    int         lead_osi_id     = -1;      // same vehicle in the OSI id space (control/common/OsiIdentity.hpp);
+                                           // this is the one that joins against an OSI GroundTruth recording,
+                                           // lead_id is the scenario entity index. -1 = none
     double      delta_v_mps     = 0.0;     // v_desired_mps - v_lead_mps; 0 when considered is false
     double      t_pass_s        = 0.0;     // estimated time to draw clear of the lead
     double      required_m      = 0.0;     // section 2's d_out+d_pass+d_back+d_route+reserve

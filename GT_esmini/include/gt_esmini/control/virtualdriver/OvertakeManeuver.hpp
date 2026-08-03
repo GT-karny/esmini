@@ -83,7 +83,9 @@ struct OvertakeLeadSample
     double gap_lead_m    = 0.0;   // [m] bumper-to-bumper freespace (g0, design doc section 3)
     double v_lead_mps    = 0.0;
     double lead_length_m = 0.0;   // [m] lead's own bounding-box length (L_lead)
-    int    lead_id       = -1;    // diagnostic only; -1 when has_lead is false
+    int    lead_id       = -1;    // scenario entity id -- also used by the maneuver to re-find the lead
+    int    lead_osi_id   = -1;    // same vehicle in the OSI id space (control/common/OsiIdentity.hpp);
+                                  // diagnostic only, -1 when has_lead is false
 };
 
 // Everything EvaluateOvertakeTrigger needs besides the lead sample itself (design doc section 3).

@@ -1,5 +1,6 @@
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 
+#include "gt_esmini/control/common/OsiIdentity.hpp"
 #include "gt_esmini/control/virtualdriver/PolicyDetail.hpp"
 
 #include "Entities.hpp"
@@ -95,6 +96,11 @@ TrafficPolicySnapshot LeadVehicleAware::Evaluate(const TrafficPolicyContext& ctx
     AddDetail(snap.detail, "gt.lead_vehicle.gap_m", gap);
     AddDetail(snap.detail, "gt.lead_vehicle.v_lead_mps", v_lead);
     AddDetail(snap.detail, "gt.lead_vehicle.sstar_m", sstar);
+    // WHICH vehicle those numbers describe, in the id space an OSI consumer can
+    // join on (OsiIdentity.hpp: NOT the scenario entity index). Emitted next to
+    // the quantities rather than at the constraint, so the negative case ("a
+    // lead was in scope and we stayed silent") names its subject too.
+    AddDetail(snap.detail, "gt.lead_vehicle.lead_osi_id", OsiIdOf(lead));
 
     // Comfortably far behind a moving lead -> no constraint (free acceleration).
     if (v_lead > cfg_.stop_speed_eps && gap > cfg_.follow_margin * sstar)

@@ -2,6 +2,7 @@
 
 #include "Entities.hpp"
 #include "RoadManager.hpp"
+#include "gt_esmini/control/common/OsiIdentity.hpp"
 #include "gt_esmini/control/virtualdriver/PolicyDetail.hpp"
 #include "gt_esmini/road/OdrSideModel.hpp"  // F3: GetJunctionPriorities (P5 side model)
 
@@ -556,6 +557,7 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
     double gov_exit_tx        = 1.0;  // other's path tangent at the exit (fixed release axis)
     double gov_exit_ty        = 0.0;
     int    gov_other_id       = -1;
+    int    gov_other_osi_id   = kNoOsiId;  // same vehicle, OSI id space (OsiIdentity.hpp)
     int    pruned_by_priority = 0;  // conflicts dropped because the ego out-ranked them (F3)
 
     // Cache of the scan pass keyed on the CURRENTLY-latched governing id, so the
@@ -671,6 +673,7 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
             gov_exit_tx  = tx;
             gov_exit_ty  = ty;
             gov_other_id = other->GetId();
+            gov_other_osi_id = OsiIdOf(other);
         }
     }
 
@@ -757,6 +760,7 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
                 committed_          = true;
                 committed_stop_s_   = gov_se_in;
                 committed_other_id_ = gov_other_id;
+                committed_other_osi_id_ = gov_other_osi_id;
                 committed_exit_x_   = gov_exit_x;
                 committed_exit_y_   = gov_exit_y;
                 committed_exit_tx_  = gov_exit_tx;
@@ -773,6 +777,7 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
         committed_          = true;
         committed_stop_s_   = gov_se_in;
         committed_other_id_ = gov_other_id;
+        committed_other_osi_id_ = gov_other_osi_id;
         committed_exit_x_   = gov_exit_x;
         committed_exit_y_   = gov_exit_y;
         committed_exit_tx_  = gov_exit_tx;
@@ -787,6 +792,11 @@ TrafficPolicySnapshot ConflictPointResolver::Evaluate(const TrafficPolicyContext
     if (!committed_) return snap;  // free to proceed — no constraint
 
     AddDetail(snap.detail, "gt.conflict_point.other_id", committed_other_id_);
+    // Same vehicle, OSI id space -- this is the one an OSI consumer can join on
+    // (OsiIdentity.hpp explains why the two numbers differ). Both are emitted:
+    // other_id is what the scenario / esmini logs call it, other_osi_id is what
+    // the SUT sees.
+    AddDetail(snap.detail, "gt.conflict_point.other_osi_id", committed_other_osi_id_);
     AddDetail(snap.detail, "gt.conflict_point.stop_s_m", committed_stop_s_);
 
     PolicyConstraint c;

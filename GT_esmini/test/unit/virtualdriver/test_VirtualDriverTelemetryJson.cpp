@@ -151,3 +151,30 @@ TEST(VirtualDriverTelemetryJson, RouteLaneSnapshotDefaultsSerializeEmptyTargetLa
     EXPECT_TRUE(Contains(json, "\"diagnostic\":\"\"")) << json;
     EXPECT_TRUE(Contains(json, "\"reason\":\"\"")) << json;
 }
+
+// The overtake block carries the lead under BOTH ids on purpose: lead_id is the
+// scenario entity index the maneuver uses internally, lead_osi_id is the one an
+// OSI GroundTruth recording can be joined on (control/common/OsiIdentity.hpp).
+// They are different numbers, so a serializer that shipped only one of them
+// would leave one of the two consumers unable to name the vehicle at all.
+TEST(VirtualDriverTelemetryJson, OvertakeCarriesBothEntityAndOsiLeadId)
+{
+    VirtualDriverTelemetry t;
+    t.overtake.lead_id     = 3;
+    t.overtake.lead_osi_id = 57;
+
+    const std::string json = ToJson(t);
+
+    EXPECT_TRUE(Contains(json, "\"lead_id\":3")) << json;
+    EXPECT_TRUE(Contains(json, "\"lead_osi_id\":57")) << json;
+}
+
+TEST(VirtualDriverTelemetryJson, OvertakeLeadIdsDefaultToNoPartner)
+{
+    VirtualDriverTelemetry t;  // overtake left at its defaults
+
+    const std::string json = ToJson(t);
+
+    EXPECT_TRUE(Contains(json, "\"lead_id\":-1")) << json;
+    EXPECT_TRUE(Contains(json, "\"lead_osi_id\":-1")) << json;
+}

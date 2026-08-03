@@ -1,6 +1,7 @@
 #include "gt_esmini/control/ControllerVirtualDriver.hpp"
 #include "gt_esmini/control/common/JunctionTurn.hpp"
 #include "gt_esmini/control/common/ModuleDirectory.hpp"
+#include "gt_esmini/control/common/OsiIdentity.hpp"
 #include "gt_esmini/control/common/TransitionDynamics.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
@@ -959,6 +960,7 @@ void ControllerVirtualDriver::Step(double timeStep)
     std::string ot_diag_phase          = OvertakePhaseName(OvertakePhase::IDLE);
     bool        ot_diag_considered     = false;
     int         ot_diag_lead_id        = -1;
+    int         ot_diag_lead_osi_id    = -1;
     double      ot_diag_delta_v        = 0.0;
     double      ot_diag_t_pass         = 0.0;
     double      ot_diag_required_m     = 0.0;
@@ -1175,6 +1177,7 @@ void ControllerVirtualDriver::Step(double timeStep)
 
             ot_diag_considered     = ot_trigger.considered;
             ot_diag_lead_id        = ot_lead_sample.has_lead ? ot_lead_sample.lead_id : -1;
+            ot_diag_lead_osi_id    = ot_lead_sample.has_lead ? ot_lead_sample.lead_osi_id : -1;
             ot_diag_delta_v        = ot_trigger.delta_v_mps;
             ot_diag_t_pass         = ot_trigger.t_pass_s;
             ot_diag_required_m     = ot_guard.required_m;
@@ -2305,6 +2308,7 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.overtake.phase          = ot_diag_phase;
     telemetry_.overtake.considered     = ot_diag_considered;
     telemetry_.overtake.lead_id        = ot_diag_lead_id;
+    telemetry_.overtake.lead_osi_id    = ot_diag_lead_osi_id;
     telemetry_.overtake.delta_v_mps    = ot_diag_delta_v;
     telemetry_.overtake.t_pass_s       = ot_diag_t_pass;
     telemetry_.overtake.required_m     = ot_diag_required_m;
@@ -2453,6 +2457,7 @@ OvertakeLeadSample ControllerVirtualDriver::ScanOvertakeLead(double lookahead) c
     sample.v_lead_mps    = lead->GetSpeed();
     sample.lead_length_m = lead->boundingbox_.dimensions_.length_;
     sample.lead_id       = static_cast<int>(lead->GetId());
+    sample.lead_osi_id   = OsiIdOf(lead);
     return sample;
 }
 

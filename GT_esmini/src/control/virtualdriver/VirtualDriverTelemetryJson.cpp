@@ -285,6 +285,11 @@ std::string ToJson(const VirtualDriverTelemetry& t)
     os << ",\"overtake\":{\"phase\":\"" << t.overtake.phase << "\""
        << ",\"considered\":" << b(t.overtake.considered)
        << ",\"lead_id\":" << t.overtake.lead_id
+       // The same vehicle in the OSI id space -- the field to join on when
+       // correlating this record with an OSI GroundTruth recording. Additive next
+       // to lead_id, which stays the scenario entity index the maneuver itself
+       // uses internally to re-find the lead.
+       << ",\"lead_osi_id\":" << t.overtake.lead_osi_id
        << ",\"delta_v_mps\":" << t.overtake.delta_v_mps
        << ",\"t_pass_s\":" << t.overtake.t_pass_s
        << ",\"required_m\":" << t.overtake.required_m

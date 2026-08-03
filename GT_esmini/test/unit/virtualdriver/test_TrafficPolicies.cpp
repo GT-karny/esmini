@@ -979,17 +979,24 @@ struct ClassifierFixture
 
     bool Blocked(const std::vector<PedState>& peds) const
     {
+        return CrosswalkBlocked(peds, fp, path, s, s_entry, s_exit, params).blocked;
+    }
+
+    // Same call, but keeping the identity of the ped that did the blocking.
+    crosswalk_decide::BlockResult BlockedBy(const std::vector<PedState>& peds) const
+    {
         return CrosswalkBlocked(peds, fp, path, s, s_entry, s_exit, params);
     }
 };
 
-PedState MakePed(double x, double y, double vx = 0.0, double vy = 0.0)
+PedState MakePed(double x, double y, double vx = 0.0, double vy = 0.0, int osi_id = -1)
 {
     PedState p;
-    p.x  = x;
-    p.y  = y;
-    p.vx = vx;
-    p.vy = vy;
+    p.x      = x;
+    p.y      = y;
+    p.vx     = vx;
+    p.vy     = vy;
+    p.osi_id = osi_id;
     return p;
 }
 }  // namespace
@@ -1053,6 +1060,48 @@ TEST(CrosswalkClassify, WaitingHysteresisWidensBandWhileCommitted)
     EXPECT_FALSE(f.Blocked({hovering}));
     f.params.committed = true;
     EXPECT_TRUE(f.Blocked({hovering}));
+}
+
+// ── Identity carry-through: WHICH pedestrian blocked (OSI id space) ──────────
+// The classifier flattens entities into anonymous positions, so before this the
+// policy could report that a crosswalk held the ego but never which body did it.
+// The id is opaque to the classifier — it must come back out unchanged.
+
+TEST(CrosswalkClassify, CrossingBlockNamesTheBlockingPed)
+{
+    ClassifierFixture f;
+    const auto r = f.BlockedBy({MakePed(10.0, 0.5, 0.0, 0.0, /*osi_id=*/57)});
+    EXPECT_TRUE(r.blocked);
+    EXPECT_EQ(r.ped_osi_id, 57);
+}
+
+TEST(CrosswalkClassify, WaitingBlockNamesTheBlockingPed)
+{
+    ClassifierFixture f;
+    const auto r = f.BlockedBy({MakePed(10.0, 4.5, 0.0, 0.0, /*osi_id=*/58)});
+    EXPECT_TRUE(r.blocked);
+    EXPECT_EQ(r.ped_osi_id, 58);
+}
+
+TEST(CrosswalkClassify, UnblockedResultCarriesNoPedId)
+{
+    ClassifierFixture f;
+    // Beyond the wait margin -> free, and no subject to name.
+    const auto r = f.BlockedBy({MakePed(10.0, 6.0, 0.0, 0.0, /*osi_id=*/59)});
+    EXPECT_FALSE(r.blocked);
+    EXPECT_EQ(r.ped_osi_id, -1);
+}
+
+TEST(CrosswalkClassify, ExemptPedIsNotNamedWhenAnotherBlocks)
+{
+    ClassifierFixture f;
+    // First ped is on the footprint but out of band and departing (exempt, see
+    // CrossingOutOfBandMovingAwayExempt); the second one blocks. The reported id
+    // must be the blocker's, not merely the first ped scanned.
+    const auto r = f.BlockedBy({MakePed(10.0, 2.5, 0.0, 1.5, /*osi_id=*/60),
+                                MakePed(10.0, 0.5, 0.0, 0.0, /*osi_id=*/61)});
+    EXPECT_TRUE(r.blocked);
+    EXPECT_EQ(r.ped_osi_id, 61);
 }
 
 // ─────────────── Phase 3e (F3): junction priority resolution ────────────────
