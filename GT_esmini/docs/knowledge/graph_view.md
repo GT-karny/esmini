@@ -3,7 +3,7 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:0fbe100e9c7d000d -->
+<!-- generated-from: sha256:afd6428f9903986e -->
 
 ノード 198・辺 205（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
@@ -619,9 +619,9 @@ flowchart LR
 | `vd-func:FUNC-054` | `req-vd-ad:REQ-AD-017` | 到達判定・ミッション終了が段 e（終点で安全に停車する）を充足。未実装 |
 | `vd-component:route-lane-plan` | `vd-func:FUNC-050` | 目標レーン帯の算出と逸脱・ルート解決失敗の可視化。FUNC-050 の実現範囲は診断までで、 寄せる動作（自発的な車線変更）は vd-func:FUNC-055 のスコープ |
 | `vd-component:lane-change-initiation` | `vd-func:FUNC-055` | route-lane-plan の目標レーン帯へ自発的に寄せる実装。決断距離（残ホップ数比例）・ ギャップ受容（隣接レーンの前後車）・軌道（ResumeMergeProfile 流用、アンカーを 目標レーンへ）・優先順位（storyboard LC > resume-merge > AD発起）を担う。 FUNC-055 のうち**経路要求を動機とする発起のみ**を実現し、遅い先行車・専用レーン 回避を動機とする発起は範囲外（追い越しは vd-func:FUNC-056） |
-| `vd-component:lane-change-initiation` | `vd-func:FUNC-061` | 発起した車線変更に方向指示器を同期させる（DetectManeuverDir を storyboard LC → AD発起LC → 0 の3段へ拡張し、発起時に方向をラッチ）。FUNC-061 の未同期は これで FUNC-055 分が埋まり、残るは FUNC-056..059（追い越し/交差点/発進/合流） |
+| `vd-component:lane-change-initiation` | `vd-func:FUNC-061` | 発起した車線変更に方向指示器を同期させる（DetectManeuverDir を storyboard LC → AD発起LC → **先行合図** → 0 の4段へ拡張し、発起時に方向をラッチ）。2026-08-03 に 先行合図の判定を前進予測形へ置き換えて REQ-AD-018 段 b/c を達成（§11-11）。 FUNC-055 分はこれで埋まり、**残るは vd-func:FUNC-056（追い越し）・出庫・非経路の合流** （旧記載の「FUNC-056..059」は括りが誤っていた。REQ-AD-018 の acceptance 参照）。 |
 | `vd-func:FUNC-061` | `req-vd-ad:REQ-AD-021` | 同じ「方向指示器の自発操作」が右左折側も担う。ただし**法定の次元が違う**（進路変更＝ 3秒前 / 右左折＝交差点手前の側端から 30 m 手前）ため要求は REQ-AD-018 と分けてある。 実装経路も別で、こちらは DetectJunctionTurn（ControllerVirtualDriver.cpp:1897-1905）が `lookahead = max(15.0, v*indicator_lead_time + 10.0)` で前方を走査する側。 2026-08-03 の指摘: `2v+10 >= 30` すなわち v >= 10 m/s (36 km/h) でしか法定 30 m に 届かない。交差点の実運用域はそれ以下なので低速側で不足する（コード読解＋算術。実測は未）。 |
-| `vd-func:FUNC-061` | `req-vd-ad:REQ-AD-018` | 方向指示器の自発操作が段 a を充足。段 b/c（法定 3 秒のリードを定速でも加速中でも 満たす）と段 d（FUNC-056..059 由来の発起にも同期）は未実装。 |
+| `vd-func:FUNC-061` | `req-vd-ad:REQ-AD-018` | 方向指示器の自発操作が段 a/b/c を充足（2026-08-03、§11-11 の前進予測形で段 b/c 達成）。 **段 d は未達**。ただし 2026-08-03 に範囲を切り直しており、以前の 「FUNC-056..059 由来の発起にも同期」は誤った括りだった: FUNC-057（交差点）は右左折であって車線変更でなく req-vd-ad:REQ-AD-021 へ分離、 FUNC-058（発進）は dim:lon の Stop&Go 出口で指示器不要（対象は出庫＝REQ-AD-022）、 FUNC-059（合流）は経路要求として現れる分は既に段 a-c の機構で合図が出る。 段 d に残る実体は vd-func:FUNC-056（追い越し）・出庫・非経路の合流の3つ。 |
 | `vd-func:FUNC-076` | `req-vd-ad:REQ-AD-019` | 駐車枠探索・選定が駐車枠の探索・選定要求を充足。未実装 |
 | `vd-func:FUNC-077` | `req-vd-ad:REQ-AD-020` | 駐車マヌーバ実行が駐車マヌーバの実行要求を充足。未実装 |
 | `vd-func:FUNC-078` | `req-vd-ad:REQ-AD-022` | 出庫マヌーバ実行が出庫マヌーバの実行要求を充足。未実装 |
