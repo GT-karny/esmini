@@ -70,27 +70,34 @@ must:
       traffic does not change what RouteLanePlan computes as the target-lane
       band, only whether/when the ego actually gets there.
   - event: indicator_leads_lane_change
-    min_lead_s: 2.0
+    min_lead_s: 3.0
     reason: >
       Same design-doc-section-11 pre-signal-timing assertion as the no-traffic
       sibling's must #3. This scenario is the BETTER stimulus for it (per
       section 11-9): the gap-wait on the first hop (-2 -> -3) stretches
       t_arm - t_sig well beyond the no-wait case.
-      MEASURED 2026-08-02 (parent session, real Release build carrying the
-      section-11 telemetry): t_sig=3.10, t_arm=7.55, lead=4.45s, with the lamp
-      lit and matching the hop direction across the whole interval. The lead
-      comfortably exceeds the 3.0s that lane_change_indicator_lead_time_s
-      encodes (JP Road Traffic Act Enforcement Order Art. 21 para 1), because
-      the ego signals and then WAITS -- design doc section 11-6's "signal and
-      wait", observed directly.
-      WHY min_lead_s IS 2.0 AND NOT 3.0 OR 4.4: most of the 4.45s is gap-wait
-      time, which depends on AdjacentTraffic's placement/speed rather than on
-      the indicator rule. Pinning the threshold near the measured value would
-      turn any unrelated gap tuning into a red matcher. 2.0 sits far above the
-      ~0.4s a pure two-threshold lead yields without a gap wait (see the
-      no-traffic sibling), so it still positively asserts "the ego signalled,
-      then waited" -- the behaviour this scenario exists to show -- without
-      coupling the check to gap calibration.
+      RE-MEASURED 2026-08-03 (parent session, real Release build with the
+      section-11-11 forward-projection rule wired in, test_results/web/
+      route_lane_final/lane_change_to_exit_ramp_with_traffic): t_sig=0.55,
+      t_arm=7.55, lead=7.00s (up from the pre-fix 2026-08-02 measurement's
+      t_sig=3.10 / lead=4.45s -- the forward-projection moves signal_active
+      much earlier under acceleration, same direction as the no-traffic
+      sibling's move from 0.40s to 2.30s), with the lamp lit and matching the
+      hop direction across the whole interval and no chattering (single
+      rising edge on both signal_active and armed).
+      WHY min_lead_s IS 3.0 AND NOT SOMETHING NEAR 7.0: most of the 7.00s is
+      still gap-wait time (t_arm=7.55 is set by when AdjacentTraffic's gap is
+      accepted, not by the indicator rule), which depends on
+      AdjacentTraffic's placement/speed. Pinning the threshold near the
+      measured value would turn any unrelated gap tuning into a red matcher.
+      3.0 is deliberately set to the LEGAL FLOOR itself
+      (lane_change_indicator_lead_time_s / JP Road Traffic Act Enforcement
+      Order Art. 21 para 1) rather than to a value carved just under this
+      run's measurement: section 11-11's rule guarantees a lead of at least
+      3.0s even with zero gap-wait (see the constant-speed sibling, which
+      isolates exactly that floor), so 3.0 is a meaningful lower bound here
+      regardless of how AdjacentTraffic is tuned in the future, not an
+      arbitrary margin below 7.00.
 notes: >
   MEASURED 2026-08-02 (this 2-hop version), parent session, real Release build
   with lane_change_initiation enabled via the batch's policies: list
@@ -108,11 +115,17 @@ notes: >
     3. No `window:` was needed on the max_deviations must -- the unwindowed
        check held over the full run, same as the no-traffic sibling.
 
-  Indicator pre-signal (design doc section 11): signal_active first true at
-  t=3.10, armed first true at t=7.55, lead=4.45s. This scenario demonstrates
-  the "signal, then wait for a gap" behaviour; the no-traffic sibling isolates
-  the pure two-threshold lead (0.40s under acceleration) and documents why
-  that number is small.
+  Indicator pre-signal (design doc section 11): ORIGINAL (2026-08-02,
+  distance-only rule) measurement was signal_active first true at t=3.10,
+  armed first true at t=7.55, lead=4.45s. RE-MEASURED 2026-08-03 against the
+  section-11-11 forward-projection rule (test_results/web/route_lane_final/
+  lane_change_to_exit_ramp_with_traffic): signal_active first true at
+  t=0.55, armed unchanged at t=7.55, lead=7.00s -- t_arm did not move because
+  the gap-wait, not the indicator rule, decides when the hop actually arms;
+  only t_sig moved earlier. This scenario demonstrates the "signal, then wait
+  for a gap" behaviour; the no-traffic sibling isolates the pure two-
+  threshold lead under the new rule (2.30s) and the constant-speed sibling
+  isolates the rule's steady-state floor (3.0s exactly).
 
   route_lane.target_lanes reads [-1] on the FINAL frame, not [-4]: by then the
   ego is past junction 1 and on road 2, where the band is -1. The

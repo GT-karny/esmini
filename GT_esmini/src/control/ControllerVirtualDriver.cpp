@@ -594,6 +594,17 @@ void ControllerVirtualDriver::Step(double timeStep)
     const double ego_speed = have_phys ? phys_speed : object_->GetSpeed();
     const double wheel_base = object_->boundingbox_.dimensions_.length_ * 0.6;
 
+    // vd-func:FUNC-061 forward-projected pre-signal (ShouldSignalLaneChangeHop below): a_ego is the
+    // vehicle-frame longitudinal acceleration esmini reports (1-frame delayed -- acceptable here,
+    // this only feeds a lead-time projection, not closed-loop control); v_cap is the terminal target
+    // of any in-flight SpeedAction (0.0 / "no cap" until the first action has been observed, per
+    // target_initialized_ -- see ResolveTargetSpeed's own last_action_target_ comment). Deliberately
+    // NOT target_speed (line ~551): that is the CURRENT-time reference value of an in-progress
+    // transition, not where the transition is headed, so using it as a cap would just re-derive
+    // ego_speed and silence the forward projection.
+    const double a_ego = object_->pos_.GetAccLong();
+    const double v_cap = target_initialized_ ? last_action_target_ : 0.0;
+
     // Forward control-point offset (P2 issue 2). Resolve the configured value:
     //   > 0  explicit distance [m] ahead of the origin
     //   = 0  AUTO — the front-axle distance (wheel_base); enabled by default
@@ -1080,22 +1091,48 @@ void ControllerVirtualDriver::Step(double timeStep)
         {
             lc_signal_dir_ = lc_init_state_.direction_indicator;
         }
-        else if (!suppressed && route_lane_status.valid && !route_lane_status.on_target_lane &&
-                 diag_hop.valid &&
-                 ShouldSignalLaneChangeHop(diag_hop.n_remaining, route_lane_status.dist_to_connection,
-                                           ego_speed, lc_init_cfg_))
+        else if (!suppressed && route_lane_status.valid && !route_lane_status.on_target_lane && diag_hop.valid &&
+                 route_lane_status.dist_to_connection >= 0.0)
         {
-            // Same along_s formula as the arm-time indicator resolution above (line ~1031); may be
-            // recomputed every frame here (unlike the armed latch) because the pre-signal has not
-            // yet crossed the lane boundary that would collapse current/target lane id to the same
-            // value (design doc section 11-4's "先行合図中は方向を毎フレーム再計算してよい").
-            const bool along_s = IsAngleForward(object_->pos_.GetHRelative());
-            lc_signal_dir_ =
-                LaneChangeIndicatorDir(route_lane_status.ego_lane_raw, diag_hop.next_hop_lane_id, along_s);
+            // Chattering guard: real ego longitudinal acceleration is mostly smooth, but a measured
+            // multi-frame dip (3.88 -> 1.09 m/s^2 across ~0.2s, frame-to-frame |da| up to 3.19 m/s^2)
+            // gets amplified by the forward projection's v + a*T term (T==3s here => ~8.4 m/s of
+            // projected-speed error at the dip), which is enough to make the raw predicate above flip
+            // back and forth across its threshold for a couple of frames. Rather than inventing a
+            // filter time-constant to justify, this just holds the pre-signal ON for the rest of the
+            // SAME hop's candidacy once it has fired once -- the same "no upper time bound, do not
+            // drop it for a gap wait" philosophy design doc section 11-6 already applies to the
+            // signal once a hop is armed, just extended one step earlier to the pre-signal.
+            const bool same_hop_latched =
+                lc_signal_latched_ && lc_signal_latched_lane_ == diag_hop.next_hop_lane_id;
+            const bool fires_now =
+                same_hop_latched || ShouldSignalLaneChangeHop(diag_hop.n_remaining, route_lane_status.dist_to_connection,
+                                                               ego_speed, a_ego, v_cap, lc_init_cfg_);
+            if (fires_now)
+            {
+                lc_signal_latched_      = true;
+                lc_signal_latched_lane_ = diag_hop.next_hop_lane_id;
+
+                // Same along_s formula as the arm-time indicator resolution above (line ~1031); may
+                // be recomputed every frame here (unlike the armed latch) because the pre-signal has
+                // not yet crossed the lane boundary that would collapse current/target lane id to the
+                // same value (design doc section 11-4's "先行合図中は方向を毎フレーム再計算してよい").
+                const bool along_s = IsAngleForward(object_->pos_.GetHRelative());
+                lc_signal_dir_ =
+                    LaneChangeIndicatorDir(route_lane_status.ego_lane_raw, diag_hop.next_hop_lane_id, along_s);
+            }
+            else
+            {
+                lc_signal_latched_      = false;
+                lc_signal_latched_lane_ = 0;
+                lc_signal_dir_          = 0;
+            }
         }
         else
         {
-            lc_signal_dir_ = 0;
+            lc_signal_latched_      = false;
+            lc_signal_latched_lane_ = 0;
+            lc_signal_dir_          = 0;
         }
 
         // Rolling one-frame-back heading for the NEXT arming instant's a0_lat (design doc section

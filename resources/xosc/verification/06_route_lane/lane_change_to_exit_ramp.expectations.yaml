@@ -34,32 +34,36 @@ must:
       lane_change_initiation -- only the CORRECTIVE action is new). An EXISTS
       check (>=1 gated frame), same semantics as the sibling file's must #2.
   - event: indicator_leads_lane_change
-    min_lead_s: 0.3
+    min_lead_s: 2.0
     reason: >
       design doc section 11 requires the AD-LC indicator to pre-signal before
       the hop actually arms (lane_change_indicator_lead_time_s default 3.0s,
-      section 11-3's two-threshold distance rule). This is the machine-checked
-      counterpart to that requirement: signal_active must go true strictly
-      before armed, by at least min_lead_s, with the lamp staying lit and
-      agreeing with the hop's direction the whole time (section 11-9).
-      MEASURED 2026-08-02 (parent session, real Release build with the
-      section-11 pre-signal wired in): t_sig=2.30, t_arm=2.70, lead=0.40s.
-      min_lead_s: 0.3 is set just under that measurement.
-      WHY THE LEAD IS ONLY 0.40s HERE AND NOT THE 3.0s
-      lane_change_indicator_lead_time_s asks for: the ego is still hard-
-      accelerating at that instant, and required_m is speed-proportional, so
-      the threshold runs away from the ego faster than the ego closes on it.
-      From this run's own telemetry: required_m sits flat at 140.00 m (floored
-      by min_lead_distance_m=40) until v crosses 6.67 m/s at t=2.00, then grows
-      ~70 m per second (3 hops x lead_time_s 6.0 x a~3.9), while the ego closes
-      at only ~8 m/s. The v*3.0 ~= 24 m of pre-signal distance is therefore
-      consumed in ~0.4s. At CONSTANT speed the same rule yields exactly
-      lane_change_indicator_lead_time_s seconds (required_m stops moving, the
-      gap closes at v, and 3v/v = 3.0s) -- see the with-traffic sibling, which
-      measured 4.45s. This is a known limitation of section 11-3's distance
-      rule under acceleration, recorded in lane_change_initiation.md section
-      11-3; it is NOT a defect in the matcher or in the indicator wiring.
-      Do not raise min_lead_s here without changing that rule.
+      section 11-11's forward-projected two-threshold rule). This is the
+      machine-checked counterpart to that requirement: signal_active must go
+      true strictly before armed, by at least min_lead_s, with the lamp
+      staying lit and agreeing with the hop's direction the whole time
+      (section 11-9).
+      THE RULE CHANGED (2026-08-03, parent session): the previous distance-
+      only two-threshold rule (section 11-3) measured under acceleration was
+      shrunk by required_m growing faster than the ego closed on it, yielding
+      only 0.40s here even though lane_change_indicator_lead_time_s asks for
+      3.0s -- a known limitation of that rule, not a matcher defect. That
+      rule has since been REPLACED by section 11-11's forward-projected form,
+      which predicts required_m's trajectory from a_ego instead of reading
+      only its instantaneous value, so the pre-signal is no longer eaten by
+      the acceleration transient.
+      MEASURED 2026-08-03 (parent session, real Release build with the
+      section-11-11 forward-projection wired in): t_sig=0.40, t_arm=2.70
+      (t_arm unchanged from the pre-fix build -- the arm/decision side was
+      not touched, only t_sig moved earlier), lead=2.30s. min_lead_s: 2.0
+      is set just under that measurement, per this directory's convention
+      of placing the threshold a little below the measured value rather
+      than pinned to it (a value right at 2.30 would go red on unrelated
+      tuning noise).
+      Do not raise min_lead_s here past a fresh measurement; if a future
+      change to section 11-11 or to the acceleration ramp shrinks the
+      measured lead again, that is signal, not a reason to loosen this
+      threshold without understanding why.
 notes: >
   Measured 2026-08-02 by the parent session against a real GT_esminiLib.dll
   build with lane_change_initiation wired in
@@ -82,15 +86,24 @@ notes: >
   expectations.yaml for the reconfigured 2-hop version and what remains
   unmeasured there.
 
-  INDICATOR PRE-SIGNAL (design doc section 11), MEASURED 2026-08-02 by the
-  parent session against a real Release build carrying the section-11
-  telemetry (lane_change.signal_active), test_results/web/
-  route_lane_indicator/lane_change_to_exit_ramp: signal_active first true at
-  t=2.30, armed first true at t=2.70, lead=0.40s, lamp lit and matching the
-  hop direction across the whole interval. min_lead_s was calibrated from
-  0.5 (the implementing session's placeholder) DOWN to 0.3 -- the placeholder
-  had been chosen on the assumption that the lead would approach
-  lane_change_indicator_lead_time_s=3.0s, which does NOT hold while the ego is
-  still accelerating. The must entry's reason: above carries the measured
-  frame-by-frame explanation. The with-traffic sibling, whose gap-wait puts it
-  at steady speed, measured 4.45s in the same run.
+  INDICATOR PRE-SIGNAL (design doc section 11), superseded 2026-08-03: the
+  ORIGINAL measurement (2026-08-02, distance-only two-threshold rule,
+  section 11-3) found signal_active first true at t=2.30, armed first true
+  at t=2.70, lead=0.40s -- min_lead_s was calibrated from a 0.5 placeholder
+  DOWN to 0.3 to fit that small number, because the rule ran the required-
+  distance threshold away from the ego faster than it could close while
+  still accelerating.
+
+  That rule has since been replaced by section 11-11's forward-projected
+  form (predicts required_m's trajectory from a_ego instead of reading only
+  its instantaneous value). RE-MEASURED 2026-08-03 (parent session, real
+  Release build, test_results/web/route_lane_final/lane_change_to_exit_ramp):
+  PASS. signal_active first true at t=0.40 (moved much earlier than the
+  0-08-02 measurement's t=2.30 -- the forward-projection reacts to the
+  acceleration itself, not just the instantaneous required_m), armed first
+  true at t=2.70 (unchanged -- the arm/decision side was not touched), for a
+  lead of 2.30s. min_lead_s was raised from 0.3 to 2.0 to match. The lamp
+  stayed lit and matched the hop direction across the whole interval, and
+  no chattering was observed (single rising edge on both signal_active and
+  armed). The with-traffic sibling, whose gap-wait extends the lead further
+  still, measured 7.00s in the same batch run.

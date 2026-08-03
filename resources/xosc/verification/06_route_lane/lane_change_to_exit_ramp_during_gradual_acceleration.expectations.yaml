@@ -1,0 +1,69 @@
+scenario: lane_change_to_exit_ramp_during_gradual_acceleration
+category: 06_route_lane
+# vd-func:FUNC-061 (indicator pre-signal) / req-vd-ad:REQ-AD-018 acceptance
+# ladder step c ("加速中もリードが縮まないこと"). Companion to
+# lane_change_to_exit_ramp_at_constant_speed.expectations.yaml (step b). This
+# scenario's mild, 20.0s acceleration ramp is deliberately calibrated (see the
+# .xosc header comment) so the -3 -> -4 hop is expected to initiate WHILE the
+# ramp is still running (~t=16.9s), unlike the existing
+# lane_change_to_exit_ramp*.xosc scenarios' 3.0s ramp, which finishes long
+# before their (n_remaining=3) hop is even decided.
+must:
+  - event: route_lane_plan_holds
+    max_deviations: 0
+    reason: >
+      Same success-side assertion as the constant-speed sibling's must #1: the
+      ego is expected to complete the single -3 -> -4 lane change before
+      crossing off road 0, so deviation_count must stay 0 for the whole run.
+      The 40s StopTrigger (vs the sibling scenarios' 28s) is sized to leave
+      room for the 20.0s ramp plus the hop plus post-junction settling - see
+      the .xosc header comment's STOP TRIGGER paragraph.
+  - event: route_lane_plan_holds
+    expect_target_lanes: [-4]
+    reason: >
+      Same band-derivation sanity check as every other scenario in this
+      directory - unaffected by the ego's speed profile.
+  - event: indicator_leads_lane_change
+    min_lead_s: 2.9
+    reason: >
+      This scenario asserts that the lead does NOT shrink under acceleration
+      (the constant-speed sibling's must #3 asserts the complementary claim,
+      that the lead REACHES the 3.0s floor at steady speed). The .xosc header
+      comment recorded two irreconcilable predictions ahead of measurement:
+      the OLD distance-only two-threshold rule (section 11-3) would compress
+      the lead to ~2.03s under this scenario's acceleration ramp (the same
+      mechanism that shrank the no-traffic sibling to 0.40s); the NEW
+      forward-projected rule (section 11-11) predicts ~2.98s instead, i.e.
+      effectively unshrunk.
+      MEASURED 2026-08-03 (parent session, real Release build with the
+      section-11-11 forward-projection rule wired in, test_results/web/
+      route_lane_final/lane_change_to_exit_ramp_during_gradual_acceleration):
+      t_sig=14.00, t_arm=17.05, lead=3.05s. This matches the forward-
+      projected prediction (~2.98s, within one dt=0.05 frame), NOT the old
+      rule's ~2.03s -- confirming the rule change fixed the "lead shrinks
+      under acceleration" defect this scenario exists to catch. The hop
+      initiated at t_arm=17.05, inside the 0-20s ramp window as designed
+      (see the .xosc header comment's ramp-timing calibration), lamp lit and
+      matching the hop direction throughout, single rising edge on both
+      signal_active and armed (no chattering).
+      min_lead_s: 2.9 is set just under the measured 3.05s, matching the
+      constant-speed sibling's margin convention (a little below the
+      measurement, with extra room for dt=0.05 frame quantization) -- NOT
+      near the old rule's ~2.03s, since that number now represents a
+      regression this matcher should catch if it ever reappears.
+notes: >
+  MEASURED 2026-08-03 (parent session, real Release build with the
+  section-11-11 forward-projection rule wired in, test_results/web/
+  route_lane_final/lane_change_to_exit_ramp_during_gradual_acceleration):
+  PASS. Ego moves lane -3 -> -4 (track transitions to road 4 at t=23.95, then
+  road 2 at t=31.75, comfortably inside the 40s StopTrigger) with
+  deviation_count staying 0 for the whole run.
+
+  Indicator pre-signal: signal_active first true at t=14.00, armed first
+  true at t=17.05, lead=3.05s -- resolves the two-prediction question this
+  scenario's must #3 was written to settle: the measured lead matches the
+  forward-projected rule's ~2.98s prediction, not the old distance-only
+  rule's ~2.03s. The hop arms at t=17.05, inside the 0-20s acceleration ramp
+  window as the .xosc header comment's calibration intended, so the
+  20.0s/103.3m arithmetic held and this measurement is a valid test of
+  "does the lead shrink while still accelerating" (it does not).

@@ -67,8 +67,17 @@ bool ShouldAttemptLaneChangeHop(int n_remaining, double dist_to_connection, doub
     return dist_to_connection <= RequiredLaneChangeDistance(n_remaining, v_ego, cfg);
 }
 
-bool ShouldSignalLaneChangeHop(int n_remaining, double dist_to_connection, double v_ego, const LaneChangeInitiationConfig& cfg)
+bool ShouldSignalLaneChangeHop(int    n_remaining,
+                               double dist_to_connection,
+                               double v_ego,
+                               double a_ego,
+                               double v_cap,
+                               const LaneChangeInitiationConfig& cfg)
 {
+    if (!cfg.enabled || n_remaining <= 0)
+    {
+        return false;
+    }
     // design doc section 11-3's explicit trap: dist_to_connection<0 ("not applicable" / final
     // band) must NOT be treated as "close enough" here, unlike ShouldAttemptLaneChangeHop's own
     // < 0 handling above (which returns true there). A naive `<=` against a negative sentinel is
@@ -77,12 +86,18 @@ bool ShouldSignalLaneChangeHop(int n_remaining, double dist_to_connection, doubl
     {
         return false;
     }
-    if (n_remaining <= 0)
+
+    const double T     = cfg.indicator_lead_time_s;
+    const double v_now = std::max(0.0, v_ego);
+    const double a     = std::max(0.0, a_ego);  // decelerating is treated as flat -- safe/earlier side
+    double       v_pred = v_now + a * T;
+    if (v_cap > 0.0)
     {
-        return false;
+        v_pred = std::min(v_pred, std::max(v_now, v_cap));  // cap never pulls below current speed
     }
-    const double required = RequiredLaneChangeDistance(n_remaining, v_ego, cfg);
-    return dist_to_connection <= required + std::max(0.0, v_ego) * cfg.indicator_lead_time_s;
+    const double travel   = 0.5 * (v_now + v_pred) * T;  // trapezoidal distance over T seconds
+    const double required = RequiredLaneChangeDistance(n_remaining, v_pred, cfg);
+    return (dist_to_connection - travel) <= required;
 }
 
 GapAcceptanceResult EvaluateGapAcceptance(const LaneChangeGapSample&        gap,

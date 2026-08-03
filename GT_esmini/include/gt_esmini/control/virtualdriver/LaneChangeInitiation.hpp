@@ -101,6 +101,34 @@ bool ShouldAttemptLaneChangeHop(int    n_remaining,
 // doc section 11-3). Deliberately independent of gap acceptance (section 11-3's "先行合図の追加
 // 条件は... ギャップ受容は条件に入れない"): the signal expresses "I want in", not "I can go".
 //
+// As of this form, ALSO false whenever !cfg.enabled (previously this function had no enabled check
+// of its own -- the controller's `if (lc_init_cfg_.enabled)` wrapper was the only gate; see this
+// function's own DisabledNeverSignals test). Added for symmetry with ShouldAttemptLaneChangeHop's
+// own independent enabled check, so "disabled never pre-signals" is assertable here too, standalone.
+//
+// FORWARD-PROJECTED form (supersedes the earlier pure-distance form; not run alongside it): rather
+// than testing the CURRENT speed against a lead distance, this projects ego speed forward by
+// indicator_lead_time_s under constant acceleration a_ego (clamped to >=0 -- decelerating is
+// treated as flat, the safe-i.e.-earlier direction), optionally capped at v_cap (the terminal
+// target of any in-flight SpeedAction; <=0 means "no cap"), and asks whether the DISTANCE the ego
+// will cover getting there already eats into the required decision distance evaluated at the
+// PROJECTED speed:
+//
+//   v_now  = max(0, v_ego)
+//   a      = max(0, a_ego)
+//   v_pred = min(v_now + a*T, max(v_now, v_cap))       [cap skipped when v_cap <= 0]
+//   travel = 0.5*(v_now + v_pred)*T                     [trapezoidal distance over T seconds]
+//   fires when (dist_to_connection - travel) <= RequiredLaneChangeDistance(n_remaining, v_pred, cfg)
+//
+// Properties (both load-bearing; see test_LaneChangeInitiation.cpp):
+//   - When a_ego==0 and the cap does not bind, v_pred==v_now, travel==v_now*T, so the test reduces
+//     to `dist_to_connection <= required + v_now*T` -- EXACTLY the old distance-only form. This is
+//     a pure extension, not a behavioural change at constant speed.
+//   - n_remaining itself is never differentiated/projected, so a hop completing this frame (which
+//     changes n_remaining by a whole step) cannot manufacture a spurious rate-of-change term the
+//     way projecting n_remaining would.
+//   - Still a pure function of its arguments: no previous-frame state, no dt.
+//
 // NOTE dist_to_connection < 0 means "unknown / final band has no onward connection"
 // (RouteLanePlan.hpp:77). Unlike ShouldAttemptLaneChangeHop (which treats < 0 as due NOW, since
 // there is no "later" left to wait for), this function must return false there -- a naive `<=`
@@ -109,6 +137,8 @@ bool ShouldAttemptLaneChangeHop(int    n_remaining,
 bool ShouldSignalLaneChangeHop(int    n_remaining,
                                double dist_to_connection,
                                double v_ego,
+                               double a_ego,
+                               double v_cap,
                                const LaneChangeInitiationConfig& cfg);
 
 // One adjacent-lane gap sample (design doc section 4): nearest vehicle ahead / behind in the ONE

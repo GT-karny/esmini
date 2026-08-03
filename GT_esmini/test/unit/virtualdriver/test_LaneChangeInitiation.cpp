@@ -186,13 +186,31 @@ TEST(ShouldAttemptLaneChangeHop, NoRemainingHopsNeverAttempts)
     EXPECT_FALSE(ShouldAttemptLaneChangeHop(0, 0.0, 10.0, cfg));
 }
 
-// ─────────────────────────── ShouldSignalLaneChangeHop (design doc section 11-3) ───────────────────────────
-// Note: ShouldSignalLaneChangeHop does NOT itself check cfg.enabled (see the header doc) -- unlike
-// ShouldAttemptLaneChangeHop, whose enabled short-circuit is exercised above. The controller wraps
-// the whole LC block (including its call to this function) in `if (lc_init_cfg_.enabled)`, so the
-// disabled-never-signals invariant is exercised at that call site instead (not unit-testable here
-// without the controller). Every test below therefore uses cfg.enabled = true (or leaves it at its
-// irrelevant default) -- it is testing the DISTANCE predicate, not the feature gate.
+// ─────────────────────────── ShouldSignalLaneChangeHop (design doc section 11-3, FUNC-061 forward
+// projection) ───────────────────────────
+// As of FUNC-061, ShouldSignalLaneChangeHop DOES check cfg.enabled itself (previously it did not --
+// the controller's own `if (lc_init_cfg_.enabled)` wrapper was the only gate). This mirrors
+// ShouldAttemptLaneChangeHop's own independent enabled check, so "disabled never pre-signals" is
+// assertable here too, standalone (see DisabledNeverSignals below). Every OTHER test below still
+// uses cfg.enabled = true (or leaves it at its default before flipping it on) -- they are testing
+// the DISTANCE/PROJECTION predicate, not the feature gate.
+//
+// FUNC-061 also replaced the old pure-distance form with a forward-projected one that additionally
+// takes a_ego (clamped to >=0) and v_cap (0.0 == no cap). Tests that predate FUNC-061 and only cared
+// about the distance/speed relationship pass a_ego=0.0, v_cap=0.0, which per the header doc's own
+// contract makes the new form reduce EXACTLY to the old one -- those tests are otherwise unchanged
+// below.
+
+TEST(ShouldSignalLaneChangeHop, DisabledNeverSignalsRegardlessOfDistance)
+{
+    LaneChangeInitiationConfig cfg;  // enabled = false (default)
+    ASSERT_FALSE(cfg.enabled);
+    // Mirrors ShouldAttemptLaneChangeHop's own DisabledNeverAttemptsRegardlessOfDistance: even with
+    // the pre-signal overdue (dist_to_connection == 0) and a plausible n_remaining/v_ego/a_ego/
+    // v_cap, a disabled config must never report "signal now".
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(3, 0.0, 20.0, /*a_ego=*/2.0, /*v_cap=*/25.0, cfg));
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(1, 0.0, 20.0, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg));
+}
 
 TEST(ShouldSignalLaneChangeHop, LeadsTheAttemptThresholdBySomeDistance)
 {
@@ -209,7 +227,7 @@ TEST(ShouldSignalLaneChangeHop, LeadsTheAttemptThresholdBySomeDistance)
 
     const double probe = required_m + 15.0;  // inside the 30 m lead band, outside required_m
     EXPECT_FALSE(ShouldAttemptLaneChangeHop(n_remaining, probe, v_ego, cfg));
-    EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, probe, v_ego, cfg));
+    EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, probe, v_ego, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg));
 }
 
 TEST(ShouldSignalLaneChangeHop, AttemptDueImpliesSignalDue)
@@ -226,7 +244,7 @@ TEST(ShouldSignalLaneChangeHop, AttemptDueImpliesSignalDue)
     for (double dist : {required_m, required_m - 1.0, 0.0})
     {
         ASSERT_TRUE(ShouldAttemptLaneChangeHop(n_remaining, dist, v_ego, cfg));
-        EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, dist, v_ego, cfg))
+        EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, dist, v_ego, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg))
             << "at dist_to_connection=" << dist;
     }
 }
@@ -240,7 +258,7 @@ TEST(ShouldSignalLaneChangeHop, UnknownDistanceNeverSignals)
     // true and would latch the indicator on forever in the final band.
     LaneChangeInitiationConfig cfg;
     cfg.enabled = true;
-    EXPECT_FALSE(ShouldSignalLaneChangeHop(2, -1.0, 15.0, cfg));
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(2, -1.0, 15.0, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg));
     ASSERT_TRUE(ShouldAttemptLaneChangeHop(2, -1.0, 15.0, cfg));  // contrast: attempt says "due"
 }
 
@@ -248,7 +266,7 @@ TEST(ShouldSignalLaneChangeHop, NoRemainingHopsNeverSignals)
 {
     LaneChangeInitiationConfig cfg;
     cfg.enabled = true;
-    EXPECT_FALSE(ShouldSignalLaneChangeHop(0, 0.0, 10.0, cfg));
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(0, 0.0, 10.0, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg));
 }
 
 TEST(ShouldSignalLaneChangeHop, ZeroSpeedStillSignalsOnceWithinTheDistanceFloor)
@@ -264,9 +282,161 @@ TEST(ShouldSignalLaneChangeHop, ZeroSpeedStillSignalsOnceWithinTheDistanceFloor)
     const double v_ego        = 0.0;
     const double required_m   = RequiredLaneChangeDistance(n_remaining, v_ego, cfg);  // floored by min_lead_distance_m
 
-    EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, required_m, v_ego, cfg));
+    EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, required_m, v_ego, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg));
     EXPECT_TRUE(ShouldAttemptLaneChangeHop(n_remaining, required_m, v_ego, cfg));
-    EXPECT_FALSE(ShouldSignalLaneChangeHop(n_remaining, required_m + 1.0, v_ego, cfg));
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(n_remaining, required_m + 1.0, v_ego, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg));
+}
+
+// ─── FUNC-061: forward-projected pre-signal, the new (a_ego, v_cap) surface ───
+
+TEST(ShouldSignalLaneChangeHop, ZeroAccelerationAndNoCapMatchesTheOldDistanceOnlyFormula)
+{
+    // The header doc's central claim: with a_ego==0 and no cap, the new form reduces to
+    // `dist_to_connection <= required_m + v_ego*indicator_lead_time_s` bit-for-bit -- i.e. this is
+    // an EXTENSION of the old predicate, not a behavioural change at constant speed. Probe both
+    // sides of that exact boundary.
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled               = true;
+    cfg.lead_time_s           = 6.0;
+    cfg.min_lead_distance_m   = 40.0;
+    cfg.reserve_distance_m    = 20.0;
+    cfg.indicator_lead_time_s = 3.0;
+    const int    n_remaining  = 1;
+    const double v_ego        = 20.0;  // v*lead_time_s = 120 > min_lead_distance_m -> floor does not bind
+    const double required_m   = RequiredLaneChangeDistance(n_remaining, v_ego, cfg);
+    const double boundary     = required_m + v_ego * cfg.indicator_lead_time_s;  // the OLD formula's threshold
+
+    EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, boundary, v_ego, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg));
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(n_remaining, boundary + 0.5, v_ego, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg));
+}
+
+TEST(ShouldSignalLaneChangeHop, AcceleratingFiresAtAFartherDistanceThanConstantSpeed)
+{
+    // With n_remaining=1, v_ego=20, indicator_lead_time_s=3 and the shipped-default lead_time_s/
+    // min_lead_distance_m/reserve_distance_m, the constant-speed (a_ego=0) threshold is
+    // required(20) + 20*3 = 140 + 60 = 200 m. Projecting forward under a_ego=2 m/s^2 for the same
+    // 3s lead time gives v_pred=26, travel=0.5*(20+26)*3=69, required(26)=176 -> threshold 245 m.
+    // At an intermediate distance (220 m) the constant-speed predicate must NOT have fired yet,
+    // while the accelerating one already has -- i.e. acceleration pulls the pre-signal EARLIER
+    // (farther out), never later; the decision distance is not allowed to shrink while speeding up.
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled               = true;
+    cfg.lead_time_s           = 6.0;
+    cfg.min_lead_distance_m   = 40.0;
+    cfg.reserve_distance_m    = 20.0;
+    cfg.indicator_lead_time_s = 3.0;
+    const int    n_remaining  = 1;
+    const double v_ego        = 20.0;
+    const double probe        = 220.0;
+
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(n_remaining, probe, v_ego, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg));
+    EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, probe, v_ego, /*a_ego=*/2.0, /*v_cap=*/0.0, cfg));
+}
+
+TEST(ShouldSignalLaneChangeHop, DeceleratingIsClampedToTheSameResultAsZeroAcceleration)
+{
+    // a_ego<0 must be clamped to 0 inside the projection (decelerating is treated as flat -- the
+    // safe/earlier direction), so a negative a_ego must produce EXACTLY the same answer as a_ego==0
+    // at every distance, not an even-later threshold.
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled               = true;
+    cfg.indicator_lead_time_s = 3.0;
+    const int    n_remaining  = 1;
+    const double v_ego        = 20.0;
+
+    for (double dist : {150.0, 199.0, 200.0, 200.5, 260.0})
+    {
+        EXPECT_EQ(ShouldSignalLaneChangeHop(n_remaining, dist, v_ego, /*a_ego=*/-5.0, /*v_cap=*/0.0, cfg),
+                  ShouldSignalLaneChangeHop(n_remaining, dist, v_ego, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg))
+            << "at dist_to_connection=" << dist;
+    }
+}
+
+TEST(ShouldSignalLaneChangeHop, ACapBelowTheUncappedProjectionMakesTheSignalFireLater)
+{
+    // With n_remaining=1, v_ego=20, a_ego=5, indicator_lead_time_s=3, the UNCAPPED projection is
+    // v_pred=20+5*3=35 (threshold 312.5 m). With v_cap=25 (between v_ego=20 and that uncapped 35),
+    // the projection must clamp to v_pred=25 (threshold 237.5 m) -- a SMALLER (nearer) threshold
+    // than the uncapped case, i.e. capping the predicted speed makes the pre-signal fire LATER (at
+    // a shorter remaining distance), never earlier.
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled               = true;
+    cfg.lead_time_s           = 6.0;
+    cfg.min_lead_distance_m   = 40.0;
+    cfg.reserve_distance_m    = 20.0;
+    cfg.indicator_lead_time_s = 3.0;
+    const int    n_remaining  = 1;
+    const double v_ego        = 20.0;
+    const double a_ego        = 5.0;
+    const double probe        = 250.0;  // between the capped (237.5) and uncapped (312.5) thresholds
+
+    EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, probe, v_ego, a_ego, /*v_cap=*/0.0, cfg))
+        << "uncapped should already have fired at this distance";
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(n_remaining, probe, v_ego, a_ego, /*v_cap=*/25.0, cfg))
+        << "capped at 25 m/s should not have fired yet at this distance";
+}
+
+TEST(ShouldSignalLaneChangeHop, ACapBelowCurrentSpeedDoesNotPullThePredictionBelowCurrentSpeed)
+{
+    // v_cap < v_ego (e.g. a stale/lower SpeedAction target than the ego is already going) must NOT
+    // be used to pull the projected speed BELOW the current speed -- the clamp is
+    // max(v_now, v_cap), so a cap under v_now behaves identically to no cap acting on a ZERO
+    // acceleration case: v_pred collapses to exactly v_now regardless of a_ego.
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled               = true;
+    cfg.indicator_lead_time_s = 3.0;
+    const int    n_remaining  = 1;
+    const double v_ego        = 20.0;
+
+    for (double dist : {150.0, 199.0, 200.0, 200.5, 260.0})
+    {
+        EXPECT_EQ(ShouldSignalLaneChangeHop(n_remaining, dist, v_ego, /*a_ego=*/5.0, /*v_cap=*/10.0, cfg),
+                  ShouldSignalLaneChangeHop(n_remaining, dist, v_ego, /*a_ego=*/0.0, /*v_cap=*/0.0, cfg))
+            << "at dist_to_connection=" << dist;
+    }
+}
+
+TEST(ShouldSignalLaneChangeHop, UnknownDistanceNeverSignalsEvenUnderAccelerationOrACap)
+{
+    // The final-band guard (dist_to_connection<0 => false) must survive regardless of a_ego/v_cap
+    // -- this is the one place ShouldAttemptLaneChangeHop and ShouldSignalLaneChangeHop stay
+    // asymmetric (design doc section 11-3), and the new parameters must not reopen it.
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled = true;
+    EXPECT_FALSE(ShouldSignalLaneChangeHop(2, -1.0, 15.0, /*a_ego=*/3.0, /*v_cap=*/20.0, cfg));
+}
+
+TEST(ShouldSignalLaneChangeHop, AttemptDueImpliesSignalDueUnderArbitraryAccelerationAndCap)
+{
+    // Containment (generalized): ShouldAttemptLaneChangeHop only ever looks at v_ego, never at
+    // a_ego/v_cap. Since the forward projection can only ever push the effective speed UP from
+    // v_ego (v_pred = min(v_now + a*T, max(v_now, v_cap)) >= v_now for a>=0, and the cap floor is
+    // v_now itself), RequiredLaneChangeDistance(n, v_pred, cfg) >= RequiredLaneChangeDistance(n,
+    // v_ego, cfg), and travel>=0 only makes the LHS smaller -- so "attempt due" must imply "signal
+    // due" for ANY a_ego/v_cap, not just the a_ego=0 case the old test already covered. Excludes the
+    // final band (dist_to_connection<0), which is a known, intentional asymmetry (see the test
+    // above).
+    LaneChangeInitiationConfig cfg;
+    cfg.enabled = true;
+    const int    n_remaining = 2;
+    const double v_ego       = 15.0;
+    const double required_m = RequiredLaneChangeDistance(n_remaining, v_ego, cfg);
+
+    const double a_cases[]     = {0.0, 1.5, 4.0};
+    const double v_cap_cases[] = {0.0, 10.0, 30.0};
+
+    for (double dist : {required_m, required_m - 1.0, 0.0})
+    {
+        ASSERT_TRUE(ShouldAttemptLaneChangeHop(n_remaining, dist, v_ego, cfg));
+        for (double a_ego : a_cases)
+        {
+            for (double v_cap : v_cap_cases)
+            {
+                EXPECT_TRUE(ShouldSignalLaneChangeHop(n_remaining, dist, v_ego, a_ego, v_cap, cfg))
+                    << "at dist_to_connection=" << dist << " a_ego=" << a_ego << " v_cap=" << v_cap;
+            }
+        }
+    }
 }
 
 // ─────────────────────────── EvaluateGapAcceptance ───────────────────────────

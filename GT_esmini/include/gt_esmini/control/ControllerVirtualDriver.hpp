@@ -206,6 +206,12 @@ private:
     // this member never leaves 0 (design doc section 8's default-OFF invariant: DetectManeuverDir()
     // reads this member, so a disabled feature must never make it non-zero).
     int lc_signal_dir_ = 0;
+    // Pre-signal latch (see the "chattering guard" comment at its use site in Step()): once
+    // ShouldSignalLaneChangeHop fires for a given target lane, the signal is held for the rest of
+    // that hop's candidacy rather than re-evaluated every frame, so a transient dip in the
+    // (1-frame-delayed) longitudinal acceleration reading cannot make the pre-signal flicker.
+    bool lc_signal_latched_      = false;  // latched pre-signal, independent of lc_init_state_.armed
+    int  lc_signal_latched_lane_ = 0;      // the hop target lane id this latch was raised for
 
     // Manual indicator (turn-signal) control via input-source buttons, reusing
     // ManualDrive's auto-cancel FSM. When the human arms an indicator it takes

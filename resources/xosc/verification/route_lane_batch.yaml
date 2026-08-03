@@ -56,12 +56,44 @@ origin: vd-func:FUNC-050   # レーンレベル経路計画。RouteLanePlan の�
 # (t_sig=2.30 / t_arm=2.70、加速中なので §11-3 の既知の縮み)、隣接車あり 4.45s
 # (t_sig=3.10 / t_arm=7.55、ギャップ待ちを含む)。
 #
+# 後半2本追加(2026-08-03, vd-func:FUNC-061 / req-vd-ad:REQ-AD-018 の受入ラダー
+# 段b・段cを分離測定するため): 上の2本(lane_change_to_exit_ramp /
+# _with_traffic)はどちらも n_remaining=3(lane -1/-2発進)で、required_m=270m
+# が190m budgetを超え、発起が常にt=0で決まってしまう - リードが3.0s付近に
+# 落ち着く様子そのものを分離して見られない。以下2本は lane -3 発進
+# (n_remaining=1, required_m=103.3m)にして発起をrun中盤に来させる:
+#   - lane_change_to_exit_ramp_at_constant_speed: Init のみで速度を
+#     13.889 m/s に固定(Story側にランプなし)。段b「定速で法定3秒」用。
+#   - lane_change_to_exit_ramp_during_gradual_acceleration: 0->13.889 m/s を
+#     20.0秒かけて緩やかに加速(a~=0.694 m/s^2)。段c「加速中もリードが
+#     縮まないこと」用 - 既存2本の3.0秒ランプは強すぎて発起前に加速が終わる
+#     か、逆に初手から飽和するため、この目的には使えない。
+# どちらも expectations.yaml の indicator_leads_lane_change は未測定の
+# プレースホルダ(min_lead_s: 0.3) - 親セッションが実測して確定する。
+#
+# defaults.max_time を 30.0 -> 42.0 へ上げた理由(既存4本の挙動は変えない
+# 判断): gt_sim_test.py の batch() は per-scenario の max_time 上書きを
+# 読まない(defaults.max_time のみ・エントリ側の同名キーは無視される -
+# 実装未確認のまま個別上書きを書くと _during_gradual_acceleration が30sで
+# 打ち切られる)。
+# 既存4本への影響は**実測で確認済み**(2026-08-03、30.0 と 42.0 の両方で
+# batch を回して突き合わせた)。既存4本は break しない: StopTrigger=28s で
+# sim_time が 28.05 に凍結したまま、同じフレームが max_time まで複製記録
+# されるだけである(frames 600 -> 840、t_end はどちらも 28.05)。
+# したがって末尾値は完全に一致する(deviation_count 0/0/0/1、最終 track
+# 2/2/6/6)。増えるのは末尾の重複フレームだけで、matcher の判定材料は
+# 変わらない。ceiling を上げても既存4本の verdict は動かない。
+# (注: 「grace で break するから無影響」という説明は誤り。無影響なのは
+#  break するからではなく、凍結後の複製フレームが末尾値を変えないから。)
+# したがってスコープ外の script 修正を避けつつ defaults 側の引き上げを選んだ。
+#
 # Run:
 #   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py batch \
 #       resources/xosc/verification/route_lane_batch.yaml --out test_results/web/route_lane
 defaults:
   dt: 0.05
-  max_time: 30.0   # StopTrigger=28s の全シナリオ + ~2s グレース
+  max_time: 42.0   # 既存4本(StopTrigger=28s)は末尾に重複フレームが増えるだけで末尾値は不変(実測済)。
+                   # _during_gradual_acceleration(StopTrigger=40s)のための引き上げ - 上のコメント参照。
   snapshots: 3
   osi: false
 scenarios:
@@ -79,3 +111,15 @@ scenarios:
     expectations: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_with_traffic.expectations.yaml
     policies: [lane_change_initiation]
     report: route_lane
+  - scenario: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_at_constant_speed.xosc
+    expectations: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_at_constant_speed.expectations.yaml
+    policies: [lane_change_initiation]
+    report: route_lane
+  - scenario: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_during_gradual_acceleration.xosc
+    expectations: resources/xosc/verification/06_route_lane/lane_change_to_exit_ramp_during_gradual_acceleration.expectations.yaml
+    policies: [lane_change_initiation]
+    report: route_lane
+    # StopTrigger=40s (既存4本の28sより長い): 20.0秒ランプ + 発起(~17s) + 車線
+    # 変更完了 + 余裕が必要。max_time はここではなく defaults 側で 42.0 に
+    # 引き上げ済み(gt_sim_test.py はエントリ単位の上書きを読まないため -
+    # 上部のコメント参照)。
