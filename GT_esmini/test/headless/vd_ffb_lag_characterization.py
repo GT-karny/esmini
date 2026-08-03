@@ -52,6 +52,7 @@ Two data sources, combined for the fit:
 Usage (DriverScript venv):
   DriverScript\\.venv\\Scripts\\python.exe GT_esmini\\test\\headless\\vd_ffb_lag_characterization.py
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -64,8 +65,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from vd_resume_transient import BASE_XOSC, DT, _load_lib, _make_variant  # noqa: E402
 
 
-def run_lagging_natural(envelope_enabled: bool, lag_tau: float, speed_mps: float = 8.0,
-                         duration_s: float = 20.0) -> list[dict]:
+def run_lagging_natural(
+    envelope_enabled: bool,
+    lag_tau: float,
+    speed_mps: float = 8.0,
+    duration_s: float = 20.0,
+) -> list[dict]:
     """Full scenario run (straight -> curve -> lane-change @t=6s -> stop @t=13s
     left INTACT — push_triggers_out=False, matching run_frozen_grip_natural),
     zero driver force throughout (mode=lagging, no pushback/frozen offset
@@ -79,13 +84,24 @@ def run_lagging_natural(envelope_enabled: bool, lag_tau: float, speed_mps: float
     os.environ["GT_HEADLESS_FFB_LAG_TAU"] = f"{lag_tau:.4f}"
 
     tmpdir = tempfile.mkdtemp(prefix="vd_lagchar_")
-    cfg = {"input_type": "headless_ffb", "ffb_target_track_enabled": True,
-           "steering_threshold": 1.0, "auto_return_timeout": 1.0,
-           "ad_steering_envelope_enabled": envelope_enabled}
+    cfg = {
+        "input_type": "headless_ffb",
+        "ffb_target_track_enabled": True,
+        "steering_threshold": 1.0,
+        "auto_return_timeout": 1.0,
+        "ad_steering_envelope_enabled": envelope_enabled,
+    }
     xosc = _make_variant(tmpdir, cfg, speed_mps, push_triggers_out=False)
 
     lib = _load_lib()
-    argv_list = [b"lagchar", b"--osc", xosc.encode(), b"--headless", b"--fixed_timestep", b"0.05"]
+    argv_list = [
+        b"lagchar",
+        b"--osc",
+        xosc.encode(),
+        b"--headless",
+        b"--fixed_timestep",
+        b"0.05",
+    ]
     argv = (ctypes.c_char_p * len(argv_list))(*argv_list)
     rc = lib.GT_InitWithArgs(len(argv_list), argv)
     if rc != 0:
@@ -109,18 +125,30 @@ def run_lagging_natural(envelope_enabled: bool, lag_tau: float, speed_mps: float
 
 
 def main() -> int:
-    out_dir = os.path.join(os.path.dirname(BASE_XOSC), "..", "..", "test_results", "vd_ffb_lag_characterization")
+    out_dir = os.path.join(
+        os.path.dirname(BASE_XOSC),
+        "..",
+        "..",
+        "test_results",
+        "vd_ffb_lag_characterization",
+    )
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
 
     for lag_tau in (0.30, 0.15):
         for envelope_enabled in (False, True):
             frames = run_lagging_natural(envelope_enabled, lag_tau)
-            manual_edges = sum(1 for f in frames if f.get("override", {}).get("manual_transition"))
-            print(f"tau={lag_tau} envelope_enabled={envelope_enabled}: n_frames={len(frames)} "
-                  f"manual_edges={manual_edges} (expect 0)")
+            manual_edges = sum(
+                1 for f in frames if f.get("override", {}).get("manual_transition")
+            )
+            print(
+                f"tau={lag_tau} envelope_enabled={envelope_enabled}: n_frames={len(frames)} "
+                f"manual_edges={manual_edges} (expect 0)"
+            )
             tag = f"lagging_tau{lag_tau:g}_env{envelope_enabled}"
-            with open(os.path.join(out_dir, f"{tag}.json"), "w", encoding="utf-8") as fh:
+            with open(
+                os.path.join(out_dir, f"{tag}.json"), "w", encoding="utf-8"
+            ) as fh:
                 json.dump(frames, fh, indent=1)
     return 0
 

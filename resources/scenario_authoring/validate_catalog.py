@@ -86,7 +86,10 @@ from GT_esmini.web.backend.services.log_extract import extract_failure  # noqa: 
 _scripts_dir = _REPO / "scripts"
 if str(_scripts_dir) not in sys.path:
     sys.path.insert(0, str(_scripts_dir))
-from check_route_waypoints import _HARD_FAIL_REASONS, audit_file as _audit_route_waypoints  # noqa: E402
+from check_route_waypoints import (
+    _HARD_FAIL_REASONS,
+    audit_file as _audit_route_waypoints,
+)  # noqa: E402
 
 _DEFAULT_DLL = _REPO / "build" / "GT_esmini" / "Release" / "GT_esminiLib.dll"
 _DEFAULT_ESMINI = (

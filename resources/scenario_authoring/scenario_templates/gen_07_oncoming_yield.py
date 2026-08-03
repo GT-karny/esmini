@@ -110,7 +110,12 @@ from scenariogeneration import xosc  # noqa: E402
 ROAD_REF = "t_junction__a90"
 ROADFILE_REL = f"../../road_catalog/generated/{ROAD_REF}.xodr"
 ROADFILE_ABS = (
-    repo_root() / "resources" / "scenario_authoring" / "road_catalog" / "generated" / f"{ROAD_REF}.xodr"
+    repo_root()
+    / "resources"
+    / "scenario_authoring"
+    / "road_catalog"
+    / "generated"
+    / f"{ROAD_REF}.xodr"
 )
 PHASE = "3d"
 

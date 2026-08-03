@@ -120,7 +120,10 @@ def make_restricted_exit_road(
         through_road, radius=_JUNCTION_RADIUS, angle=0.0, road_connection="predecessor"
     )
     jc.add_incoming_road_circular_geometry(
-        exit_road, radius=_JUNCTION_RADIUS, angle=angle_rad, road_connection="predecessor"
+        exit_road,
+        radius=_JUNCTION_RADIUS,
+        angle=angle_rad,
+        road_connection="predecessor",
     )
 
     # Through connection: equal lane counts on both roads -> scenariogeneration

@@ -35,6 +35,7 @@ why a true manual-then-resume offset isn't producible in "lagging" mode
 without a C++ change). Driver force is EXACTLY zero throughout (no pushback
 UDP channel used at all here -- "lagging" mode has none).
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -48,7 +49,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from vd_resume_transient import BASE_XOSC, DT, SHIPPED_CFG, _load_lib  # noqa: E402
 
 
-def _make_offset_variant(tmpdir: str, cfg_overrides: dict, speed_mps: float, initial_offset_m: float) -> str:
+def _make_offset_variant(
+    tmpdir: str, cfg_overrides: dict, speed_mps: float, initial_offset_m: float
+) -> str:
     """Like vd_resume_transient._make_variant, but ALSO sets the ego's
     initial TeleportAction LanePosition offset (forces AUTO to correct a
     real lateral deviation from t=0, entirely within continuous AUTO --
@@ -76,8 +79,11 @@ def _make_offset_variant(tmpdir: str, cfg_overrides: dict, speed_mps: float, ini
         if pth and not os.path.isabs(pth):
             el.set("path", os.path.abspath(os.path.join(base_dir, pth)))
 
-    for cond_name, new_value in (("LaneChangeStart", "500.0"), ("StopStart", "500.0"),
-                                  ("QuitCondition", "600")):
+    for cond_name, new_value in (
+        ("LaneChangeStart", "500.0"),
+        ("StopStart", "500.0"),
+        ("QuitCondition", "600"),
+    ):
         for cond in root.findall(f".//Condition[@name='{cond_name}']"):
             stc = cond.find(".//SimulationTimeCondition")
             if stc is not None:
@@ -88,7 +94,9 @@ def _make_offset_variant(tmpdir: str, cfg_overrides: dict, speed_mps: float, ini
 
     lane_pos = root.find(".//TeleportAction//LanePosition")
     if lane_pos is None:
-        raise RuntimeError("Could not find initial TeleportAction LanePosition in base xosc")
+        raise RuntimeError(
+            "Could not find initial TeleportAction LanePosition in base xosc"
+        )
     lane_pos.set("offset", f"{initial_offset_m:.4f}")
 
     ctrl = root.find(".//ObjectController/Controller")
@@ -104,8 +112,13 @@ def _make_offset_variant(tmpdir: str, cfg_overrides: dict, speed_mps: float, ini
     return out_xosc
 
 
-def run_lagging_offset_correction(envelope_enabled: bool, lag_tau: float, initial_offset_m: float,
-                                   speed_mps: float = 8.0, duration_s: float = 8.0) -> list[dict]:
+def run_lagging_offset_correction(
+    envelope_enabled: bool,
+    lag_tau: float,
+    initial_offset_m: float,
+    speed_mps: float = 8.0,
+    duration_s: float = 8.0,
+) -> list[dict]:
     os.environ["GT_HEADLESS_FFB_MODE"] = "lagging"
     os.environ.pop("GT_HEADLESS_FFB_FROZEN_AT", None)
     os.environ["GT_HEADLESS_FFB_LAG_TAU"] = f"{lag_tau:.4f}"
@@ -116,13 +129,24 @@ def run_lagging_offset_correction(envelope_enabled: bool, lag_tau: float, initia
     # isolates whether a latch comes from the FFB torque-proxy signature
     # logic specifically (what we're testing), not from the raw axis simply
     # exceeding a low threshold (a different, unrelated latch path).
-    cfg = {"input_type": "headless_ffb", "ffb_target_track_enabled": True,
-           "steering_threshold": 1.0, "auto_return_timeout": 1.0,
-           "ad_steering_envelope_enabled": envelope_enabled}
+    cfg = {
+        "input_type": "headless_ffb",
+        "ffb_target_track_enabled": True,
+        "steering_threshold": 1.0,
+        "auto_return_timeout": 1.0,
+        "ad_steering_envelope_enabled": envelope_enabled,
+    }
     xosc = _make_offset_variant(tmpdir, cfg, speed_mps, initial_offset_m)
 
     lib = _load_lib()
-    argv_list = [b"lagfalselatch", b"--osc", xosc.encode(), b"--headless", b"--fixed_timestep", b"0.05"]
+    argv_list = [
+        b"lagfalselatch",
+        b"--osc",
+        xosc.encode(),
+        b"--headless",
+        b"--fixed_timestep",
+        b"0.05",
+    ]
     argv = (ctypes.c_char_p * len(argv_list))(*argv_list)
     rc = lib.GT_InitWithArgs(len(argv_list), argv)
     if rc != 0:
@@ -153,33 +177,47 @@ def summarize(frames: list[dict]) -> dict:
     is no velocity signature to report post-revert). max_actual_rate is
     dropped for the same reason (the field no longer exists)."""
     manual_edges = [f for f in frames if f.get("override", {}).get("manual_transition")]
-    weng_true = [f for f in frames if f.get("ffb", {}).get("gates", {}).get("wheel_engaged")]
-    max_target_rate = max((abs(f["ffb"]["gates"]["target_rate"]) for f in frames), default=0.0)
+    weng_true = [
+        f for f in frames if f.get("ffb", {}).get("gates", {}).get("wheel_engaged")
+    ]
+    max_target_rate = max(
+        (abs(f["ffb"]["gates"]["target_rate"]) for f in frames), default=0.0
+    )
     max_pos_err = max((abs(f["ffb"]["position_error"]) for f in frames), default=0.0)
     max_force = max((f["ffb"]["commanded_force"] for f in frames), default=0.0)
     return {
-        "n_frames": len(frames), "n_manual_edges": len(manual_edges),
+        "n_frames": len(frames),
+        "n_manual_edges": len(manual_edges),
         "manual_edge_times": [f["sim_time"] for f in manual_edges],
         "n_wheel_engaged_true": len(weng_true),
         "first_wheel_engaged_true_t": weng_true[0]["sim_time"] if weng_true else None,
         "max_target_rate": max_target_rate,
-        "max_position_error": max_pos_err, "max_commanded_force": max_force,
+        "max_position_error": max_pos_err,
+        "max_commanded_force": max_force,
     }
 
 
 def main() -> int:
-    out_dir = os.path.join(os.path.dirname(BASE_XOSC), "..", "..", "test_results", "vd_lagging_false_latch")
+    out_dir = os.path.join(
+        os.path.dirname(BASE_XOSC), "..", "..", "test_results", "vd_lagging_false_latch"
+    )
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
 
-    print("=== resume-transient-equivalent (large initial lane offset=2.5m), tau sweep ===")
+    print(
+        "=== resume-transient-equivalent (large initial lane offset=2.5m), tau sweep ==="
+    )
     for envelope_enabled in (True, False):
         for lag_tau in (0.1, 0.3, 0.5):
-            frames = run_lagging_offset_correction(envelope_enabled, lag_tau, initial_offset_m=2.5)
+            frames = run_lagging_offset_correction(
+                envelope_enabled, lag_tau, initial_offset_m=2.5
+            )
             s = summarize(frames)
             print(f"  envelope={envelope_enabled} tau={lag_tau}: {s}")
             tag = f"offset2.5_env{envelope_enabled}_tau{lag_tau:g}"
-            with open(os.path.join(out_dir, f"{tag}.json"), "w", encoding="utf-8") as fh:
+            with open(
+                os.path.join(out_dir, f"{tag}.json"), "w", encoding="utf-8"
+            ) as fh:
                 json.dump(frames, fh, indent=1)
     return 0
 

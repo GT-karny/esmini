@@ -41,6 +41,7 @@ framing):
     need a sharper/faster real steering reversal, higher speed, etc. to
     reproduce on hardware).
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -51,9 +52,20 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "scripts"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "scripts"
+    ),
+)
 from vd_resume_transient import DT, _load_lib  # noqa: E402
-from vd_ffb_notouch_parity import ROOT, DLL, BASE_CFG, _write_cfg, _write_variant  # noqa: E402
+from vd_ffb_notouch_parity import (
+    ROOT,
+    DLL,
+    BASE_CFG,
+    _write_cfg,
+    _write_variant,
+)  # noqa: E402
 
 SCENARIOS = [
     "resources/xosc/verification/05_anticipation/decelerate_for_right_turn.xosc",
@@ -82,7 +94,9 @@ def run_plant_hands_off(scenario_path: str, duration_s: float = 40.0) -> list[di
     os.environ.pop("GT_HEADLESS_FFB_PLANT_BREAKAWAY", None)
     os.environ.pop("GT_HEADLESS_FFB_PLANT_KINETIC", None)
     os.environ.pop("GT_HEADLESS_FFB_PLANT_VMAX", None)
-    os.environ["GT_HEADLESS_FFB_PLANT_NOISE_AMP"] = "0.0"   # deterministic, no jitter confound
+    os.environ["GT_HEADLESS_FFB_PLANT_NOISE_AMP"] = (
+        "0.0"  # deterministic, no jitter confound
+    )
     os.environ["GT_HEADLESS_FFB_PLANT_SEED"] = "12345"
 
     tmpdir = tempfile.mkdtemp(prefix="vd_plant_discrepancy_")
@@ -90,8 +104,14 @@ def run_plant_hands_off(scenario_path: str, duration_s: float = 40.0) -> list[di
     xosc_ffb = _write_variant(scenario_path, tmpdir, cfg_ffb, "plant")
 
     lib = _load_lib()
-    argv_list = [b"plantdiscrepancy", b"--osc", xosc_ffb.encode(), b"--headless",
-                 b"--fixed_timestep", b"0.050"]
+    argv_list = [
+        b"plantdiscrepancy",
+        b"--osc",
+        xosc_ffb.encode(),
+        b"--headless",
+        b"--fixed_timestep",
+        b"0.050",
+    ]
     argv = (ctypes.c_char_p * len(argv_list))(*argv_list)
     rc = lib.GT_InitWithArgs(len(argv_list), argv)
     if rc != 0:
@@ -117,8 +137,19 @@ def run_plant_hands_off(scenario_path: str, duration_s: float = 40.0) -> list[di
 
 def summarize(frames: list[dict]) -> dict:
     manual_edges = [f for f in frames if f.get("override", {}).get("manual_transition")]
-    max_pos_err = max((abs(f["ffb"]["position_error"]) for f in frames if f["ffb"].get("target_active")), default=0.0)
-    max_mag_opp_frames = sum(1 for f in frames if f.get("ffb", {}).get("gates", {}).get("magnitude_opposition"))
+    max_pos_err = max(
+        (
+            abs(f["ffb"]["position_error"])
+            for f in frames
+            if f["ffb"].get("target_active")
+        ),
+        default=0.0,
+    )
+    max_mag_opp_frames = sum(
+        1
+        for f in frames
+        if f.get("ffb", {}).get("gates", {}).get("magnitude_opposition")
+    )
     return {
         "n_frames": len(frames),
         "n_manual_edges": len(manual_edges),
@@ -129,21 +160,29 @@ def summarize(frames: list[dict]) -> dict:
 
 
 def main() -> int:
-    print("NOT EXECUTED -- see module docstring. Requires: (1) team-lead's "
-          "current gate run finished, (2) a rebuilt DLL with 'plant' mode "
-          "compiled in. Once both hold, run this directly:")
+    print(
+        "NOT EXECUTED -- see module docstring. Requires: (1) team-lead's "
+        "current gate run finished, (2) a rebuilt DLL with 'plant' mode "
+        "compiled in. Once both hold, run this directly:"
+    )
     os.makedirs(OUT_DIR, exist_ok=True)
     for scen in SCENARIOS:
         name = Path(scen).stem
         print(f"  frames = run_plant_hands_off('{scen}')")
         print(f"  # save to {os.path.join(OUT_DIR, name + '_plant.json')}")
-    print("\nCompare each scenario's result against the matching 'lagging' "
-          "parity FAIL data already on hand:")
-    print("  decelerate_for_right_turn: test_results/diag_lag_right_turn.json "
-          "(manual_transition=True @ t=14.10)")
-    print("  traffic_lights_junction:   printed trace only (not persisted), "
-          "see f7_parity_lagging_overshoot_findings.md §2.2 "
-          "(manual_transition=True @ t=18.70)")
+    print(
+        "\nCompare each scenario's result against the matching 'lagging' "
+        "parity FAIL data already on hand:"
+    )
+    print(
+        "  decelerate_for_right_turn: test_results/diag_lag_right_turn.json "
+        "(manual_transition=True @ t=14.10)"
+    )
+    print(
+        "  traffic_lights_junction:   printed trace only (not persisted), "
+        "see f7_parity_lagging_overshoot_findings.md §2.2 "
+        "(manual_transition=True @ t=18.70)"
+    )
     return 0
 
 

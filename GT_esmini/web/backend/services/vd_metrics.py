@@ -1745,7 +1745,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                 "GT_esminiLib.dll (predates LaneChangeInitiation telemetry) or the feature is "
                 "not wired into this run",
             )
-        with_signal_key = [i for i in with_lc if "signal_active" in frames[i]["lane_change"]]
+        with_signal_key = [
+            i for i in with_lc if "signal_active" in frames[i]["lane_change"]
+        ]
         if not with_signal_key:
             return res(
                 "skip",
@@ -1755,7 +1757,12 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
 
         # 3. First frame signal_active goes true.
         sig_idx = next(
-            (i for i in with_signal_key if frames[i]["lane_change"].get("signal_active")), None
+            (
+                i
+                for i in with_signal_key
+                if frames[i]["lane_change"].get("signal_active")
+            ),
+            None,
         )
         if sig_idx is None:
             return res(
@@ -1767,7 +1774,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
 
         # 4. First frame armed goes true (searched over the same with_lc set -- armed does not
         # require the signal_active key to be present, only lane_change itself).
-        arm_idx = next((i for i in with_lc if frames[i]["lane_change"].get("armed")), None)
+        arm_idx = next(
+            (i for i in with_lc if frames[i]["lane_change"].get("armed")), None
+        )
         if arm_idx is None:
             return res(
                 "fail",
@@ -1791,7 +1800,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         # the intent (signal_active) reaching the lamp (indicator.left/right), per section 11-8's
         # "matcher は両方を見る".
         lit_window = [i for i in gated if t_sig <= frames[i]["sim_time"] <= t_arm]
-        with_indicator = [i for i in lit_window if isinstance(frames[i].get("indicator"), dict)]
+        with_indicator = [
+            i for i in lit_window if isinstance(frames[i].get("indicator"), dict)
+        ]
         if not with_indicator:
             return res(
                 "skip",
@@ -1801,7 +1812,10 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         dark = [
             i
             for i in with_indicator
-            if not (frames[i]["indicator"].get("left") or frames[i]["indicator"].get("right"))
+            if not (
+                frames[i]["indicator"].get("left")
+                or frames[i]["indicator"].get("right")
+            )
         ]
         if dark:
             i0 = dark[0]
@@ -1815,11 +1829,13 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
 
         # 7. Lit side must agree with the hop's direction at t_arm (lane_change.direction: +1 left
         # / -1 right, only meaningful once armed -- see VirtualDriverTypes.hpp).
-        arm_direction  = frames[arm_idx]["lane_change"].get("direction")
-        arm_indicator  = frames[arm_idx].get("indicator") or {}
-        lit_left       = bool(arm_indicator.get("left"))
-        lit_right      = bool(arm_indicator.get("right"))
-        direction_ok = (arm_direction == 1 and lit_left) or (arm_direction == -1 and lit_right)
+        arm_direction = frames[arm_idx]["lane_change"].get("direction")
+        arm_indicator = frames[arm_idx].get("indicator") or {}
+        lit_left = bool(arm_indicator.get("left"))
+        lit_right = bool(arm_indicator.get("right"))
+        direction_ok = (arm_direction == 1 and lit_left) or (
+            arm_direction == -1 and lit_right
+        )
         if not direction_ok:
             return res(
                 "fail",
@@ -1856,7 +1872,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             )
         expect_dir = str(must["expect_dir"]).lower()
         if expect_dir not in ("left", "right", "none"):
-            return res("skip", f"expect_dir must be left/right/none, got {expect_dir!r}")
+            return res(
+                "skip", f"expect_dir must be left/right/none, got {expect_dir!r}"
+            )
 
         window = must.get("window")
         if window is not None:
@@ -1887,7 +1905,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         # a lamp lit via some other path (e.g. on_connector alone) that (a) could miss.
         if expect_dir == "none":
             bad_dir = [
-                i for i in with_jt if int(frames[i]["junction_turn"].get("dir") or 0) != 0
+                i
+                for i in with_jt
+                if int(frames[i]["junction_turn"].get("dir") or 0) != 0
             ]
             if bad_dir:
                 i0 = bad_dir[0]
@@ -1899,11 +1919,14 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                     f"is never classified as a turn",
                     i0,
                 )
-            with_indicator = [i for i in with_jt if isinstance(frames[i].get("indicator"), dict)]
+            with_indicator = [
+                i for i in with_jt if isinstance(frames[i].get("indicator"), dict)
+            ]
             lit = [
                 i
                 for i in with_indicator
-                if frames[i]["indicator"].get("left") or frames[i]["indicator"].get("right")
+                if frames[i]["indicator"].get("left")
+                or frames[i]["indicator"].get("right")
             ]
             if lit:
                 i0 = lit[0]
@@ -1931,7 +1954,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         min_distance_m = float(must["min_distance_m"])
         want_dir_sign = 1 if expect_dir == "left" else -1
 
-        with_indicator = [i for i in with_jt if isinstance(frames[i].get("indicator"), dict)]
+        with_indicator = [
+            i for i in with_jt if isinstance(frames[i].get("indicator"), dict)
+        ]
         if not with_indicator:
             return res(
                 "skip",
@@ -1941,7 +1966,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
 
         def _lit_for_dir(i: int) -> bool:
             ind = frames[i]["indicator"]
-            return bool(ind.get("left")) if want_dir_sign == 1 else bool(ind.get("right"))
+            return (
+                bool(ind.get("left")) if want_dir_sign == 1 else bool(ind.get("right"))
+            )
 
         # 1. rising frame where the indicator is lit on the expected side WHILE junction_turn.dir
         # already reports that same side -- an indicator lit for some unrelated reason (e.g. a
@@ -2003,11 +2030,16 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
 
         # 4. no dark frame within [sig_idx, junc_idx] -- the pre-signal intent must hold all the
         # way to junction entry, not flicker.
-        with_indicator_span = [i for i in span if isinstance(frames[i].get("indicator"), dict)]
+        with_indicator_span = [
+            i for i in span if isinstance(frames[i].get("indicator"), dict)
+        ]
         dark = [
             i
             for i in with_indicator_span
-            if not (frames[i]["indicator"].get("left") or frames[i]["indicator"].get("right"))
+            if not (
+                frames[i]["indicator"].get("left")
+                or frames[i]["indicator"].get("right")
+            )
         ]
         if dark:
             i0 = dark[0]
@@ -2033,13 +2065,20 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             None,
         )
         hold_span = (
-            on_connector_span if off_idx is None else [i for i in on_connector_span if i < off_idx]
+            on_connector_span
+            if off_idx is None
+            else [i for i in on_connector_span if i < off_idx]
         )
-        with_indicator_hold = [i for i in hold_span if isinstance(frames[i].get("indicator"), dict)]
+        with_indicator_hold = [
+            i for i in hold_span if isinstance(frames[i].get("indicator"), dict)
+        ]
         dark_on_connector = [
             i
             for i in with_indicator_hold
-            if not (frames[i]["indicator"].get("left") or frames[i]["indicator"].get("right"))
+            if not (
+                frames[i]["indicator"].get("left")
+                or frames[i]["indicator"].get("right")
+            )
         ]
         if dark_on_connector:
             i0 = dark_on_connector[0]
@@ -2067,7 +2106,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         junc_indicator = frames[junc_idx].get("indicator") or {}
         lit_left = bool(junc_indicator.get("left"))
         lit_right = bool(junc_indicator.get("right"))
-        direction_ok = (want_dir_sign == 1 and lit_left) or (want_dir_sign == -1 and lit_right)
+        direction_ok = (want_dir_sign == 1 and lit_left) or (
+            want_dir_sign == -1 and lit_right
+        )
         if not direction_ok:
             return res(
                 "fail",
@@ -2189,7 +2230,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         if "expect_blocked_reason" in must:
             want_reason = str(must["expect_blocked_reason"])
             found = [
-                i for i in with_block if frames[i]["overtake"].get("blocked_reason") == want_reason
+                i
+                for i in with_block
+                if frames[i]["overtake"].get("blocked_reason") == want_reason
             ]
             if not found:
                 i0 = with_block[-1]
@@ -2211,8 +2254,10 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                 if pos < len(want_seq) and ph == want_seq[pos]:
                     pos += 1
             if pos < len(want_seq):
-                observed_preview = observed if len(observed) <= 40 else (
-                    observed[:20] + ["..."] + observed[-20:]
+                observed_preview = (
+                    observed
+                    if len(observed) <= 40
+                    else (observed[:20] + ["..."] + observed[-20:])
                 )
                 return res(
                     "fail",
@@ -2225,7 +2270,9 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         # 4. forbid_phases: none of these ever observed.
         if "forbid_phases" in must:
             forbidden = set(must["forbid_phases"])
-            offenders = [i for i in with_block if frames[i]["overtake"].get("phase") in forbidden]
+            offenders = [
+                i for i in with_block if frames[i]["overtake"].get("phase") in forbidden
+            ]
             if offenders:
                 i0 = offenders[0]
                 got = frames[i0]["overtake"].get("phase")

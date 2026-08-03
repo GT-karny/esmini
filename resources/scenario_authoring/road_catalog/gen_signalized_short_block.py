@@ -90,7 +90,7 @@ _JUNCTION_RADIUS = 8.0
 # (the default), the two invariants coincide only when stop_line_setback_a is
 # compared against head_setback by the caller -- the generator itself no longer
 # ties them together.
-_STOP_LINE_TYPE    = "294"
+_STOP_LINE_TYPE = "294"
 _STOP_LINE_COUNTRY = "OpenDRIVE"
 
 _JUNCTION_A_ID = 100
@@ -390,7 +390,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _wire_signal_to_junction_via_controller(xodr_path: Path, signal_name: str, controller_id: int = 1) -> None:
+def _wire_signal_to_junction_via_controller(
+    xodr_path: Path, signal_name: str, controller_id: int = 1
+) -> None:
     """Post-process *xodr_path*: add a top-level <controller> listing the signal
     named *signal_name* and reference that controller from the FIRST <junction>
     block in the file (junction A -- it is always written before junction B by
@@ -414,9 +416,16 @@ def _wire_signal_to_junction_via_controller(xodr_path: Path, signal_name: str, c
     """
     text = xodr_path.read_text(encoding="utf-8")
 
-    m = re.search(r'<signal\b[^>]*\bid="(\d+)"[^>]*\bname="' + re.escape(signal_name) + r'"[^>]*/>', text)
+    m = re.search(
+        r'<signal\b[^>]*\bid="(\d+)"[^>]*\bname="'
+        + re.escape(signal_name)
+        + r'"[^>]*/>',
+        text,
+    )
     if not m:
-        raise RuntimeError(f"{xodr_path}: no <signal name=\"{signal_name}\"> found to wire to a controller")
+        raise RuntimeError(
+            f'{xodr_path}: no <signal name="{signal_name}"> found to wire to a controller'
+        )
     signal_id = m.group(1)
 
     controller_block = (
@@ -430,7 +439,11 @@ def _wire_signal_to_junction_via_controller(xodr_path: Path, signal_name: str, c
     # First </junction> closes the first <junction ...> (junction A) -- junction
     # elements do not nest, so this cannot land inside junction B's block.
     close_idx = text.index("</junction>")
-    text = text[:close_idx] + f'        <controller id="{controller_id}" type="0"/>\n    ' + text[close_idx:]
+    text = (
+        text[:close_idx]
+        + f'        <controller id="{controller_id}" type="0"/>\n    '
+        + text[close_idx:]
+    )
 
     xodr_path.write_text(text, encoding="utf-8")
 
@@ -485,7 +498,9 @@ def main() -> None:
         # enumeration nor the 2/3-letter patterns. Restore the exact case
         # post-write, the same idiom normalize_header_date already uses.
         text = xodr_path.read_text(encoding="utf-8")
-        fixed = text.replace(f'country="{_STOP_LINE_COUNTRY.upper()}"', f'country="{_STOP_LINE_COUNTRY}"')
+        fixed = text.replace(
+            f'country="{_STOP_LINE_COUNTRY.upper()}"', f'country="{_STOP_LINE_COUNTRY}"'
+        )
         if fixed != text:
             xodr_path.write_text(fixed, encoding="utf-8")
     if args.head_farside_offset_a is not None:
@@ -498,7 +513,11 @@ def main() -> None:
         "geometry_type": "G4+G4",
         "signage": "traffic_light x2"
         + (" + stop_line" if args.stop_line_setback_a is not None else "")
-        + (" + farside_head_a(controller-wired)" if args.head_farside_offset_a is not None else ""),
+        + (
+            " + farside_head_a(controller-wired)"
+            if args.head_farside_offset_a is not None
+            else ""
+        ),
         "layout": {
             "ego_path": [_R_WEST, _JUNCTION_A_ID, _R_BLOCK, _JUNCTION_B_ID, _R_EAST],
             "junction_a_id": _JUNCTION_A_ID,
@@ -528,7 +547,9 @@ def main() -> None:
             "s": args.head_farside_offset_a,
             "resolved_via": "controller_chain (SignalJunctionResolver path (a))",
         }
-        meta["generator"]["params"]["head_farside_offset_a"] = args.head_farside_offset_a
+        meta["generator"]["params"][
+            "head_farside_offset_a"
+        ] = args.head_farside_offset_a
     # Inserted here (not in the initial layout dict literal above) so the
     # default (near-side) case's key order exactly matches the pre-rename meta
     # files byte-for-byte -- write_meta_yaml preserves insertion order.

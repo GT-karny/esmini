@@ -37,7 +37,8 @@ def _frame(t, speed, x=0.0, y=0.0, lane=-1, track=1, **ego_extra):
 def _rl_frame(t, **route_lane_overrides):
     """A frame carrying a "route_lane" block (RouteLanePlan telemetry -- see
     VirtualDriverTelemetryJson.cpp), defaulted to a clean/on-target state.
-    Override individual fields per test, e.g. _rl_frame(0.0, diagnostic="invalid_route")."""
+    Override individual fields per test, e.g. _rl_frame(0.0, diagnostic="invalid_route").
+    """
     fr = _frame(t, 10.0)
     fr["route_lane"] = {
         "valid": True,
@@ -273,7 +274,11 @@ def test_route_lane_plan_holds_target_lanes_compares_sorted():
 def test_route_lane_plan_holds_window_gates_frames():
     frames = [_rl_frame(0.0, diagnostic="invalid_route"), _rl_frame(5.0, diagnostic="")]
     r = eval_must(
-        {"event": "route_lane_plan_holds", "expect_diagnostic": "", "window": [5.0, 5.0]},
+        {
+            "event": "route_lane_plan_holds",
+            "expect_diagnostic": "",
+            "window": [5.0, 5.0],
+        },
         frames,
     )
     assert r["status"] == "pass"

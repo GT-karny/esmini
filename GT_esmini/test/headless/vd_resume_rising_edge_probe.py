@@ -42,6 +42,7 @@ correction direction) is set from this session's already-recorded rising-
 edge timeline (offset2.5_clean_envTrue_tau0.3.json): target_rate sustains
 near the 2.459/s ceiling from t=0.10 to ~t=0.45-0.50s before a brief lull.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -60,10 +61,16 @@ WIRE_FMT = __import__("struct").Struct("<I4diI")
 MAGIC = 0x50535443  # 'PSTC'
 
 
-def run_rising_edge_push(envelope_enabled: bool, push_mag: float, push_start_s: float = 0.10,
-                          push_hold_s: float = 0.45, push_sign: float = 1.0,
-                          initial_offset_m: float = 2.5, speed_mps: float = 8.0,
-                          duration_s: float = 4.0) -> tuple[list[dict], dict]:
+def run_rising_edge_push(
+    envelope_enabled: bool,
+    push_mag: float,
+    push_start_s: float = 0.10,
+    push_hold_s: float = 0.45,
+    push_sign: float = 1.0,
+    initial_offset_m: float = 2.5,
+    speed_mps: float = 8.0,
+    duration_s: float = 4.0,
+) -> tuple[list[dict], dict]:
     """push_sign=+1.0 OPPOSES the AD's own correction direction (matches the
     established vd_candidate_b_probe.py convention: same sign as the
     pre-transient actual position, opposite to the direction target_rate
@@ -81,13 +88,24 @@ def run_rising_edge_push(envelope_enabled: bool, push_mag: float, push_start_s: 
     os.environ["GT_HEADLESS_FFB_PUSHBACK_PORT"] = str(PUSHBACK_PORT)
 
     tmpdir = tempfile.mkdtemp(prefix="vd_risingedge_")
-    cfg = {"input_type": "headless_ffb", "ffb_target_track_enabled": True,
-           "steering_threshold": 1.0, "auto_return_timeout": 1.0,
-           "ad_steering_envelope_enabled": envelope_enabled}
+    cfg = {
+        "input_type": "headless_ffb",
+        "ffb_target_track_enabled": True,
+        "steering_threshold": 1.0,
+        "auto_return_timeout": 1.0,
+        "ad_steering_envelope_enabled": envelope_enabled,
+    }
     xosc = _make_offset_variant(tmpdir, cfg, speed_mps, initial_offset_m)
 
     lib = _load_lib()
-    argv_list = [b"risingedge", b"--osc", xosc.encode(), b"--headless", b"--fixed_timestep", b"0.05"]
+    argv_list = [
+        b"risingedge",
+        b"--osc",
+        xosc.encode(),
+        b"--headless",
+        b"--fixed_timestep",
+        b"0.05",
+    ]
     argv = (ctypes.c_char_p * len(argv_list))(*argv_list)
     rc = lib.GT_InitWithArgs(len(argv_list), argv)
     if rc != 0:
@@ -113,7 +131,11 @@ def run_rising_edge_push(envelope_enabled: bool, push_mag: float, push_start_s: 
     n_steps = int(duration_s / DT)
     for i in range(n_steps):
         t = i * DT
-        pushback_val["v"] = push_sign * push_mag if (push_start_s <= t < push_start_s + push_hold_s) else 0.0
+        pushback_val["v"] = (
+            push_sign * push_mag
+            if (push_start_s <= t < push_start_s + push_hold_s)
+            else 0.0
+        )
         send_pushback()
         lib.GT_Step(DT)
         f = tel()
@@ -127,22 +149,34 @@ def run_rising_edge_push(envelope_enabled: bool, push_mag: float, push_start_s: 
     except OSError:
         pass
 
-    push_seg = [f for f in frames if push_start_s <= f["sim_time"] < push_start_s + push_hold_s]
+    push_seg = [
+        f for f in frames if push_start_s <= f["sim_time"] < push_start_s + push_hold_s
+    ]
     manual_edge = any(f["override"].get("manual_transition") for f in push_seg)
-    latched_final = push_seg[-1]["override"].get("lateral", False) if push_seg else False
+    latched_final = (
+        push_seg[-1]["override"].get("lateral", False) if push_seg else False
+    )
     reason_counts: dict[str, int] = {}
     max_target_rate_during_push = 0.0
     max_actual_norm_during_push = 0.0
     for f in push_seg:
         g = f["ffb"]["gates"]
         reason_counts[g["block_reason"]] = reason_counts.get(g["block_reason"], 0) + 1
-        max_target_rate_during_push = max(max_target_rate_during_push, abs(g["target_rate"]))
-        max_actual_norm_during_push = max(max_actual_norm_during_push, abs(g["actual_norm"]))
+        max_target_rate_during_push = max(
+            max_target_rate_during_push, abs(g["target_rate"])
+        )
+        max_actual_norm_during_push = max(
+            max_actual_norm_during_push, abs(g["actual_norm"])
+        )
 
     result = {
-        "envelope_enabled": envelope_enabled, "push_mag": push_mag, "push_sign": push_sign,
-        "push_start_s": push_start_s, "push_hold_s": push_hold_s,
-        "manual_edge_seen": manual_edge, "latched_final": latched_final,
+        "envelope_enabled": envelope_enabled,
+        "push_mag": push_mag,
+        "push_sign": push_sign,
+        "push_start_s": push_start_s,
+        "push_hold_s": push_hold_s,
+        "manual_edge_seen": manual_edge,
+        "latched_final": latched_final,
         "block_reason_counts": reason_counts,
         "max_target_rate_during_push": max_target_rate_during_push,
         "max_actual_norm_during_push": max_actual_norm_during_push,
@@ -156,7 +190,9 @@ def main() -> int:
     confirms the reverted+rebuilt DLL is staged, run this with:
       DriverScript\\.venv\\Scripts\\python.exe GT_esmini\\test\\headless\\vd_resume_rising_edge_probe.py
     """
-    out_dir = os.path.join(os.path.dirname(BASE_XOSC), "..", "..", "test_results", "vd_resume_rising_edge")
+    out_dir = os.path.join(
+        os.path.dirname(BASE_XOSC), "..", "..", "test_results", "vd_resume_rising_edge"
+    )
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
 
@@ -166,7 +202,9 @@ def main() -> int:
             frames, res = run_rising_edge_push(envelope_enabled, push_mag)
             print(f"  envelope={envelope_enabled} push_mag={push_mag}: {res}")
             tag = f"risingedge_push{push_mag:g}_env{envelope_enabled}"
-            with open(os.path.join(out_dir, f"{tag}.json"), "w", encoding="utf-8") as fh:
+            with open(
+                os.path.join(out_dir, f"{tag}.json"), "w", encoding="utf-8"
+            ) as fh:
                 json.dump({"result": res, "frames": frames}, fh, indent=1)
     return 0
 

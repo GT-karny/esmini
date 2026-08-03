@@ -222,7 +222,9 @@ def _bridge_junction_gaps(
         sys.path.insert(0, str(scripts_dir))
     from check_route_waypoints import parse_xodr  # noqa: PLC0415
 
-    junction_of, adjacent, transitions, road_pair_candidates, road_length = parse_xodr(xodr_path)
+    junction_of, adjacent, transitions, road_pair_candidates, road_length = parse_xodr(
+        xodr_path
+    )
 
     out = [waypoints[0]]
     for prev, cur in zip(waypoints, waypoints[1:]):

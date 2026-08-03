@@ -179,7 +179,12 @@ def build_variant(
     topo = _TOPOLOGY[(junction, ego_on_priority)]
     roadfile_rel = f"../../road_catalog/generated/{junction}.xodr"
     roadfile_abs = (
-        repo_root() / "resources" / "scenario_authoring" / "road_catalog" / "generated" / f"{junction}.xodr"
+        repo_root()
+        / "resources"
+        / "scenario_authoring"
+        / "road_catalog"
+        / "generated"
+        / f"{junction}.xodr"
     )
 
     # --- entities -------------------------------------------------------
