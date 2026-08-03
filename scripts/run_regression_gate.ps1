@@ -323,6 +323,17 @@ if (-not $SkipBehavioral) {
 # recorded as a known red in the baseline). The DEVIATION vs baseline is the gate.
 # ----------------------------------------------------------------------------
 function Invoke-BehavioralBatch {
+    # CAUTION (2026-08-03 incident: -FailOnBehavioral could never turn the gate
+    # red): this function's return value is consumed as a boolean by the caller
+    # via `if (-not (Invoke-BehavioralBatch ...))`. If a native command inside
+    # this function is invoked WITHOUT capturing/redirecting its stdout, that
+    # stdout is emitted on this function's own output stream and gets
+    # concatenated with the `return` value -- turning the return into a
+    # multi-element array (e.g. @("...stdout...", $false)). PowerShell casts
+    # any non-empty array to $true regardless of its last element, so
+    # `-not (...)` is always $false and the failing branch silently never
+    # runs -- the gate stays green even on a real deviation. Route every
+    # native call's stdout through Write-Host (never leave it unredirected).
     param(
         [string]$Label,
         [string]$BatchPath,
@@ -336,7 +347,7 @@ function Invoke-BehavioralBatch {
     $argList = @($Harness, "batch", $BatchPath, "--out", $OutPath)
     if (-not [string]::IsNullOrWhiteSpace($Dll)) { $argList += @("--dll", $DllPath) }
     Write-Host "${Label}: $PyExe $($argList -join ' ')" -ForegroundColor Cyan
-    & $PyExe @argList
+    & $PyExe @argList 2>&1 | ForEach-Object { Write-Host $_ }
 
     $verdictFile = Join-Path $OutPath "batch_verdict.json"
     $verdictText = "(no batch_verdict.json)"
@@ -417,7 +428,7 @@ function Invoke-BehavioralBatch {
     $checker = Resolve-RepoPath "scripts/check_regression_baseline.py"
     $regArgs = @($checker, "--batch-out", $OutPath, "--baseline", $BaselinePath, "--max-age-seconds", "1800")
     Write-Host "${Label}: $PyExe $($regArgs -join ' ')" -ForegroundColor Cyan
-    & $PyExe @regArgs
+    & $PyExe @regArgs 2>&1 | ForEach-Object { Write-Host $_ }
     $reg = $LASTEXITCODE
 
     if ($reg -eq 0) {
