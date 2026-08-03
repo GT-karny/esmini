@@ -586,6 +586,26 @@ signals:
       exposure=frame は route_lane_conformance と同じ理由（OSI/HVD に対応概念が無い GT 独自
       VD テレメトリ）。
 
+  - id: junction_turn_signal_distance
+    title: 交差点の右左折で、方向指示器の点灯開始から接続路進入までの走行距離
+    exposure: [frame]
+    state: "●"
+    emit: ControllerVirtualDriver.cpp:1911-1938（DetectJunctionTurn が JunctionTurnLookahead を1回の走査で算出し、gate 前の生値を out_raw へ）→ :1503（Step のフォールバック段で受ける）→ :1679（telemetry_.junction_turn）→ VirtualDriverTelemetryJson.cpp:162-164（junction_turn ブロック）／ランプ側は AutoIndicatorPolicy.cpp → ControllerVirtualDriver.cpp（ApplyLights）→ VirtualDriverTelemetryJson.cpp:157（indicator ブロック）
+    note: >-
+      matcher:indicator_leads_junction_turn が読む。**距離**が観測対象であり、
+      signal:lane_change_signal_timing（**秒**）とは測る次元が違う（junction_turn_signal.md §4-1）。
+      法定が距離規定（道交法53条1項／施行令21条1項「交差点の手前の側端から 30 m 手前」）である
+      ためで、車線変更の「3秒前」とは根拠から別物。
+      **on_connector が本 signal の要である**: テレメトリには「その road が junction 所属か」を
+      示す情報が他に一切無く（road id だけでは判定できない）、Python 側の検証ハーネスは xodr への
+      アクセス手段を持たない。on_connector が無いと「交差点に進入したフレーム」を機械判定できず、
+      距離を測る matcher が原理的に書けない（同 §3-4）。
+      dir は gate 前の**生**の検出方向である。点灯前から非0になるので、matcher は
+      「dir!=0 を伴うランプの立ち上がり」で車線変更由来の点灯と区別できる。
+      dist_to_entry_m は 2.0 m 刻み走査の量子化を pos.GetS() で補正した値（同 §2-4）。
+      exposure=frame は lane_change_signal_timing と同じ理由（OSI/HVD に対応概念が無い GT 独自
+      VD テレメトリ）。
+
   - id: route_lane_conformance
     title: ego が route の要求するレーン帯（目標レーン集合）に居るか
     exposure: [frame]

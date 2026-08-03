@@ -37,6 +37,9 @@ scenarios:
   - scenario: resources/xosc/verification/05_anticipation/cross_straight_junction.xosc
     expectations: resources/xosc/verification/05_anticipation/cross_straight_junction.expectations.yaml
     report: anticipation
+  - scenario: resources/xosc/verification/05_anticipation/junction_turn_signal_long_connector.xosc
+    expectations: resources/xosc/verification/05_anticipation/junction_turn_signal_long_connector.expectations.yaml
+    report: anticipation
   - scenario: resources/xosc/verification/05_anticipation/speed_limit_change.xosc
     expectations: resources/xosc/verification/05_anticipation/speed_limit_change.expectations.yaml
     report: anticipation

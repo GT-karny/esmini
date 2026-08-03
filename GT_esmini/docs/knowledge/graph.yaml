@@ -648,6 +648,32 @@ edges:
   # FUNC-061 には接続済みの要求が1件も無く、既存 REQ-AD-001..017 のどれも合図に触れていない
   # ため、matcher の宛先が存在しなかった（面3→面2 の結合負債を作らずに済ませる唯一の道が
   # 要求の新設だった）。凍結名前空間への追加につきユーザー承認済み。
+  - from: matcher:indicator_leads_junction_turn
+    to: req-vd-ad:REQ-AD-021
+    type: verifies
+    source: GT_esmini/docs/virtualdriver/design/junction_turn_signal.md
+    note: >-
+      anticipation_driving_batch.yaml の3本で検証する（junction_turn_signal.md §4-3）。
+      **接続路長の両極を意図的に取ってある** — 旧実装の故障モードが接続路長に依存して
+      2つに分かれていたためで、片方だけでは再発を捕まえられない:
+
+      - 正・短い接続路: decelerate_for_right_turn（14.87 m）`min_distance_m: 29.5`,
+        `expect_dir: left`。旧実装ではここが 7.18 m しか出なかった。
+        **資産名は「right」だが幾何は左折である**（同 §5。接続路 road 13 は
+        arc curvature +0.108108・length 14.8696 ＝ heading delta +1.608 rad、東向き→北向き）。
+        名前に合わせて expect_dir を right に「直す」と赤くなる。
+      - 正・長い接続路: junction_turn_signal_long_connector（33.2 m）`min_distance_m: 29.5`,
+        `expect_dir: right`。旧実装ではここが**点灯フレーム0**だった（接続路長が単独で
+        lookahead を超え、走査が出口の腕に届かないため構造的に点灯不能）。
+      - 負・直進通過: cross_straight_junction `expect_dir: none`。今回の修正は
+        「点きやすくする」方向なので偽陽性が出やすく、負の資産が要る。
+
+      min_distance_m の 29.5 は法定 30.0 に対する**フレーム量子化の余裕**であって主張の
+      緩和ではない（同 §4-2）。コード側は dist<=30.0 の最初のフレームで点灯するので実測は
+      30.0 を僅かに下回る。§11-9 が法定 3.0 秒に min_lead_s: 2.9 を置いたのと同じ流儀。
+
+      **段 a/b/c のどれを検証済みかは要求側の acceptance_ladder[].verified_by が持つ。**
+
   - from: matcher:indicator_leads_lane_change
     to: req-vd-ad:REQ-AD-018
     type: verifies
@@ -1103,6 +1129,20 @@ edges:
       DetectJunctionTurn の交差点旋回による点灯と区別できない。両ブロックとも欠けていれば
       skip（「何も評価しないものを pass にしない」規律、route_lane_plan_holds と同型）。
 
+  - from: matcher:indicator_leads_junction_turn
+    to: signal:junction_turn_signal_distance
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      vd_metrics.py:1838- の indicator_leads_junction_turn 分岐が、frames[i]["junction_turn"]
+      の dir/dist_to_entry_m/on_connector と frames[i]["indicator"] の left/right を**両方**読む。
+      **on_connector が無いと成立しない**: テレメトリ単体では road id から junction 所属を
+      判定できず、検証ハーネスは xodr を読めないため、「交差点に進入したフレーム」を
+      機械判定する手段が他に無い（junction_turn_signal.md §3-4）。
+      距離は ego.x/y のフレーム間ユークリッド距離の積算で測る（domain_split_holds と同型。
+      speed×dt の積分より頑健で、バッチ末尾の同一 sim_time 重複フレームにも耐える）。
+      どちらのブロックも欠けていれば skip（「何も評価しないものを pass にしない」規律）。
+
   # ---- ⑥常設: matcher -> sustained-by -> gate（capability_model.md §5, フェーズ1） ----
   # 常設ゲート gate:vd-behavior-regression（12シナリオ）が実際に発火させる matcher だけを引く。
   # car_following_traffic_control_batch.yaml が参照する expectations を機械集計した結果＝6件（2026-07-20実測）。
@@ -1184,6 +1224,18 @@ edges:
     type: sustained-by
     source: resources/xosc/verification/anticipation_driving_batch.yaml
     note: 4シナリオ（curve/right_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。
+  - from: matcher:indicator_leads_junction_turn
+    to: gate:anticipation-driving-regression
+    type: sustained-by
+    source: resources/xosc/verification/anticipation_driving_batch.yaml
+    note: >-
+      3シナリオ（decelerate_for_right_turn / junction_turn_signal_long_connector /
+      cross_straight_junction）。このバッチは run_regression_gate.ps1 Step 2.7 と CI の
+      vd-behavioral-regression ジョブの**両方**で走るため、新しい gate を起こさずに
+      ⑥常設を満たせる（junction_turn_signal.md §4-3）。
+      **req-vd-ad:REQ-AD-018 が sustained-by 未結線のまま放置されている状態を再生産しない**
+      ために、matcher の新設と同じサイクルで結線した（あちらの route_lane_batch.yaml は
+      baseline すら無く、ゲートにも CI にも載っていない孤立 matcher になっている）。
   - from: matcher:lane_keep
     to: gate:anticipation-driving-regression
     type: sustained-by

@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:afd6428f9903986e -->
+<!-- generated-from: sha256:229dc8192018f5d8 -->
 
-ノード 198・辺 205（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 200・辺 208（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -171,8 +171,8 @@ flowchart LR
     n_req_vd_ad_REQ_AD_016["REQ-AD-016"]
     n_req_vd_ad_REQ_AD_017["REQ-AD-017"]
     n_req_vd_ad_REQ_AD_013["REQ-AD-013"]
-    n_req_vd_ad_REQ_AD_018["REQ-AD-018"]
     n_req_vd_ad_REQ_AD_021["REQ-AD-021"]
+    n_req_vd_ad_REQ_AD_018["REQ-AD-018"]
     n_req_vd_ad_REQ_AD_019["REQ-AD-019"]
     n_req_vd_ad_REQ_AD_020["REQ-AD-020"]
     n_req_vd_ad_REQ_AD_022["REQ-AD-022"]
@@ -190,6 +190,7 @@ flowchart LR
     n_matcher_impact_speed_below["impact_speed_below"]
     n_matcher_no_emergency_without_conflict["no_emergency_without_conflict"]
     n_matcher_route_lane_plan_holds["route_lane_plan_holds"]
+    n_matcher_indicator_leads_junction_turn["indicator_leads_junction_turn"]
     n_matcher_indicator_leads_lane_change["indicator_leads_lane_change"]
     n_matcher_deceleration_profile_smooth["deceleration_profile_smooth"]
     n_matcher_speed_above["speed_above"]
@@ -223,6 +224,7 @@ flowchart LR
     n_signal_aeb_trigger_flag["aeb_trigger_flag"]
     n_signal_route_lane_conformance["route_lane_conformance"]
     n_signal_lane_change_signal_timing["lane_change_signal_timing"]
+    n_signal_junction_turn_signal_distance["junction_turn_signal_distance"]
   end
   subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
     n_gate_vd_behavior_regression["vd-behavior-regression"]
@@ -350,6 +352,7 @@ flowchart LR
   n_vd_component_lane_change_initiation -->|realizes| n_vd_func_FUNC_055
   n_vd_component_lane_change_initiation -->|realizes| n_vd_func_FUNC_061
   n_matcher_route_lane_plan_holds -->|verifies| n_req_vd_ad_REQ_AD_017
+  n_matcher_indicator_leads_junction_turn -->|verifies| n_req_vd_ad_REQ_AD_021
   n_matcher_indicator_leads_lane_change -->|verifies| n_req_vd_ad_REQ_AD_018
   n_vd_func_FUNC_061 -->|realizes| n_req_vd_ad_REQ_AD_021
   n_vd_func_FUNC_061 -->|realizes| n_req_vd_ad_REQ_AD_018
@@ -412,6 +415,7 @@ flowchart LR
   n_matcher_no_emergency_without_conflict -->|observes| n_signal_aeb_trigger_flag
   n_matcher_route_lane_plan_holds -->|observes| n_signal_route_lane_conformance
   n_matcher_indicator_leads_lane_change -->|observes| n_signal_lane_change_signal_timing
+  n_matcher_indicator_leads_junction_turn -->|observes| n_signal_junction_turn_signal_distance
   n_matcher_speed_above -->|sustained-by| n_gate_vd_behavior_regression
   n_matcher_speed_below -->|sustained-by| n_gate_vd_behavior_regression
   n_matcher_min_speed_above -->|sustained-by| n_gate_vd_behavior_regression
@@ -425,6 +429,7 @@ flowchart LR
   n_req_vd_ad_REQ_AD_013 -->|sustained-by| n_gate_aeb_safety_regression
   n_matcher_deceleration_profile_smooth -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_speed_reduction_before_landmark -->|sustained-by| n_gate_anticipation_driving_regression
+  n_matcher_indicator_leads_junction_turn -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_lane_keep -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_steer_not_saturated -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_no_constraint_kind -->|sustained-by| n_gate_anticipation_driving_regression
@@ -564,7 +569,7 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### observes (22)
+### observes (23)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -590,6 +595,7 @@ flowchart LR
 | `matcher:no_emergency_without_conflict` | `signal:aeb_trigger_flag` | policy.constraints[].source == "aeb"（負matcher＝誤作動ゼロ） |
 | `matcher:route_lane_plan_holds` | `signal:route_lane_conformance` | vd_metrics.py:1520-1677 の route_lane_plan_holds 分岐が frames[i]["route_lane"] （VirtualDriverTelemetryJson.cpp 由来の route_lane ブロック）を読む。target_lanes/ on_target_lane/dist_to_connection/deviation_count/diagnostic の各チェックは呼び出し側の must が指定したものだけ評価する（何もチェックしない must は skip 扱い＝「何も評価しない ものを pass にしない」規律、domain_split_holds と同型）。 |
 | `matcher:indicator_leads_lane_change` | `signal:lane_change_signal_timing` | vd_metrics.py:1708-1836 の indicator_leads_lane_change 分岐が、frames[i]["lane_change"] の signal_active/armed/direction と frames[i]["indicator"] の left/right を**両方**読む。 片方だけでは判定にならない（lane_change_initiation.md §11-8）: signal_active だけだと 意図が AutoIndicatorPolicy に握り潰されていても真になり、indicator だけだと DetectJunctionTurn の交差点旋回による点灯と区別できない。両ブロックとも欠けていれば skip（「何も評価しないものを pass にしない」規律、route_lane_plan_holds と同型）。 |
+| `matcher:indicator_leads_junction_turn` | `signal:junction_turn_signal_distance` | vd_metrics.py:1838- の indicator_leads_junction_turn 分岐が、frames[i]["junction_turn"] の dir/dist_to_entry_m/on_connector と frames[i]["indicator"] の left/right を**両方**読む。 **on_connector が無いと成立しない**: テレメトリ単体では road id から junction 所属を 判定できず、検証ハーネスは xodr を読めないため、「交差点に進入したフレーム」を 機械判定する手段が他に無い（junction_turn_signal.md §3-4）。 距離は ego.x/y のフレーム間ユークリッド距離の積算で測る（domain_split_holds と同型。 speed×dt の積分より頑健で、バッチ末尾の同一 sim_time 重複フレームにも耐える）。 どちらのブロックも欠けていれば skip（「何も評価しないものを pass にしない」規律）。 |
 
 ### realizes (36)
 
@@ -660,7 +666,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (18)
+### sustained-by (19)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -677,6 +683,7 @@ flowchart LR
 | `req-vd-ad:REQ-AD-013` | `gate:aeb-safety-regression` | 負例3シナリオ（SOTIF ミラー）。正負を同一ゲート・同一ベースラインに置くのは、 片方だけを守ると「閾値を下げて正例を通し負例を壊す」取引が素通りするため。 |
 | `matcher:deceleration_profile_smooth` | `gate:anticipation-driving-regression` | decelerate_for_curve / decelerate_for_right_turn / speed_limit_change の3シナリオ。 osi:true で **a=osi の面1直読加速度**（ego_accel_long ●）から bounded decel/jerk を判定。 |
 | `matcher:speed_reduction_before_landmark` | `gate:anticipation-driving-regression` | 4シナリオ（curve/right_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。 |
+| `matcher:indicator_leads_junction_turn` | `gate:anticipation-driving-regression` | 3シナリオ（decelerate_for_right_turn / junction_turn_signal_long_connector / cross_straight_junction）。このバッチは run_regression_gate.ps1 Step 2.7 と CI の vd-behavioral-regression ジョブの**両方**で走るため、新しい gate を起こさずに ⑥常設を満たせる（junction_turn_signal.md §4-3）。 **req-vd-ad:REQ-AD-018 が sustained-by 未結線のまま放置されている状態を再生産しない** ために、matcher の新設と同じサイクルで結線した（あちらの route_lane_batch.yaml は baseline すら無く、ゲートにも CI にも載っていない孤立 matcher になっている）。 |
 | `matcher:lane_keep` | `gate:anticipation-driving-regression` | curve / speed_limit / traffic_lights の3シナリオ。road_id / lane とも面1 lane_map (source_reference) 経由（★2026-07-24 更新: 旧「lane は telemetry＝assigned_lane_id は 別量のため」は 7baf202d の走行レーン由来化と c22aeb5d の lane 面1化で解消。 junction 内 171/15800 フレームのみ telemetry fallback）。 |
 | `matcher:steer_not_saturated` | `gate:anticipation-driving-regression` | decelerate_for_right_turn / traffic_lights_junction。コーナーで操舵飽和なし（面2 driver.steer）。 |
 | `matcher:no_constraint_kind` | `gate:anticipation-driving-regression` | cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。 |
@@ -694,7 +701,7 @@ flowchart LR
 | `fork-patch:10` | `odr-upstream-pr:PR-4` |  |
 | `fork-patch:17` | `odr-upstream-pr:PR-5` |  |
 
-### verifies (14)
+### verifies (15)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -706,6 +713,20 @@ flowchart LR
 | `matcher:impact_speed_below` | `req-vd-ad:REQ-AD-001` | 回避不能域の緩和=初回接触の閉じ(衝突)速度が床以下（07_aeb直進, NCAPカラーバンド思想） |
 | `matcher:no_emergency_without_conflict` | `req-vd-ad:REQ-AD-013` | 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本） |
 | `matcher:route_lane_plan_holds` | `req-vd-ad:REQ-AD-017` | route_lane_batch.yaml の4シナリオで検証。段 a/b は merge_required_for_exit_ramp （invalid_route 診断）と route_valid_off_target_lane_for_exit_ramp（目標レーン帯からの 逸脱を検出。route_lane_plan_design.md §4-4 実測）。**段 c** は lane_change_to_exit_ramp（隣接車なし・3ホップ）と lane_change_to_exit_ramp_with_traffic （隣接車あり・2ホップ）で、max_deviations: 0 が「接続点を目標レーン帯に乗ったまま 通過した」ことを判定する（2026-08-02 実測: 前者は -1→-2→-3→-4 と移り road4→road2 へ、 後者は 7.5s ギャップを拒否してから 2 ホップ、いずれも deviation_count=0）。 **REQ-AD-017 の段 a/b/c まで**。段 d/e（逸脱復帰・終点停車）は未実装で検証対象外＝ この辺は要求全体の充足を主張しない。どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。 |
+| `matcher:indicator_leads_junction_turn` | `req-vd-ad:REQ-AD-021` | anticipation_driving_batch.yaml の3本で検証する（junction_turn_signal.md §4-3）。 **接続路長の両極を意図的に取ってある** — 旧実装の故障モードが接続路長に依存して 2つに分かれていたためで、片方だけでは再発を捕まえられない:
+- 正・短い接続路: decelerate_for_right_turn（14.87 m）`min_distance_m: 29.5`,
+  `expect_dir: left`。旧実装ではここが 7.18 m しか出なかった。
+  **資産名は「right」だが幾何は左折である**（同 §5。接続路 road 13 は
+  arc curvature +0.108108・length 14.8696 ＝ heading delta +1.608 rad、東向き→北向き）。
+  名前に合わせて expect_dir を right に「直す」と赤くなる。
+- 正・長い接続路: junction_turn_signal_long_connector（33.2 m）`min_distance_m: 29.5`,
+  `expect_dir: right`。旧実装ではここが**点灯フレーム0**だった（接続路長が単独で
+  lookahead を超え、走査が出口の腕に届かないため構造的に点灯不能）。
+- 負・直進通過: cross_straight_junction `expect_dir: none`。今回の修正は
+  「点きやすくする」方向なので偽陽性が出やすく、負の資産が要る。
+
+min_distance_m の 29.5 は法定 30.0 に対する**フレーム量子化の余裕**であって主張の 緩和ではない（同 §4-2）。コード側は dist<=30.0 の最初のフレームで点灯するので実測は 30.0 を僅かに下回る。§11-9 が法定 3.0 秒に min_lead_s: 2.9 を置いたのと同じ流儀。
+**段 a/b/c のどれを検証済みかは要求側の acceptance_ladder[].verified_by が持つ。** |
 | `matcher:indicator_leads_lane_change` | `req-vd-ad:REQ-AD-018` | route_lane_batch.yaml で lane_change_initiation を有効化する4本で検証。 **REQ-AD-018 の段 a・段 b・段 c**を担う（2026-08-03 に段 b/c を追加）。 段ごとに刺激が違い、min_lead_s の意味も違う:
 - 段 a（先行する）: lane_change_to_exit_ramp `min_lead_s: 2.0`（実測 2.30s）、
   lane_change_to_exit_ramp_with_traffic `3.0`（実測 7.00s）。後者を測定値の近くに

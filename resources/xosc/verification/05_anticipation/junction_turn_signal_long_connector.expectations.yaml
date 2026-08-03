@@ -1,0 +1,66 @@
+scenario: junction_turn_signal_long_connector
+category: 05_anticipation
+# No Default baseline: this is a telemetry-only regression guard for the indicator lamp, not
+# a trajectory-comparison scenario (same posture as decelerate_for_right_turn /
+# cross_straight_junction alongside it).
+#
+# req-vd-ad:REQ-AD-021 defect-1 regression guard
+# (docs/virtualdriver/design/junction_turn_signal.md #1, row 1). The pre-fix
+# RouteLookaheadJunctionTurnDirection required "distance to junction entry + connecting-road
+# length < lookahead" to report a direction at all, so a connecting road whose OWN length
+# alone exceeds the lookahead could never light the indicator, no matter how far back the
+# approach started. t_junction__a90.xodr's connecting road 101 is ~33.2 m -- long enough that
+# the pre-fix code would report zero for every one of its turning runs (this is the exact
+# defect the design doc's #1 table row 1 measured, on the same road family). Post-fix,
+# direction comes from the connector's own entry/exit heading (independent of its length), so
+# this scenario must light >= 29.5 m before the ego reaches the connecting road.
+must:
+  - event: indicator_leads_junction_turn
+    min_distance_m: 29.5   # legal 30.0, minus frame-quantization slack (design doc section
+                            # 4-2; code lights on the first frame dist <= 30.0, so the
+                            # measured lead is always a shade under 30.0 -- the same slack,
+                            # same reasoning as section 11-9's lane-change min_lead_s: 2.9 vs
+                            # the legal 3.0s)
+    expect_dir: right      # Derived from the xodr geometry (t_junction__a90.xodr), not
+                            # assumed. Route: road 0 (lane -1, hdg 0 / east) -> connecting
+                            # road 101 (lane -1) -> road 2 (lane 1). Road 101's planView is
+                            # three clothoid (spiral) segments s=[0, 10.4714, 22.7339, 33.2053]
+                            # with entry hdg 0 rad and curvature running 0 -> -0.069095 ->
+                            # -0.069095 -> 0. Integrating heading (delta_hdg = 0.5*(k0+k1)*L
+                            # per segment, exact for a clothoid) gives:
+                            #   seg1: 0.5*(0 - 0.069095)*10.4714       = -0.36174 rad
+                            #   seg2: -0.069095 * 12.2625 (~constant)  = -0.84737 rad
+                            #   seg3: 0.5*(-0.069095 + 0)*10.4714      = -0.36174 rad
+                            #   total heading delta = -1.5708 rad (-90 deg): entry hdg 0
+                            #   (east) -> exit hdg -pi/2 (south).
+                            # The connector's predecessor is road 0 with contactPoint="end"
+                            # (the NORMAL/forward linkage: road 0 driven s-increasing reaches
+                            # its own end and continues onto connecting road 101 at s=0), so
+                            # the ego traverses road 101 s-increasing (trav_dir = +1) -- no
+                            # sign flip is needed (junction_turn_signal.md section 2-1's flip
+                            # only applies when the connector is driven s-decreasing).
+                            # dir = sign(heading_delta) * trav_dir = sign(-1.5708) * (+1) = -1,
+                            # and per the design doc's convention (section 3-1:
+                            # "+1 = left, -1 = right") dir = -1 is a RIGHT turn: east -> south
+                            # is a clockwise (right) turn, matching physical intuition.
+                            # (Cross-check on the OTHER connector at this junction, 102, not
+                            # used by this scenario: road 1 (hdg pi / west) -> connecting road
+                            # 102 -> road 2 integrates to a +1.5708 rad heading delta,
+                            # trav_dir=+1, dir=+1=LEFT -- west -> south is the mirror-image
+                            # left turn, which is the expected complementary case and was used
+                            # as a consistency check on this derivation, not as this
+                            # scenario's route.)
+    reason: "req-vd-ad:REQ-AD-021 defect-1 regression guard: a ~33.2 m connecting road (longer
+      than the pre-fix lookahead budget) must still light the indicator >= 30 m before
+      junction entry, driven entirely from the connector's own geometry rather than from
+      distance-to-entry + connector-length"
+notes: >
+  Geometry: route road 0 (lane -1, s=20 init, 80 m of straight approach) -> junction 100's
+  connecting road 101 (lane -1, ~33.2 m, a RIGHT turn -- see the expect_dir comment above for
+  the full heading-delta derivation) -> road 2 (lane 1, s=50, ~50 m of travel past the turn).
+  This is the long-connector twin of decelerate_for_right_turn (14.87 m connector, same
+  matcher, expect_dir: left there) and the positive counterpart of cross_straight_junction
+  (expect_dir: none) -- together the three anticipation_driving_batch.yaml entries bracket the
+  defects junction_turn_signal.md section 1 measured: too-long-to-detect (this scenario, defect
+  1), too-short-a-lead (decelerate_for_right_turn, defects 1+2 on a short connector), and a
+  false positive on a straight crossing (cross_straight_junction).

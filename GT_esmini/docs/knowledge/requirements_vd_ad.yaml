@@ -491,26 +491,77 @@ requirements:
       WHILE 交差点で右左折を行うとき、VD は交差点の手前の側端から 30 m 手前の地点に
       達した時点で方向指示器による予告を開始し、右左折が完了するまで継続すること。
     scenario: >-
-      未整備。右左折を含む経路の資産（交差点系シナリオ）は既にあるが、
-      **点灯開始「距離」を判定する資産・matcher が無い**。REQ-AD-018 が
-      matcher:indicator_leads_lane_change で「秒」を測るのに対し、こちらは
-      「m」を測る別の観測が要る（signal 側の新設も含めて未着手）。
+      anticipation_driving_batch.yaml の3本（常設ゲート = run_regression_gate.ps1 Step 2.7
+      ＋ CI vd-behavioral-regression の両方で走る）。**接続路長の両極**を意図的に取ってある
+      — 旧実装の故障モードが接続路長に依存して2つに分かれていたため、片方だけでは
+      再発を捕まえられない:
+      正・短い接続路 `05_anticipation/decelerate_for_right_turn.xosc`（14.87 m）、
+      正・長い接続路 `05_anticipation/junction_turn_signal_long_connector.xosc`（33.2 m、新設）、
+      負・直進通過 `05_anticipation/cross_straight_junction.xosc`。
     acceptance_ladder:
-      - { step: a, claim: 右左折の前に方向指示器が点灯する,                     met: false, verified_by: [] }
-      - { step: b, claim: 法定の 30 m 手前から点灯する,                         met: false, verified_by: [] }
-      - { step: c, claim: 低速進入（36 km/h 未満）でも 30 m を割らない,          met: false, verified_by: [] }
+      - { step: a, claim: 右左折の前に方向指示器が点灯する,                     met: true, verified_by: [matcher:indicator_leads_junction_turn] }
+      - { step: b, claim: 法定の 30 m 手前から点灯する,                         met: true, verified_by: [matcher:indicator_leads_junction_turn] }
+      - { step: c, claim: 低速進入（36 km/h 未満）でも 30 m を割らない,          met: true, verified_by: [matcher:indicator_leads_junction_turn] }
     acceptance: >-
       閾値は法定値 30 m（道路交通法 第53条第1項／同施行令 第21条第1項）。
-      **段 a は実装が存在するが met にしない** — 機械判定する matcher が無く、
-      「一度も検証していないものを met と呼ばない」規律（REQ-AD-018 と同じ）による。
-      段 c を段 b と分けたのは、不足が**低速域でだけ**現れるためである。高速側だけ
-      測ると緑になり、交差点の実運用域（多くは 36 km/h 未満）を見逃す。
+      matcher の下限は **29.5 m** だが、これは法定 30.0 に対する**フレーム量子化の余裕**で
+      あって主張の緩和ではない（junction_turn_signal.md §4-2。§11-9 が法定 3.0 秒に
+      min_lead_s: 2.9 を置いたのと同じ流儀）。**実測は両資産とも 30 m を上回っている**ので、
+      緑は余裕の側で取れている。
+
+      **段 c が段 b と別建てである理由と、それが実測で満たされたと言える根拠**:
+      不足は**低速域でだけ**現れる（旧式 `v*lead+10` は速度比例なので、曲がるために
+      減速するほど先読みが縮む）。高速側だけ測ると緑になり、交差点の実運用域を見逃す。
+      新実装のトリガは `max(indicator_min_distance_m, v*indicator_lead_time)` で、
+      **実測2本とも点灯時刻で `v*lead` = 22.5 m / 23.2 m と 30.0 を下回っており、
+      法定の床のほうが支配項だった**。つまり測れたのは「速度項が効かない領域で
+      床が効いている」という段 c そのものの状況である。交差点進入速度は
+      15.2 km/h / 17.8 km/h で、36 km/h を大きく下回る。
     realized_by: [vd-func:FUNC-061]
-    verified_by: []
+    verified_by: [matcher:indicator_leads_junction_turn]
     related: [req-vd-ad:REQ-AD-018, vd-func:FUNC-057]
-    status: partial
+    status: done
     note: >-
-      2026-08-03、REQ-AD-018 段 d の棚卸し中に発見し、**同日に実測で追試して確定した**。
+      **2026-08-04 に段 a/b/c すべて達成（実装＋検証、junction_turn_signal.md）。**
+      以下は経緯: 前半が 2026-08-03 の欠陥確定、後半が 2026-08-04 の是正である。
+
+      **是正後の実測（2026-08-04、実 Release ビルド、anticipation_driving_batch, dt=0.05）**:
+
+      | 資産 | 接続路 | 是正前 | 是正後 |
+      | :-- | --: | --: | --: |
+      | decelerate_for_right_turn | 14.87 m | 7.18 m | **30.63 m** |
+      | junction_turn_signal_long_connector | 33.2 m | **点灯0フレーム** | **30.32 m** |
+      | cross_straight_junction（負） | 15.5 m | — | 800フレーム全消灯 |
+
+      旋回中の継続も実測: 進入 11.85 s → 接続路を抜ける 14.90 s まで点灯継続
+      （是正前は進入 +0.30 s＝`indicator_min_on_time` ちょうどで消灯していた）。
+
+      **効いた設計判断は3つ**（詳細は junction_turn_signal.md §2）:
+      (1) 方向を**接続路自身の幾何**（進入/退出ヘディング差）から決め、出口側の腕まで
+      走査を届かせる要件をやめた → 接続路長への依存が構造的に消えた（欠陥1・2の根）。
+      (2) トリガを**距離第一級**にし `max(30.0, v*lead)` とした。旧 `v*lead+10` の
+      `+10` は接続路長に食われるぶんの代償で、法的にも運動学的にも根拠がなかったので削除。
+      (3) `start` 自身が junction 所属 road のとき**走査に入らず**その接続路の幾何から
+      方向を返す（ラッチではなく状態を持たない判定）→ 旋回中も合図が保たれ、
+      交差点内で信号待ち・譲り待ちで停止しても速度に依存せず落ちない（欠陥3）。
+
+      **さらに1フレーム先を見る項を足した**（`reach = trigger + v*dt`）。サンプリングが
+      離散なので `dist <= 30.0` を最初に満たすフレームは既に法定地点を通り過ぎており、
+      この項を入れる前の実測が接続路 33.2 m で **29.74 m** と法定をわずかに割っていた。
+      施行令21条1項は「合図を開始していなければならない地点」を定めるので、早い側に
+      外すのは適合・遅い側は不適合。車線変更側が §11-11 で採ったのと同じ動きである。
+
+      **副産物の確定事実**: `decelerate_for_right_turn` は**名前に反して幾何は左折**である
+      （接続路 road 13 は arc curvature +0.108108・length 14.8696 ＝ heading delta +1.608 rad、
+      進入 8.3°→退出 100.5°）。実測で left が点いたのは正しく、LHT/RHT やレーン符号の
+      取り違えではない。**改名は別サイクル**（manifest・expectations・baseline・KG の
+      参照が連動するため、指示器の修正と混ぜない）。expectations に `expect_dir: left` と
+      理由つきで書いてある。
+
+      ---
+
+      以下は 2026-08-03 時点の欠陥確定の記録（是正前）。
+      REQ-AD-018 段 d の棚卸し中に発見し、**同日に実測で追試して確定した**。
       当初「v >= 10 m/s (36 km/h) なら 30 m に届く」と書いたが、これは
       `RouteLookaheadJunctionTurnDirection` が junction に入った時点で返すと誤読したための
       **楽観側の誤り**だった。同関数は junction 所属 road を素通りし、**その先の

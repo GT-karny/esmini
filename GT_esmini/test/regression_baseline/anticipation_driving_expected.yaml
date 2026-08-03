@@ -4,7 +4,7 @@ note: Committed regression baseline for the VirtualDriver behavioral batch. Comp
   the check. Refresh ONLY after an intentional behavior change, with --update, and review the diff before
   committing.
 expected_summary:
-  pass: 5
+  pass: 6
   fail: 0
   needs-review: 0
   error: 0
@@ -27,12 +27,21 @@ scenarios:
       status: pass
     - event: steer_not_saturated
       status: pass
+    - event: indicator_leads_junction_turn
+      status: pass
   cross_straight_junction:
     status: pass
     matchers:
     - event: no_constraint_kind
       status: pass
     - event: min_speed_above
+      status: pass
+    - event: indicator_leads_junction_turn
+      status: pass
+  junction_turn_signal_long_connector:
+    status: pass
+    matchers:
+    - event: indicator_leads_junction_turn
       status: pass
   speed_limit_change:
     status: pass
