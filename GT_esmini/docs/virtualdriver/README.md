@@ -48,6 +48,7 @@
 | 注釈データセット類似度による自動判定（未実装） | [design/annotation_similarity_design.md](design/annotation_similarity_design.md) |
 | VD テレメトリを OSI 拡張へ出さない理由 | [design/osi_telemetry_extension_decision.md](design/osi_telemetry_extension_decision.md) |
 | 信号とSTOP標識の停止位置を停止線基準にする | [design/stop_line_stop_target.md](design/stop_line_stop_target.md) |
+| 駐車枠の探索・選定と駐車マヌーバの実行（未実装・設計のみ） | [design/parking_maneuver_design.md](design/parking_maneuver_design.md) |
 | signal分類カタログの国別切替と、新しい国の追加方法 | [guides/signal_country_catalog_howto.md](guides/signal_country_catalog_howto.md) |
 
 ## 数値を引く
