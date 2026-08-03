@@ -321,15 +321,19 @@ requirements:
       WHILE 自発的な進路変更（車線変更）を行うとき、VD は変更を開始する前から
       方向指示器で予告を始め、マニューバが完了するまで継続すること。
     scenario: >-
-      resources/xosc/verification/06_route_lane/ の後半2本（route_lane_batch.yaml、
-      policies: [lane_change_initiation]）が刺激。lane_change_to_exit_ramp は
-      ギャップ待ちの無い純粋な先行点灯を、lane_change_to_exit_ramp_with_traffic は
-      「合図してから待つ」挙動を刺激する。FUNC-056..059 由来の進路変更
-      （追い越し・交差点・発進・合流）を刺激する資産は未整備。
+      resources/xosc/verification/06_route_lane/ の4本（route_lane_batch.yaml、
+      policies: [lane_change_initiation]）が刺激。段ごとに役割が違う:
+      lane_change_to_exit_ramp（強い加速、段 a）、lane_change_to_exit_ramp_with_traffic
+      （「合図してから待つ」、段 a）、lane_change_to_exit_ramp_at_constant_speed
+      （真の定速、段 b）、lane_change_to_exit_ramp_during_gradual_acceleration
+      （加速の継続中に発起、段 c）。後半2本は 2026-08-03 追加で、どちらも
+      ego を lane -3 発進（n_remaining=1）にして助走を確保している — lane -1/-2 発進では
+      required_m=270 m が道路の 190 m を超え、ego が生成時点で既にしきい値の内側に入る。
+      FUNC-056..059 由来の進路変更（追い越し・交差点・発進・合流）を刺激する資産は未整備。
     acceptance_ladder:
       - { step: a, claim: 車線変更の発起より前に方向指示器が点灯する,                     met: true,  verified_by: [matcher:indicator_leads_lane_change] }
-      - { step: b, claim: 定速走行時に法定のリード（進路変更の3秒前）を満たす,             met: false, verified_by: [] }
-      - { step: c, claim: 加速中もリードが縮まない,                                       met: false, verified_by: [] }
+      - { step: b, claim: 定速走行時に法定のリード（進路変更の3秒前）を満たす,             met: true,  verified_by: [matcher:indicator_leads_lane_change] }
+      - { step: c, claim: 加速中もリードが縮まない,                                       met: true,  verified_by: [matcher:indicator_leads_lane_change] }
       - { step: d, claim: 経路要求以外の発起（追い越し/交差点/発進/合流）にも同期する,      met: false, verified_by: [] }
     acceptance: >-
       段 a は signal:lane_change_signal_timing をテレメトリで観測できること
@@ -337,12 +341,19 @@ requirements:
       立ち上がりに先行し、その区間ランプが実際に点いていて、点灯側が hop の方向と一致）。
       **段 a は「先行する」までしか主張しない — 秒数は主張しない。**
       段 b/c の閾値は法定値 3.0 s（道路交通法 第53条第1項／同施行令 第21条第1項）。
-      段 b は定速区間での実測が要る（現行の刺激2本はどちらも加速中またはギャップ待ちで、
-      定速リードを分離できていない＝段 b 用の資産が未整備）。
+      段 b/c は**それぞれ専用の刺激で分離して測る**（2026-08-03 追加）。既存2本は
+      どちらも段 b/c の証拠にならない: 強い加速側は t=0 から合図が飽和して
+      「規則が3秒を計算した」のか「常時点灯」なのかを区別できず、ギャップ待ち側は
+      リードの大半が待ち時間だからである。
+      段 b = lane_change_to_exit_ramp_at_constant_speed（真の定速。**t_sig 近傍の加速度が
+      0.001 m/s² 未満であることも実測して示す** — 定速を名乗るだけでは足りない）。
+      段 c = lane_change_to_exit_ramp_during_gradual_acceleration（発起が加速の継続中に
+      起きるだけの助走を取る。飽和させない）。
+      どちらも matcher:indicator_leads_lane_change の min_lead_s で機械判定する。
       段 d は FUNC-056..059 の実装待ち。
     realized_by: [vd-func:FUNC-061]
-    verified_by: []                       # 段 a のみ matcher が担保。要求そのものに verifies を
-                                          # 張るのは段 b/c/d が未達のため overclaim
+    verified_by: []                       # 段 a/b/c は matcher が担保（ladder 側に記載）。要求
+                                          # そのものに verifies を張るのは段 d が未達のため overclaim
     related: [req-vd-ad:REQ-AD-017, vd-func:FUNC-055]
     status: partial
     note: >-
@@ -350,14 +361,25 @@ requirements:
       lc_signal_dir_ で先行合図を出す）。**既定 OFF**（lane_change_initiation_enabled）。
       実測（同日、実 Release ビルド）: 隣接車なし t_sig=2.30 / t_arm=2.70 = リード 0.40 s、
       ギャップ待ちあり t_sig=3.10 / t_arm=7.55 = リード 4.45 s。
-      **段 b/c が未達な理由は同一で、決断距離 required_m が速度比例だから**である。定速なら
-      required_m が動かずリードは lane_change_indicator_lead_time_s（既定 3.0）ちょうどに
-      なるが、加速中は required_m が n_remaining×lead_time_s×a（実測 ~70 m/s）で膨張し、
-      自車の閉じ込み速度（~8 m/s）を大きく上回るため v×3.0 のリード距離が 0.4 秒で消える。
-      根治にはしきい値自身の移動速度を閉じ込み速度に含める必要がある（同 §11-3）。
+      2026-08-03 に**段 b・段 c 達成**（同 §11-11）。距離形
+      `dist <= required(v) + v*T` を**前進予測形**へ置き換えた:
+      `dist - (v+v_pred)/2*T <= required(v_pred)`、`v_pred = min(v + max(0,a)*T, max(v, v_cap))`。
+      a=0 で旧式と厳密に一致するので**定速時の挙動は不変**（実測でも定速側のリードが
+      修正前後で 2.95 s のまま動かず、`t_arm` は4本とも完全に同一＝発起側は不変）。
+      実測（2026-08-03、実 Release ビルド、route_lane_batch.yaml）:
+      強い加速 0.40 → **2.30 s**、ギャップ待ち 4.45 → **7.00 s**、
+      定速 **3.05 s**（t_sig 近傍の加速度 0.00066 m/s²）、緩加速 2.10 → **3.05 s**。
+      チャタリングは4本とも signal_active・ランプの立ち上がりが各1回でゼロ。
+      **プロンプト段階で想定された数値微分形は採らなかった** — 実トレースに当てると 0.70 s
+      しか出ない。required_m が床の枝にいる間 微分が 0 になり、直後に来る枝の乗り換えを
+      予見できないためである（同 §11-11）。前進予測形は n_remaining を微分しないので、
+      ホップ完了時の不連続も微分のリセットも平滑化も要らない。
+      チャタリング対策は EMA ではなく**ホップ単位のラッチ**（時定数を正当化せずに済み、
+      §11-6「ギャップ待ちでも消さない」と筋が通る）。
       なお最終バンド（dist_to_connection == -1）では ShouldAttemptLaneChangeHop が true・
       ShouldSignalLaneChangeHop が false となり先行しない（同 §11-3 の「既知の非対称性」）。
-      これも段 c の一部として残る。
+      **これは段 c の未達分ではなく独立した既知欠陥として残る**（発起側を変えることになり
+      車線変更そのものの挙動が動くため、今回もスコープ外とした）。
       ウィーン条約（1968）は秒数を規定せず「マニューバ中継続・完了で消灯」のみ、独 StVO §5 は
       定性規定、米国は多くの州が距離規定 — 次元が国ごとに違うため国別テーブルは作らず、
       秒パラメータ1本を config で可変にして既定を日本の法定値に置く方針（同 §11-2）。

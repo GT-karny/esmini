@@ -3,7 +3,7 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:da6e20a4c312460b -->
+<!-- generated-from: sha256:f99250ab95ebdc6a -->
 
 ノード 195・辺 201（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
@@ -695,7 +695,19 @@ flowchart LR
 | `matcher:impact_speed_below` | `req-vd-ad:REQ-AD-001` | 回避不能域の緩和=初回接触の閉じ(衝突)速度が床以下（07_aeb直進, NCAPカラーバンド思想） |
 | `matcher:no_emergency_without_conflict` | `req-vd-ad:REQ-AD-013` | 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本） |
 | `matcher:route_lane_plan_holds` | `req-vd-ad:REQ-AD-017` | route_lane_batch.yaml の4シナリオで検証。段 a/b は merge_required_for_exit_ramp （invalid_route 診断）と route_valid_off_target_lane_for_exit_ramp（目標レーン帯からの 逸脱を検出。route_lane_plan_design.md §4-4 実測）。**段 c** は lane_change_to_exit_ramp（隣接車なし・3ホップ）と lane_change_to_exit_ramp_with_traffic （隣接車あり・2ホップ）で、max_deviations: 0 が「接続点を目標レーン帯に乗ったまま 通過した」ことを判定する（2026-08-02 実測: 前者は -1→-2→-3→-4 と移り road4→road2 へ、 後者は 7.5s ギャップを拒否してから 2 ホップ、いずれも deviation_count=0）。 **REQ-AD-017 の段 a/b/c まで**。段 d/e（逸脱復帰・終点停車）は未実装で検証対象外＝ この辺は要求全体の充足を主張しない。どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。 |
-| `matcher:indicator_leads_lane_change` | `req-vd-ad:REQ-AD-018` | route_lane_batch.yaml の後半2本（lane_change_initiation を有効化する2本）で検証。 **REQ-AD-018 の段 a のみ**＝「発起より前に点灯する」こと。2026-08-02 実測: lane_change_to_exit_ramp が t_sig=2.30 / t_arm=2.70（リード 0.40s）、 lane_change_to_exit_ramp_with_traffic が t_sig=3.10 / t_arm=7.55（リード 4.45s）。 **秒数は主張しない** — 段 b/c（定速で法定3秒・加速中も縮まない）は未達で検証対象外。 しきい値 min_lead_s は実測に合わせて 0.3 / 2.0 に置いてあり、法定値 3.0 ではない （後者を測定値 4.45 の近くに置くとギャップ待ちの較正変更で赤くなるため）。 どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。 |
+| `matcher:indicator_leads_lane_change` | `req-vd-ad:REQ-AD-018` | route_lane_batch.yaml で lane_change_initiation を有効化する4本で検証。 **REQ-AD-018 の段 a・段 b・段 c**を担う（2026-08-03 に段 b/c を追加）。 段ごとに刺激が違い、min_lead_s の意味も違う:
+- 段 a（先行する）: lane_change_to_exit_ramp `min_lead_s: 2.0`（実測 2.30s）、
+  lane_change_to_exit_ramp_with_traffic `3.0`（実測 7.00s）。後者を測定値の近くに
+  置かないのは、7.00 の大半がギャップ待ち時間で、隣接車の配置を触っただけで
+  赤くなるからである（無関係な変更で鳴る検知器は警報疲れを育てる）。法定値 3.0
+  そのものを下限に置いてある。
+- 段 b（定速で法定3秒）: lane_change_to_exit_ramp_at_constant_speed
+  `min_lead_s: 2.9`（実測 3.05s）。2.9 は法定値を下回るが、これは
+  **フレーム量子化（dt=0.05）のぶんの余裕**であって主張の緩和ではない。
+- 段 c（加速中も縮まない）: lane_change_to_exit_ramp_during_gradual_acceleration
+  `min_lead_s: 2.9`（実測 3.05s）。修正前は同じ刺激で 2.10s だった。
+
+**この matcher だけでは段 b が「定速で」を保証しない。** min_lead_s は秒数しか見ず、 刺激が本当に定速かは検査しない。定速性は t_sig 近傍の加速度を別途実測して示す （2026-08-03 実測 0.00066 m/s²）。刺激の素性を matcher に代弁させないこと。 どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。 |
 | `matcher:route_lane_plan_holds` | `req-vd-ad:REQ-AD-016` | merge_required_for_exit_ramp シナリオの invalid_route 診断が **REQ-AD-016 の段 b のみ**（経路解決の失敗を検出して外へ出す＝沈黙しない）を検証する。 段 a/c（経路の補完・起終点のみからの探索）は検証対象外。 |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-010` | 停止先行車との衝突ゼロ |
 | `matcher:min_obb_separation_above` | `req-vd-ad:REQ-AD-011` | 先行車との衝突ゼロ |
