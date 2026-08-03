@@ -334,7 +334,7 @@ requirements:
       - { step: a, claim: 車線変更の発起より前に方向指示器が点灯する,                     met: true,  verified_by: [matcher:indicator_leads_lane_change] }
       - { step: b, claim: 定速走行時に法定のリード（進路変更の3秒前）を満たす,             met: true,  verified_by: [matcher:indicator_leads_lane_change] }
       - { step: c, claim: 加速中もリードが縮まない,                                       met: true,  verified_by: [matcher:indicator_leads_lane_change] }
-      - { step: d, claim: 経路要求以外の発起（追い越し/交差点/発進/合流）にも同期する,      met: false, verified_by: [] }
+      - { step: d, claim: 経路要求以外の車線変更発起（追い越し・車線外からの発進・非経路の合流）にも同期する, met: false, verified_by: [] }
     acceptance: >-
       段 a は signal:lane_change_signal_timing をテレメトリで観測できること
       （matcher:indicator_leads_lane_change が判定。signal_active の立ち上がりが armed の
@@ -350,7 +350,24 @@ requirements:
       段 c = lane_change_to_exit_ramp_during_gradual_acceleration（発起が加速の継続中に
       起きるだけの助走を取る。飽和させない）。
       どちらも matcher:indicator_leads_lane_change の min_lead_s で機械判定する。
-      段 d は FUNC-056..059 の実装待ち。
+
+      段 d の範囲は 2026-08-03 に切り直した。以前は「FUNC-056..059 の実装待ち」と
+      1行で括っていたが、**4つは同じ粒度ではなく、括り方が誤っていた**:
+      - **FUNC-056 追い越し**: 該当する。動機が経路でなく先行車。マヌーバ未実装
+      - **FUNC-057 交差点**: **本要求の対象外**。右左折は車線変更ではなく、法定も
+        「交差点の手前の側端から 30 m 手前」と**距離**規定で次元が違う。指示器も
+        別経路（DetectJunctionTurn）で既に点いている。→ req-vd-ad:REQ-AD-021 として分離
+      - **FUNC-058 発進**: カタログ上は `dim: lon` の縦方向動作（信号青・先行車発進を
+        見た Stop&Go の出口）で、**自車線内で動き出すだけなので指示器は不要**。
+        段 d が対象とすべきなのは「駐車枠・路肩など**車線の外から車線内へ横移動する**発進
+        （出庫）」であり、**これに対応するマヌーバ機能 ID は現時点で存在しない**
+        （REQ-AD-019/020 は入庫側のみ。出庫は未主張）
+      - **FUNC-059 合流**: 経路要求として現れる合流（加速車線が本線にしか繋がらない等）は
+        RouteLanePlan がホップを出すので**既に段 a-c の機構で合図が出る**。段 d に残るのは
+        経路要求でない合流と、合流の駆け引き（FUNC-039 との相互作用）側だけ
+
+      判別の軸は「止まっていたか」ではなく「**車線の外から車線内へ横移動するか**」である。
+      この軸なら Stop&Go の再発進と出庫を機械的に分けられる。
     realized_by: [vd-func:FUNC-061]
     verified_by: []                       # 段 a/b/c は matcher が担保（ladder 側に記載）。要求
                                           # そのものに verifies を張るのは段 d が未達のため overclaim
@@ -455,3 +472,52 @@ requirements:
       精度基準の出典note: ヨー±3°は ISO 16787 (APS) の二次資料経由の値（原文未確認）。
       枠寸法は日本の普通車標準 2.5m×5.0m を検証基準とする。
 
+
+  # ===== 右左折の合図時期（凍結例外としてID発行、2026-08-03 承認） =====
+  # req-vd-ad:REQ-AD-018（進路変更＝3秒前）の段 d を切り直す過程で分離した別軸。
+  # 右左折は施行令21条1項が「交差点の手前の側端から30メートル手前」と**距離**で規定し、
+  # 進路変更の「3秒前」とは次元が違う。lane_change_initiation.md §11-10 が
+  # config キーを2本（lane_change_indicator_lead_time_s / indicator_lead_time）に
+  # 分けているのと同じ理由で、1本の要求に畳むと片方を法定に合わせたときに
+  # もう片方が規定から外れる。したがって別要求として立てる。
+  - id: REQ-AD-021
+    title: 右左折の前から方向指示器で予告する
+    tier: compliance
+    agent: AD
+    kind: positive
+    statement: >-
+      WHILE 交差点で右左折を行うとき、VD は交差点の手前の側端から 30 m 手前の地点に
+      達した時点で方向指示器による予告を開始し、右左折が完了するまで継続すること。
+    scenario: >-
+      未整備。右左折を含む経路の資産（交差点系シナリオ）は既にあるが、
+      **点灯開始「距離」を判定する資産・matcher が無い**。REQ-AD-018 が
+      matcher:indicator_leads_lane_change で「秒」を測るのに対し、こちらは
+      「m」を測る別の観測が要る（signal 側の新設も含めて未着手）。
+    acceptance_ladder:
+      - { step: a, claim: 右左折の前に方向指示器が点灯する,                     met: false, verified_by: [] }
+      - { step: b, claim: 法定の 30 m 手前から点灯する,                         met: false, verified_by: [] }
+      - { step: c, claim: 低速進入（36 km/h 未満）でも 30 m を割らない,          met: false, verified_by: [] }
+    acceptance: >-
+      閾値は法定値 30 m（道路交通法 第53条第1項／同施行令 第21条第1項）。
+      **段 a は実装が存在するが met にしない** — 機械判定する matcher が無く、
+      「一度も検証していないものを met と呼ばない」規律（REQ-AD-018 と同じ）による。
+      段 c を段 b と分けたのは、不足が**低速域でだけ**現れるためである。高速側だけ
+      測ると緑になり、交差点の実運用域（多くは 36 km/h 未満）を見逃す。
+    realized_by: [vd-func:FUNC-061]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-018, vd-func:FUNC-057]
+    status: partial
+    note: >-
+      2026-08-03、REQ-AD-018 段 d の棚卸し中に発見。**コード読解と算術による指摘であり
+      実測ではない**（この点は追試が要る）。
+      指示器そのものは実装済み: DetectJunctionTurn（ControllerVirtualDriver.cpp:1897-1905）が
+      経路に沿って前方を走査し、junction に入った時点で方向を返す
+      （JunctionTurn.hpp:61-）。点灯開始距離は先読み距離そのもので
+      `lookahead = max(15.0, v * indicator_lead_time + 10.0)`、`indicator_lead_time` 既定 2.0。
+      **`2v + 10 >= 30` すなわち `v >= 10 m/s`（36 km/h）でしか法定 30 m に届かない。**
+      18 km/h で 20.0 m、30 km/h で 26.7 m と不足する。交差点は通常それ以下で進入するため、
+      実運用域で法定距離を割っている可能性が高い。
+      なおこの式は「秒×速度＋定数」という**時間ベース**の形であり、法定が距離規定である
+      右左折には形そのものが噛み合っていない。修正するなら距離を第一級のパラメータに
+      置き直す（`indicator_lead_time` を残したまま下限 30 m を課す、等）判断が要る。
+      実装は vd-func:FUNC-061（指示器の自発操作）側、マヌーバは vd-func:FUNC-057（交差点発起）。

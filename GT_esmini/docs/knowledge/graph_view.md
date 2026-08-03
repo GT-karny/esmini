@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:f99250ab95ebdc6a -->
+<!-- generated-from: sha256:1d9d88128c5fbb97 -->
 
-ノード 195・辺 201（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 196・辺 202（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -171,6 +171,7 @@ flowchart LR
     n_req_vd_ad_REQ_AD_017["REQ-AD-017"]
     n_req_vd_ad_REQ_AD_013["REQ-AD-013"]
     n_req_vd_ad_REQ_AD_018["REQ-AD-018"]
+    n_req_vd_ad_REQ_AD_021["REQ-AD-021"]
     n_req_vd_ad_REQ_AD_019["REQ-AD-019"]
     n_req_vd_ad_REQ_AD_020["REQ-AD-020"]
     n_req_vd_ad_REQ_AD_010["REQ-AD-010"]
@@ -348,6 +349,7 @@ flowchart LR
   n_vd_component_lane_change_initiation -->|realizes| n_vd_func_FUNC_061
   n_matcher_route_lane_plan_holds -->|verifies| n_req_vd_ad_REQ_AD_017
   n_matcher_indicator_leads_lane_change -->|verifies| n_req_vd_ad_REQ_AD_018
+  n_vd_func_FUNC_061 -->|realizes| n_req_vd_ad_REQ_AD_021
   n_vd_func_FUNC_061 -->|realizes| n_req_vd_ad_REQ_AD_018
   n_matcher_route_lane_plan_holds -->|verifies| n_req_vd_ad_REQ_AD_016
   n_vd_func_FUNC_076 -->|realizes| n_req_vd_ad_REQ_AD_019
@@ -582,7 +584,7 @@ flowchart LR
 | `matcher:route_lane_plan_holds` | `signal:route_lane_conformance` | vd_metrics.py:1520-1677 の route_lane_plan_holds 分岐が frames[i]["route_lane"] （VirtualDriverTelemetryJson.cpp 由来の route_lane ブロック）を読む。target_lanes/ on_target_lane/dist_to_connection/deviation_count/diagnostic の各チェックは呼び出し側の must が指定したものだけ評価する（何もチェックしない must は skip 扱い＝「何も評価しない ものを pass にしない」規律、domain_split_holds と同型）。 |
 | `matcher:indicator_leads_lane_change` | `signal:lane_change_signal_timing` | vd_metrics.py:1708-1836 の indicator_leads_lane_change 分岐が、frames[i]["lane_change"] の signal_active/armed/direction と frames[i]["indicator"] の left/right を**両方**読む。 片方だけでは判定にならない（lane_change_initiation.md §11-8）: signal_active だけだと 意図が AutoIndicatorPolicy に握り潰されていても真になり、indicator だけだと DetectJunctionTurn の交差点旋回による点灯と区別できない。両ブロックとも欠けていれば skip（「何も評価しないものを pass にしない」規律、route_lane_plan_holds と同型）。 |
 
-### realizes (34)
+### realizes (35)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -611,6 +613,7 @@ flowchart LR
 | `vd-component:route-lane-plan` | `vd-func:FUNC-050` | 目標レーン帯の算出と逸脱・ルート解決失敗の可視化。FUNC-050 の実現範囲は診断までで、 寄せる動作（自発的な車線変更）は vd-func:FUNC-055 のスコープ |
 | `vd-component:lane-change-initiation` | `vd-func:FUNC-055` | route-lane-plan の目標レーン帯へ自発的に寄せる実装。決断距離（残ホップ数比例）・ ギャップ受容（隣接レーンの前後車）・軌道（ResumeMergeProfile 流用、アンカーを 目標レーンへ）・優先順位（storyboard LC > resume-merge > AD発起）を担う。 FUNC-055 のうち**経路要求を動機とする発起のみ**を実現し、遅い先行車・専用レーン 回避を動機とする発起は範囲外（追い越しは vd-func:FUNC-056） |
 | `vd-component:lane-change-initiation` | `vd-func:FUNC-061` | 発起した車線変更に方向指示器を同期させる（DetectManeuverDir を storyboard LC → AD発起LC → 0 の3段へ拡張し、発起時に方向をラッチ）。FUNC-061 の未同期は これで FUNC-055 分が埋まり、残るは FUNC-056..059（追い越し/交差点/発進/合流） |
+| `vd-func:FUNC-061` | `req-vd-ad:REQ-AD-021` | 同じ「方向指示器の自発操作」が右左折側も担う。ただし**法定の次元が違う**（進路変更＝ 3秒前 / 右左折＝交差点手前の側端から 30 m 手前）ため要求は REQ-AD-018 と分けてある。 実装経路も別で、こちらは DetectJunctionTurn（ControllerVirtualDriver.cpp:1897-1905）が `lookahead = max(15.0, v*indicator_lead_time + 10.0)` で前方を走査する側。 2026-08-03 の指摘: `2v+10 >= 30` すなわち v >= 10 m/s (36 km/h) でしか法定 30 m に 届かない。交差点の実運用域はそれ以下なので低速側で不足する（コード読解＋算術。実測は未）。 |
 | `vd-func:FUNC-061` | `req-vd-ad:REQ-AD-018` | 方向指示器の自発操作が段 a を充足。段 b/c（法定 3 秒のリードを定速でも加速中でも 満たす）と段 d（FUNC-056..059 由来の発起にも同期）は未実装。 |
 | `vd-func:FUNC-076` | `req-vd-ad:REQ-AD-019` | 駐車枠探索・選定が駐車枠の探索・選定要求を充足。未実装 |
 | `vd-func:FUNC-077` | `req-vd-ad:REQ-AD-020` | 駐車マヌーバ実行が駐車マヌーバの実行要求を充足。未実装 |

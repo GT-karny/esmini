@@ -671,6 +671,17 @@ edges:
       （2026-08-03 実測 0.00066 m/s²）。刺激の素性を matcher に代弁させないこと。
       どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。
   - from: vd-func:FUNC-061
+    to: req-vd-ad:REQ-AD-021
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: >-
+      同じ「方向指示器の自発操作」が右左折側も担う。ただし**法定の次元が違う**（進路変更＝
+      3秒前 / 右左折＝交差点手前の側端から 30 m 手前）ため要求は REQ-AD-018 と分けてある。
+      実装経路も別で、こちらは DetectJunctionTurn（ControllerVirtualDriver.cpp:1897-1905）が
+      `lookahead = max(15.0, v*indicator_lead_time + 10.0)` で前方を走査する側。
+      2026-08-03 の指摘: `2v+10 >= 30` すなわち v >= 10 m/s (36 km/h) でしか法定 30 m に
+      届かない。交差点の実運用域はそれ以下なので低速側で不足する（コード読解＋算術。実測は未）。
+  - from: vd-func:FUNC-061
     to: req-vd-ad:REQ-AD-018
     type: realizes
     source: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
