@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 08_overtake / overtake_declined_before_route_branch
+
+  vd-func:FUNC-056 (overtake maneuver) / req-vd-ad:REQ-AD-024 acceptance ladder
+  step b ("追い越しが経路上の分岐を逃すなら追い越さない" - the route-budget
+  GUARD, design doc section 2). Sibling of overtake_slow_lead_on_two_lane_road
+  on the SAME road, SAME v_pass/v_lead/g0 (so the overtake TRIGGER conditions
+  - delta_v and gap-constrained - are identical), differing ONLY in Ego's
+  start position: much closer to the junction, so dist_to_connection is
+  smaller than required_m and the guard correctly DECLINES.
+
+  This is the scenario the design doc's section 9-4 warns about most
+  explicitly: "両立しない配置は「そもそも検討していないから緑」になる" -
+  a scenario where the guard blocks AND the trigger never even considers
+  overtaking would be a FALSE PASS (nothing was actually tested). The
+  overtake_decision_holds matcher's expect_considered: true must key exists
+  specifically to catch this failure mode; this scenario's own must list
+  asserts BOTH expect_considered: true (the trigger really did fire) AND
+  expect_blocked_reason: "route_budget" (the guard is what stopped it, not
+  some other reason) AND forbid_phases (the maneuver never actually starts).
+
+  Road: same straight_restricted_exit__l800_lanes2_exitm2.xodr as the sibling
+  (see that file's header comment for the road/junction facts).
+
+  == distance-budget arithmetic (identical trigger math to the sibling; only
+  dist_to_connection differs) ==
+    v_pass = 20.0 m/s, v_lead = 8.0 m/s, g0 = 40.0 m, L_ego = L_lead = 5.0 m,
+    g1 = 8.0 m  =>  L_clear = 58.0 m, t_pass = 4.8333 s (identical to the
+    sibling scenario - see its header comment for the full derivation)
+    required = 496.667 m (identical formula, identical inputs)
+    Ego starts at road0 s=400 (SlowLead at s=445, same 45 m center-to-center
+    offset as the sibling)
+    dist_to_connection at t=0 = 800 - 400 = 400.0 m
+    GUARD: required(496.667) > dist_to_connection(400.0) - FAILS by 96.667 m
+    (a clear, non-borderline shortfall - this is deliberately NOT a
+    razor's-edge case; overtake_aborted_for_route_branch is the file that
+    explores the razor's edge). blocked_reason is expected to read
+    "route_budget" and the ego is expected to simply queue behind SlowLead
+    (the "lead" policy's IDM follow keeps this from being a rear-end, not
+    this design's overtake logic).
+
+  StopTrigger=30s: this scenario does not need Ego to ever reach the
+  junction (the guard should hold "route_budget" for the ENTIRE run, since
+  dist_to_connection only shrinks further as Ego advances - required stays
+  fixed at 496.667 because v_pass is the static desired-speed input, not
+  Ego's real, IDM-throttled speed, so the shortfall only grows). 30 s is
+  ample to let Ego close on SlowLead and settle into a steady IDM-follow
+  state where "considered" is observed true for a solid window.
+
+  SlowLead / policies / Ego cruise-speed convention: identical to the sibling
+  scenario - see its header comment.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-08-04T00:00:00"
+               description="VirtualDriver verification: the route-budget guard declines an overtake that would miss the exit-ramp branch, even though the overtake trigger genuinely fires"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoCruiseSpeed" parameterType="double" value="20.0"/>
+      <ParameterDeclaration name="SlowLeadSpeed" parameterType="double" value="8.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../scenario_authoring/road_catalog/generated/straight_restricted_exit__l800_lanes2_exitm2.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+      <ScenarioObject name="SlowLead">
+         <Vehicle name="car_yellow" vehicleCategory="car" model3d="../../../models/car_yellow.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="1"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-2" offset="0" s="400"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-2" offset="0" s="400"/>
+                              </Position>
+                           </Waypoint>
+                           <!--
+                             Explicit connecting-road Waypoint (junction 100,
+                             connection id=2, connecting road 101) - same
+                             requirement as the sibling scenario; Ego is not
+                             expected to actually reach it within this run's
+                             StopTrigger, but the Route must still be valid.
+                           -->
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="101" laneId="-1" offset="0" s="30.1"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="-1" offset="0" s="40"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <!--
+                       Init-side SpeedAction. REQUIRED, and not redundant with the
+                       Story-side one below. ControllerVirtualDriver::ResolveTargetSpeed()
+                       only picks up a LONG_SPEED action while it is RUNNING; a
+                       dynamicsShape="step" action can complete before the controller ever
+                       observes it, leaving last_action_target_ pinned at its seed value
+                       (object_->GetSpeed() at the first Step). Measured 2026-08-04 without
+                       this action: ego.speed stayed 0.0 and ego.s stayed 30.000444 for the
+                       whole 50 s run. Setting the speed here makes that seed the cruise
+                       speed, so the ego is at v_pass from t=0 and the distance budget in
+                       this file's header holds exactly (no acceleration ramp to subtract).
+                     -->
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="$EgoCruiseSpeed"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+            <Private entityRef="SlowLead">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-2" offset="0" s="445"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="$SlowLeadSpeed"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="OvertakeStory">
+         <Act name="OvertakeAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoCruiseSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="30" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

@@ -81,8 +81,13 @@ const DoubleField kDoubleFields[] = {
     {"lane_change_gap_ttc_min_s", &VirtualDriverConfig::lane_change_gap_ttc_min_s},
     {"lane_change_lateral_accel_comfort", &VirtualDriverConfig::lane_change_lateral_accel_comfort},
     {"lane_change_indicator_lead_time_s", &VirtualDriverConfig::lane_change_indicator_lead_time_s},
+    // AD overtake maneuver (vd-func:FUNC-056). Only 5 new keys -- see design doc section 8.
+    {"overtake_max_pass_time_s", &VirtualDriverConfig::overtake_max_pass_time_s},
+    {"overtake_oncoming_lookahead_m", &VirtualDriverConfig::overtake_oncoming_lookahead_m},
+    {"overtake_oncoming_safety_factor", &VirtualDriverConfig::overtake_oncoming_safety_factor},
     {"control_point_offset", &VirtualDriverConfig::control_point_offset},
     {"control_point_min_speed", &VirtualDriverConfig::control_point_min_speed},
+    {"indicator_min_distance_m", &VirtualDriverConfig::indicator_min_distance_m},
     {"indicator_lead_time", &VirtualDriverConfig::indicator_lead_time},
     {"indicator_min_on_time", &VirtualDriverConfig::indicator_min_on_time},
     {"idm_time_headway", &VirtualDriverConfig::idm_time_headway},
@@ -183,6 +188,8 @@ const BoolField kBoolFields[] = {
     {"ad_steering_envelope_enabled", &VirtualDriverConfig::ad_steering_envelope_enabled},  // feature:F7
     {"resume_merge_enabled", &VirtualDriverConfig::resume_merge_enabled},  // feature:F7
     {"lane_change_initiation_enabled", &VirtualDriverConfig::lane_change_initiation_enabled},  // vd-func:FUNC-055
+    {"overtake_enabled", &VirtualDriverConfig::overtake_enabled},  // vd-func:FUNC-056
+    {"overtake_use_opposing_lane_enabled", &VirtualDriverConfig::overtake_use_opposing_lane_enabled},  // vd-func:FUNC-056
 };
 
 const IntField kIntFields[] = {
@@ -352,6 +359,17 @@ ResumeMergeConfig VirtualDriverConfig::LaneChangeMergeCfg() const
     c.duration_min_s = kResumeMergeDefaultDurationMinS;  // reuse resume-merge's OWN defaults, not
     c.duration_max_s = kResumeMergeDefaultDurationMaxS;  // resume_merge_duration_*/min_offset_m --
     c.min_offset_m   = kResumeMergeDefaultMinOffsetM;    // the two features stay independently tunable
+    return c;
+}
+
+OvertakeConfig VirtualDriverConfig::OvertakeCfg() const
+{
+    OvertakeConfig c;
+    c.enabled                    = overtake_enabled;
+    c.use_opposing_lane_enabled  = overtake_use_opposing_lane_enabled;
+    c.max_pass_time_s            = overtake_max_pass_time_s;
+    c.oncoming_lookahead_m       = overtake_oncoming_lookahead_m;
+    c.oncoming_safety_factor     = overtake_oncoming_safety_factor;
     return c;
 }
 

@@ -242,6 +242,50 @@ struct LaneChangeInitiationSnapshot
     bool        signal_active       = false;  // AD-LC path is requesting the indicator (pre-signal or armed) -- design doc section 11-8
 };
 
+// vd-func:FUNC-056 AD overtake maneuver
+// (docs/virtualdriver/design/overtake_maneuver.md section 9-1's telemetry minimum). Additive
+// top-level block; consumers that predate it ignore it. All defaults (idle/false/0/-1/empty)
+// while overtake_enabled is false, mirroring LaneChangeInitiationSnapshot's own convention.
+//
+// `considered` is the field to read first: it means "a same-lane lead satisfying section 3's
+// speed/constraint gates was present THIS FRAME", independent of whether the maneuver actually
+// proceeded -- a frame the route-budget guard blocked can still have considered==true. A run
+// where `considered` never goes true is a FALSE PASS (nothing was ever attempted), not evidence
+// the guard works (design doc section 9-1).
+struct OvertakeSnapshot
+{
+    std::string phase           = "idle";  // OvertakePhaseName(OvertakePhase) -- fixed vocabulary
+    bool        considered      = false;   // section 3's trigger was satisfied this frame (see struct doc above)
+    int         lead_id         = -1;      // the lead vehicle EvaluateOvertakeTrigger was run against; -1 = none
+    double      delta_v_mps     = 0.0;     // v_desired_mps - v_lead_mps; 0 when considered is false
+    double      t_pass_s        = 0.0;     // estimated time to draw clear of the lead
+    double      required_m      = 0.0;     // section 2's d_out+d_pass+d_back+d_route+reserve
+    double      route_budget_m  = -1.0;    // mirrors route_lane.dist_to_connection; -1 = unknown/n.a.
+    // Fixed vocabulary (section 9-1): "" (not blocked) / "route_budget" / "gap" / "oncoming" /
+    // "no_passing_lane" / "suppressed".
+    std::string blocked_reason;
+    bool        cleared_lead    = false;   // HasClearedLead fired for the current pass (section 5-1)
+};
+
+// req-vd-ad:REQ-AD-021 / vd-func:FUNC-061 junction-turn indicator pre-arm
+// (docs/virtualdriver/design/junction_turn_signal.md section 3-4). Mirrors the raw
+// JunctionTurnLookahead result (control/common/JunctionTurn.hpp) the controller's
+// DetectJunctionTurn path computed this frame, independent of whether that result
+// ended up winning the indicator decision this frame (an active lane change can
+// still be the one lighting the indicator -- see ControllerVirtualDriver::Step()).
+// This is the ONLY telemetry field that exposes "is this road junction-owned" --
+// without on_connector a distance-based verifier cannot machine-detect "entered the
+// junction" at all (the design doc's whole reason for adding this block). All
+// fields stay at their struct defaults while a lane change owns the indicator this
+// frame (junction-turn detection is not evaluated then, same as before this
+// feature's fix).
+struct JunctionTurnSnapshot
+{
+    int    dir             = 0;      // +1 = left, -1 = right, 0 = none (JunctionTurnLookahead::dir)
+    double dist_to_entry_m = -1.0;   // [m] to the connector entry; 0.0 while on the connector; -1.0 = not detected
+    bool   on_connector    = false;  // true while ego itself is on a junction-owned road
+};
+
 // Aggregate telemetry, exposed via GT_GetVirtualDriverTelemetry().
 struct VirtualDriverTelemetry
 {
@@ -435,10 +479,12 @@ struct VirtualDriverTelemetry
     MidLongPlannerSnapshot midlong;   // Phase 2+
     TrafficPolicySnapshot  policy;    // Phase 3+
     IndicatorSnapshot      indicator;
+    JunctionTurnSnapshot   junction_turn; // req-vd-ad:REQ-AD-021: JunctionTurn.hpp RouteLookaheadJunctionTurn snapshot
     FrontBumperSnapshot    front_bumper;  // F5: leading-edge road localization
     ResumeMergeSnapshot    resume_merge;  // feature:F7 resume-merge state machine
     RouteLanePlanSnapshot  route_lane;    // RouteLanePlan.hpp: route-lane conformance diagnostic
     LaneChangeInitiationSnapshot lane_change;  // LaneChangeInitiation.hpp: vd-func:FUNC-055 state
+    OvertakeSnapshot       overtake;      // OvertakeManeuver.hpp: vd-func:FUNC-056 state
 };
 
 }  // namespace gt_esmini

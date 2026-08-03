@@ -155,6 +155,13 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"heading_error\":" << t.driver.heading_error << ",\"speed_error\":" << t.driver.speed_error
        << ",\"lookahead\":" << t.driver.lookahead_dist << ",\"valid\":" << b(t.driver.valid) << "}"
        << ",\"indicator\":{\"left\":" << b(t.indicator.left_on) << ",\"right\":" << b(t.indicator.right_on) << "}"
+       // req-vd-ad:REQ-AD-021 / vd-func:FUNC-061 junction-turn pre-arm (design doc
+       // junction_turn_signal.md section 3-4). Additive block; consumers that
+       // predate it simply ignore it. on_connector is the field to read first --
+       // it is the only telemetry signal that "this road is junction-owned".
+       << ",\"junction_turn\":{\"dir\":" << t.junction_turn.dir
+       << ",\"dist_to_entry_m\":" << t.junction_turn.dist_to_entry_m
+       << ",\"on_connector\":" << b(t.junction_turn.on_connector) << "}"
        << ",\"preview\":{\"dt\":" << t.short_plan.dt << ",\"valid\":" << b(t.short_plan.valid) << ",\"points\":[";
     for (size_t i = 0; i < t.short_plan.preview.size(); ++i)
     {
@@ -270,6 +277,20 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"gap_accepted\":" << b(t.lane_change.gap_accepted)
        << ",\"gap_reason\":\"" << t.lane_change.gap_reason << "\""
        << ",\"signal_active\":" << b(t.lane_change.signal_active) << "}";
+
+    // vd-func:FUNC-056 AD overtake maneuver (OvertakeManeuver.hpp). Additive top-level block;
+    // consumers that predate it simply ignore it. `considered` is the field to read first --
+    // design doc overtake_maneuver.md section 9-1's false-PASS guard: a run where it never goes
+    // true never actually attempted an overtake, regardless of how green everything else looks.
+    os << ",\"overtake\":{\"phase\":\"" << t.overtake.phase << "\""
+       << ",\"considered\":" << b(t.overtake.considered)
+       << ",\"lead_id\":" << t.overtake.lead_id
+       << ",\"delta_v_mps\":" << t.overtake.delta_v_mps
+       << ",\"t_pass_s\":" << t.overtake.t_pass_s
+       << ",\"required_m\":" << t.overtake.required_m
+       << ",\"route_budget_m\":" << t.overtake.route_budget_m
+       << ",\"blocked_reason\":\"" << t.overtake.blocked_reason << "\""
+       << ",\"cleared_lead\":" << b(t.overtake.cleared_lead) << "}";
 
     os << "}";
 

@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 08_overtake / overtake_into_oncoming_lane_when_clear
+
+  vd-func:FUNC-056 (overtake maneuver) / req-vd-ad:REQ-AD-023 acceptance ladder
+  step e (design doc section 7: overtaking using the OPPOSING lane, on a
+  single-lane-per-direction road with no same-direction passing lane
+  available). "when_clear" names the isolation this scenario performs: NO
+  oncoming vehicle is placed in Entities at all, so "no oncoming traffic
+  within overtake_oncoming_lookahead_m" (design doc section 7-3, default
+  400.0 m) holds VACUOUSLY - this scenario measures only the passing-lane
+  SELECTION (falling through to the opposing lane when no same-direction
+  passing lane exists, section 4's last sentence) and the same delta_v/gap
+  trigger + route-budget guard math as the other 08_overtake scenarios, not
+  the oncoming-gap-safety arithmetic itself (section 7-2's (v_ego+v_opp)*
+  t_total*safety_factor formula) - that would need a companion scenario
+  WITH an oncoming vehicle, which is out of this file's scope.
+
+  Road: resources/scenario_authoring/road_catalog/generated/
+  straight_restricted_exit__l800_lanes1_exitm1.xodr (gen_straight_restricted_
+  exit.py, length=800 lanes=1 exit_lane=-1). Main road (id 0) is 800 m
+  straight, ONE lane per direction (driving lane -1 ego-direction, +1
+  opposing-direction); the junction (id 100) forks into a through
+  continuation (road 1, not used here) and an exit ramp (road 2, one lane)
+  reachable from ONLY road 0 lane -1 (connecting road 101, laneLink "-1" ->
+  "-1" - verified via check_route_waypoints.py's parse_xodr, see the parent
+  report). Because there is no second same-direction lane on this road, the
+  ONLY way to pass SlowLead is via the opposing lane (+1) - this is exactly
+  the road property this scenario needs and the reason gen_straight_
+  restricted_exit.py's lanes=1 variant exists.
+
+  == distance-budget arithmetic (identical structure to
+  overtake_slow_lead_on_two_lane_road.xosc; n_back is the same value for a
+  structurally different reason - see below) ==
+    v_pass = 20.0 m/s, v_lead = 8.0 m/s, g0 = 40.0 m, L_ego = L_lead = 5.0 m,
+    g1 = 8.0 m  =>  L_clear = 58.0 m, t_pass = 4.8333 s, required = 496.667 m
+    (identical formula/inputs to the two-lane sibling scenarios; n_back=1
+    here because the opposing lane +1 is OUTSIDE the target-lane band {-1}
+    regardless of same/opposite direction - design doc section 2-1's general
+    rule, not a same-direction-specific one)
+    dist_to_connection at t=0 = 800 - 30 = 770.0 m
+    GUARD: required(496.667) <= dist_to_connection(770.0) - PASSES with the
+    same large 273.33 m margin as the two-lane "clean" sibling, so this file
+    isolates the passing-LANE-SELECTION question without also stressing the
+    route-budget guard.
+    Oncoming-safety math (informational only - no oncoming vehicle is
+    placed, so this is vacuously satisfied and not exercised by this file):
+    t_total = 2*duration_max_s + t_pass = 12.0 + 4.8333 = 16.8333 s;
+    required oncoming gap = (v_ego+v_opp)*t_total*overtake_oncoming_safety_
+    factor(1.5) - moot with v_opp undefined (no oncoming vehicle present).
+
+  StopTrigger=50s: same reasoning as overtake_slow_lead_on_two_lane_road.xosc
+  (connecting road 101 here measures 59.546 m; total path (770+59.546+40)/
+  20 = ~43.5 s).
+
+  SlowLead / policies / Ego cruise-speed convention: identical to the other
+  08_overtake scenarios - see overtake_slow_lead_on_two_lane_road.xosc's
+  header comment. policies: [overtake, overtake_opposing_lane, lead] -
+  BOTH overtake flags are required (design doc section 7's double gate:
+  overtake_use_opposing_lane_enabled alone does nothing without
+  overtake_enabled also set).
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-08-04T00:00:00"
+               description="VirtualDriver verification: overtake a slow lead vehicle using the opposing lane on a single-lane-per-direction road with no oncoming traffic"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoCruiseSpeed" parameterType="double" value="20.0"/>
+      <ParameterDeclaration name="SlowLeadSpeed" parameterType="double" value="8.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../scenario_authoring/road_catalog/generated/straight_restricted_exit__l800_lanes1_exitm1.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+      <ScenarioObject name="SlowLead">
+         <Vehicle name="car_yellow" vehicleCategory="car" model3d="../../../models/car_yellow.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="1"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-1" offset="0" s="30"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-1" offset="0" s="30"/>
+                              </Position>
+                           </Waypoint>
+                           <!--
+                             Explicit connecting-road Waypoint (junction 100,
+                             connection id=2, connecting road 101) - same
+                             requirement as the two-lane 08_overtake
+                             scenarios.
+                           -->
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="101" laneId="-1" offset="0" s="29.77"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="-1" offset="0" s="40"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <!--
+                       Init-side SpeedAction. REQUIRED, and not redundant with the
+                       Story-side one below. ControllerVirtualDriver::ResolveTargetSpeed()
+                       only picks up a LONG_SPEED action while it is RUNNING; a
+                       dynamicsShape="step" action can complete before the controller ever
+                       observes it, leaving last_action_target_ pinned at its seed value
+                       (object_->GetSpeed() at the first Step). Measured 2026-08-04 without
+                       this action: ego.speed stayed 0.0 and ego.s stayed 30.000444 for the
+                       whole 50 s run. Setting the speed here makes that seed the cruise
+                       speed, so the ego is at v_pass from t=0 and the distance budget in
+                       this file's header holds exactly (no acceleration ramp to subtract).
+                     -->
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="$EgoCruiseSpeed"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+            <Private entityRef="SlowLead">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-1" offset="0" s="75"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="$SlowLeadSpeed"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="OvertakeStory">
+         <Act name="OvertakeAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoCruiseSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="50" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

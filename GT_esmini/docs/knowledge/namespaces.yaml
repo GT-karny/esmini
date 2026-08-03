@@ -267,10 +267,10 @@ namespaces:
     title: 検証matcher（vd_metrics event語彙）
     entity_type: matcher
     face: "3"
-    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn)"
+    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn|overtake_decision_holds)"
     source_of_truth: GT_esmini/web/backend/services/vd_metrics.py
     status: active
-    count: 18
+    count: 19
     notes: >-
       min_separation_above（中心間距離）は 2026-07-24 に実装ごと削除（DEPRECATED 確定
       2026-07-21、min_obb_separation_above の厳密な劣位版・参照資産0件。根拠は graph.yaml の
@@ -352,7 +352,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/component_catalog_vd.yaml
     status: active
-    count: 9
+    count: 11
     notes: >-
       2026-08-02 新設。**動機**: 3段チェーン（実装 -> realizes -> vd-func -> realizes -> req）の
       実装側ノードは `policy`（ITrafficPolicy 実装）しか登録されておらず、プランナー・
@@ -374,7 +374,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(_[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/signal_catalog.yaml
     status: active
-    count: 50
+    count: 53
     notes: >-
       検証スパイン④観測の一級市民（capability_model.md §4）。canonical は
       **OSI .proto 面（GroundTruth / HostVehicleData）**で、`vd_metrics.py` の
@@ -416,7 +416,7 @@ namespaces:
     id_pattern: "REQ-AD-[0-9]{3}"
     source_of_truth: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     status: active
-    count: 19
+    count: 21
     notes: >-
       機能軸カタログの DRAFT 段階で activate（seed REQ-AD-001..006 ＋ AEB家族 001/010-015、
       NCAP/R152逆算スキーマ=aeb_requirements.md）。設計軸は

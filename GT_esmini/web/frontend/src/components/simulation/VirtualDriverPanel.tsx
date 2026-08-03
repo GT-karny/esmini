@@ -36,6 +36,9 @@ const EDITABLE_KEYS = [
   'lane_change_reserve_distance_m', 'lane_change_gap_min_m', 'lane_change_gap_headway_lead_s',
   'lane_change_gap_headway_rear_s', 'lane_change_gap_ttc_min_s', 'lane_change_lateral_accel_comfort',
   'lane_change_indicator_lead_time_s',
+  // vd-func:FUNC-056 AD overtake maneuver (docs/virtualdriver/design/overtake_maneuver.md). Default OFF.
+  'overtake_enabled', 'overtake_use_opposing_lane_enabled', 'overtake_max_pass_time_s',
+  'overtake_oncoming_lookahead_m', 'overtake_oncoming_safety_factor',
   'control_point_offset', 'control_point_min_speed',
   'indicator_lead_time', 'indicator_min_on_time',
   'idm_time_headway', 'idm_min_gap', 'idm_max_accel', 'idm_comfort_decel', 'idm_desired_speed',
@@ -832,6 +835,77 @@ function VirtualDriverForm({ initial, defaults }: { initial: VirtualDriverConfig
           mismatch. If no gap opens before the connection deadline, it
           crosses off-plan without lane-changing (unchanged deviation
           recording) — this does not add a stop-and-wait behavior.
+        </p>
+      </section>
+
+      {/* AD Overtake Maneuver — vd-func:FUNC-056. Builds on AD Lane Change Initiation's
+          1-hop mechanism, run twice (out, then back), with a slow lead as the motive
+          instead of a route deadline. A route connection is never sacrificed for a pass:
+          the required distance to go out, pass, and come back must fit within
+          dist_to_connection before signaling. Default OFF, independent of
+          lane_change_initiation_enabled — see
+          docs/virtualdriver/design/overtake_maneuver.md. */}
+      <section>
+        <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
+          AD Overtake Maneuver
+        </h3>
+        <div className="mb-3">
+          <ToggleSwitch
+            label="Enable overtake maneuver"
+            checked={Boolean(cfg.overtake_enabled)}
+            onChange={(v) => set('overtake_enabled', v)}
+          />
+        </div>
+
+        <div className="mb-3">
+          <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">
+            Trigger — how slow counts as "slow"
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <NumberInput label="Max pass time (s)" step={0.5}
+              title="追い抜きに要る時間の上限。これを超える速度差でしか追い抜けない先行車は対象にしない。既定10.0はAASHTOの追い越し視距モデルの左車線占有時間t2（設計速度により9.3〜11.3秒）の中央付近。実測値ではなく方針値。"
+              value={cfg.overtake_max_pass_time_s ?? 10.0}
+              onChange={setNum('overtake_max_pass_time_s')} />
+          </div>
+          <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+            There is no separate "how much slower" threshold — it is derived every frame from
+            gap, vehicle lengths, and this time limit. A slow lead is only considered once
+            LeadVehicleAware's own "not free flow" gap threshold is crossed.
+          </p>
+        </div>
+
+        <div className="mb-3">
+          <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider mb-1.5">
+            Opposing lane (single-lane-each-way roads)
+          </h4>
+          <ToggleSwitch
+            label="Allow using the opposing lane"
+            checked={Boolean(cfg.overtake_use_opposing_lane_enabled)}
+            onChange={(v) => set('overtake_use_opposing_lane_enabled', v)}
+          />
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <NumberInput label="Oncoming scan distance (m)" step={10}
+              title="対向車の探索距離。これは見通し距離（視界が通っていることの保証）ではなく、単なるスキャン範囲。既定400.0はAASHTOの追い越し視距（設計速度60km/h相当）。"
+              value={cfg.overtake_oncoming_lookahead_m ?? 400.0}
+              onChange={setNum('overtake_oncoming_lookahead_m')} />
+            <NumberInput label="Oncoming safety factor" step={0.1}
+              title="対向車ギャップの必要量に掛ける安全率。追い抜き所要時間の見積り誤差を吸収するための工学的余裕であり、実測値ではない。"
+              value={cfg.overtake_oncoming_safety_factor ?? 1.5}
+              onChange={setNum('overtake_oncoming_safety_factor')} />
+          </div>
+          <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+            Default OFF, independently of the maneuver's own toggle above. vd-func:FUNC-030
+            (passing-prohibition-zone / solid-line awareness) is not yet implemented, so
+            enabling this ignores no-passing markings.
+          </p>
+        </div>
+
+        <p className="text-[10px] text-text-tertiary mt-2 leading-tight">
+          Default OFF. Reuses the Lane Change Initiation gap-acceptance and decision-distance
+          settings above (return clearance = its Min gap, route-guard margin = its Reserve
+          distance, signal dwell = its Indicator lead time) — nothing new to tune there.
+          If the route connection deadline is reached mid-pass, the maneuver abandons the
+          pass and returns to the route lane instead of missing the connection.
         </p>
       </section>
 

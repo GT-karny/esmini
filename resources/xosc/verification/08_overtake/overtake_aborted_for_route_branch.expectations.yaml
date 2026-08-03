@@ -1,0 +1,126 @@
+scenario: overtake_aborted_for_route_branch
+category: 08_overtake
+# vd-func:FUNC-056 (overtake maneuver) / req-vd-ad:REQ-AD-024 acceptance
+# ladder step c: the section 5-2 safety valve (abort the return hop when
+# the route deadline arrives before SlowLead is cleared). See the .xosc
+# file's REVISION HISTORY (v1/v2/v3) for the full story -- this is v3
+# (2026-08-04): SlowLead accelerates past Ego's own cruise speed at t=8.0s
+# (8.0 -> 25.0 m/s), so Ego can never clear it; the only way PASS ends is
+# the section 5-2 safety valve (opening on the SIGNAL threshold per the
+# coordinating session's C++ fix) forcing SIGNAL_BACK.
+#
+# MEASURED (2026-08-04, this author's own run against the rebuilt DLL,
+# test_results/web/overtake/overtake_aborted_for_route_branch/telemetry.jsonl):
+#   t= 0.05 signal_out (considered=true, delta_v=12.0, lead_id=1)
+#   t= 3.00 out          (lc_armed=true, dir=+1 -- outbound lead 2.95s)
+#   t= 6.40 pass
+#   t=31.75 signal_back  (route_budget_m=199.14, i.e. right at the ~200m
+#                          SIGNAL threshold: 140m single-hop ARM threshold
+#                          + 60m (v_pass*lane_change_indicator_lead_time_s)
+#                          for the mandatory indicator dwell)
+#   t=34.75 back          (lc_armed=true, dir=-1 -- inbound lead 3.00s;
+#                          route_budget_m=139.1 == the ARM threshold, so the
+#                          dwell spent exactly the distance the SIGNAL
+#                          threshold bought)
+#   t=38.15 idle
+#   Final route_lane: road_id=2, ego_lane=-1, on_target_lane=true,
+#   deviation_count=0 -- the safety valve protected the route successfully.
+#   cleared_lead: FALSE on all 1240 frames. blocked_reason: 'route_budget'
+#   from t=31.75 through the end of the return hop.
+#
+# ==================== RESOLVED (was a real defect) ==========================
+# An earlier revision of this file windowed the cleared_lead assertion to
+# [0.0, 31.7] because the field flipped true in the same frame the phase
+# became signal_back, regardless of WHY the pass ended. That observation was
+# correct and the workaround was the right call at the time -- but the cause
+# was a controller defect, not intended behavior: the PASS case computed one
+# `cleared` flag from the route-deadline valve FIRST and short-circuited the
+# geometric test, then published cleared_lead from that same flag. A
+# valve-forced return therefore claimed "passed the lead". That destroyed the
+# exact discrimination design doc section 9-1 introduced the field for.
+# Fixed 2026-08-04 in ControllerVirtualDriver.cpp: the geometric clearance
+# test now runs unconditionally, cleared_lead is set ONLY from it, and the
+# reason the return started is latched separately into blocked_reason. The
+# window is removed and the assertion is now made over the whole run.
+# ============================================================================
+#
+# expect_phases deliberately does NOT start with "idle" (same reasoning as
+# the other 08_overtake scenarios): Ego is constrained by SlowLead from
+# frame 1.
+must:
+  - event: overtake_decision_holds
+    expect_considered: true
+    reason: >
+      MEASURED true at t=0.05 (delta_v=12.0, lead_id=1, matching the
+      identical g0=40.0/v_lead=8.0/v_pass=20.0 setup as the clean sibling
+      scenario up to the t=8.0s acceleration event).
+  - event: overtake_decision_holds
+    expect_phases: [signal_out, out, pass, signal_back, back, idle]
+    reason: >
+      MEASURED exact sequence: signal_out@0.05 -> out@3.00 -> pass@6.40 ->
+      signal_back@31.75 -> back@34.75 -> idle@38.15. The guard passed
+      (required=496.667 <= dist_to_connection=770.0, same 273.33 m margin
+      as the clean sibling -- not a tight margin), Ego reached PASS, and
+      because SlowLead permanently outruns it from t=8.0s onward, the only
+      exit from PASS is signal_back arriving at route_budget_m=199.14 --
+      right at the SIGNAL-threshold deadline (~200m: 140m ARM threshold +
+      60m for the mandatory indicator dwell), not a natural clear.
+  - event: overtake_decision_holds
+    expect_cleared_lead: false
+    reason: >
+      UNWINDOWED, over the whole run. Ego never draws clear of SlowLead in
+      this scenario, so this must hold on every frame -- and it is the
+      primary evidence that the return was FORCED rather than earned.
+      The clean sibling (overtake_slow_lead_on_two_lane_road) asserts the
+      opposite polarity from the same field, so this pair proves the
+      observable actually discriminates instead of being constant.
+      MEASURED 2026-08-04 after the semantics fix: false on all 1240
+      frames here, true during signal_back/back in the sibling.
+  - event: overtake_decision_holds
+    expect_blocked_reason: route_budget
+    reason: >
+      Positive evidence that the section 5-2 safety valve is what ended the
+      pass, rather than inferring it from the absence of cleared_lead. The
+      controller latches this token across SIGNAL_BACK/BACK when the return
+      was opened by the route deadline. Same fixed-vocabulary token the
+      IDLE-phase guard uses in overtake_declined_before_route_branch,
+      because it is the same fact ("the route budget stopped the pass"),
+      observed at a later phase. MEASURED: blocked_reason=='route_budget'
+      from t=31.75 (signal_back) through t=38.10 (end of back).
+  - event: indicator_leads_lane_change
+    window: [0.0, 8.0]
+    min_lead_s: 2.9
+    reason: >
+      Outbound hop. MEASURED: t_sig=0.05, t_arm=3.00, lead=2.95s -- matches
+      the clean sibling scenario exactly (identical setup up to t=8.0s).
+      2.9 = legal 3.0s minus one frame's dt=0.05 quantization allowance,
+      not a loosened assertion -- same convention as req-vd-ad:REQ-AD-018
+      steps b/c and the other 08_overtake scenarios.
+  - event: indicator_leads_lane_change
+    window: [25.0, 45.0]
+    min_lead_s: 2.9
+    reason: >
+      Inbound (return) hop. MEASURED: t_sig=31.75, t_arm=34.75, lead=3.00s
+      -- the return dwell was NOT skipped despite the forced deadline
+      (confirms the coordinating session's C++ fix #2: SIGNAL_BACK always
+      requires "dwell complete AND gap accepted", no exceptions). Window
+      tightened from this file's original [10.0, 55.0] placeholder to
+      bracket the actual measured times with headroom.
+  - event: route_lane_plan_holds
+    max_deviations: 0
+    reason: >
+      MEASURED: final route_lane block reads road_id=2, ego_lane=-1,
+      on_target_lane=true, deviation_count=0 -- the safety valve protected
+      the route successfully despite never physically clearing SlowLead.
+notes: >
+  MEASURED 2026-08-04 against a Release build carrying all three C++ fixes
+  (safety valve opens on the SIGNAL threshold; SIGNAL_BACK never bypasses
+  the dwell or the gap check; cleared_lead set only from the geometric
+  clearance test). Batch verdict: pass, 7/7 must entries.
+
+  This scenario and overtake_slow_lead_on_two_lane_road are a matched pair
+  and must be read together: same road, same g0/v_lead/v_pass, differing
+  only in whether SlowLead later outruns Ego. They assert OPPOSITE
+  polarities of cleared_lead from the same telemetry field, which is what
+  makes either green mean anything -- a field that is constant cannot
+  distinguish "gave up and returned" from "passed and returned".

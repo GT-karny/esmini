@@ -8,6 +8,7 @@
 #include "gt_esmini/control/virtualdriver/AdSteeringEnvelope.hpp"
 #include "gt_esmini/control/virtualdriver/ResumeMergeProfile.hpp"
 #include "gt_esmini/control/virtualdriver/LaneChangeInitiation.hpp"
+#include "gt_esmini/control/virtualdriver/OvertakeManeuver.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
@@ -114,6 +115,23 @@ struct VirtualDriverConfig
     // NOT unified into one knob (design doc section 11-10).
     double lane_change_indicator_lead_time_s = 3.0;   // [s]
 
+    // --- AD overtake maneuver (vd-func:FUNC-056) ---
+    // Passes a slower same-lane lead when it is comfortably in reach (design doc
+    // docs/virtualdriver/design/overtake_maneuver.md). Reuses lane_change_initiation's 1-hop
+    // mechanism twice (out, then back) via the SAME lc_init_state_/lc_merge_cfg_/lc_merge_state_
+    // instances (section 5) -- NOT a third set of state, since route-request LC and overtake are
+    // mutually exclusive by priority (section 5-3). Also reuses lane_change_gap_min_m (return
+    // clearance g1), lane_change_reserve_distance_m (route-guard margin),
+    // lane_change_indicator_lead_time_s (signal dwell), and lc_merge_cfg_.duration_max_s (hop
+    // ground time) -- see design doc section 8's "再利用するキー" table. Only 5 NEW keys are
+    // introduced; do not add new distance/margin/dwell keys here (section 8's explicit
+    // instruction). Default OFF, independent of lane_change_initiation_enabled.
+    bool   overtake_enabled                    = false;  // [design doc section 8]
+    bool   overtake_use_opposing_lane_enabled  = false;  // second, independent gate (section 7; FUNC-030 not yet built)
+    double overtake_max_pass_time_s            = 10.0;   // [s] AASHTO PSD t2 (section 3-1)
+    double overtake_oncoming_lookahead_m       = 400.0;  // [m] SCAN distance, not a sight-distance claim (section 7-3)
+    double overtake_oncoming_safety_factor     = 1.5;    // unitless margin on the oncoming gap requirement (section 7-3)
+
     // --- Control point (P2 issue 2): lateral reference forward of the origin ---
     // Pure pursuit tracks the vehicle ORIGIN (≈ rear axle in esmini), so on a tight
     // turn the front bumper swings wide and leaves the lane. Shift the lateral
@@ -127,6 +145,16 @@ struct VirtualDriverConfig
     double control_point_min_speed = 1.0;   // [m/s] below this, no shift (stop/reverse)
 
     // --- Indicator ---
+    // req-vd-ad:REQ-AD-021 (docs/virtualdriver/design/junction_turn_signal.md section
+    // 2-2/3-3): junction-turn pre-arm trigger is DISTANCE-first --
+    // max(indicator_min_distance_m, speed * indicator_lead_time) -- because the
+    // legal basis (JP Road Traffic Act Enforcement Order Art. 21 para 1) is a
+    // distance (30 m before the intersection), not a time. indicator_lead_time
+    // only dominates once v * lead_time exceeds the 30 m floor (~15 m/s+).
+    // SEPARATE from lane_change_indicator_lead_time_s above (3.0 s) -- different
+    // legal basis/dimension, deliberately not unified (design doc section 11-10 /
+    // this doc's own section 3-3).
+    double indicator_min_distance_m = 30.0;
     double indicator_lead_time   = 2.0;
     double indicator_min_on_time = 0.3;
 
@@ -320,6 +348,9 @@ struct VirtualDriverConfig
     // this config's ArmResumeMerge is ever invoked, same as how resume-merge's own arm call sites
     // are all inside `if (resume_merge_cfg_.enabled)`.
     ResumeMergeConfig              LaneChangeMergeCfg() const;
+    // vd-func:FUNC-056 (design doc overtake_maneuver.md section 8). Independent of
+    // LaneChangeInitiationCfg() -- overtake_enabled is its OWN gate.
+    OvertakeConfig                 OvertakeCfg() const;
     AutoIndicatorConfig            IndicatorConfig() const;
     LeadVehicleAwareConfig         LeadConfig() const;
     TrafficLightAwareConfig        TrafficLightConfig() const;

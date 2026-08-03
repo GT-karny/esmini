@@ -778,6 +778,16 @@ _POLICY_FLAG = {
     # default-OFF opt-in mechanism applies -- reuse the "policies:" list
     # rather than adding a second config-injection path.
     "lane_change_initiation": "lane_change_initiation_enabled",
+    # vd-func:FUNC-056 (overtake maneuver, docs/virtualdriver/design/overtake_maneuver.md).
+    # Not an ITrafficPolicy either (same reasoning as lane_change_initiation
+    # above) -- reuses this list rather than a second injection path.
+    "overtake": "overtake_enabled",
+    # Opposing-lane overtake (design doc section 7) is DOUBLE-gated: this flag
+    # alone does nothing. It only takes effect when "overtake" is ALSO in the
+    # policies list (overtake_use_opposing_lane_enabled is read only inside the
+    # overtake_enabled branch), matching the design's "FUNC-030 未実装ゆえの
+    # 二重ゲート" rationale for keeping opposing-lane overtaking off by default.
+    "overtake_opposing_lane": "overtake_use_opposing_lane_enabled",
 }
 
 

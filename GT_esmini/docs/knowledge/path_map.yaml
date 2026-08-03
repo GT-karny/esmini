@@ -49,6 +49,11 @@ mappings:
   # the vd-func catalog entry it partially realizes instead.
   - glob: "*virtualdriver/RouteLanePlan*"
     ids: [vd-func:FUNC-050]
+  # OvertakeManeuver: same shape as RouteLanePlan/LaneChangeInitiation -- an independent VD
+  # layer, not an ITrafficPolicy (overtake_maneuver.md; the layer's output is a lateral
+  # decision, which PolicyConstraint's longitudinal-only vocabulary cannot express).
+  - glob: "*virtualdriver/OvertakeManeuver*"
+    ids: [vd-func:FUNC-056, vd-component:overtake-maneuver]
   # fork lineages (Clean Core governance)
   - glob: "GT_esmini/src/road/GT_RoadManager.cpp"
     ids: [lineage:gt_roadmanager]
@@ -81,6 +86,10 @@ mappings:
     ids: [vd-func:FUNC-050]
   - glob: "resources/xosc/verification/route_lane_batch.yaml"
     ids: [vd-func:FUNC-050]
+  - glob: "resources/xosc/verification/08_overtake/*"
+    ids: [vd-func:FUNC-056, req-vd-ad:REQ-AD-023, req-vd-ad:REQ-AD-024]
+  - glob: "resources/xosc/verification/overtake_batch.yaml"
+    ids: [vd-func:FUNC-056, req-vd-ad:REQ-AD-023, req-vd-ad:REQ-AD-024]
   # the knowledge graph itself
   - glob: "GT_esmini/docs/knowledge/*"
     ids: [directive:R4]

@@ -619,3 +619,25 @@ signals:
       aeb_trigger_flag と同型の「OSI/HVD に対応概念が無い GT 独自 VD テレメトリ専用」
       exposure=frame。route を持たないエンティティ（AssignRouteAction 未使用シナリオが
       大半）では diagnostic=="no_route" として現れる（劣化ではなく通常状態、同 §4-5）。
+
+  - id: overtake_decision
+    title: 追い越しの検討・抑止・フェーズ（なぜ追い越したか／なぜ追い越さなかったか）
+    exposure: [frame]
+    state: "●"
+    emit: ControllerVirtualDriver.cpp（overtake フェーズ状態機械が ot_diag_* を確定）→ telemetry_.overtake → VirtualDriverTelemetryJson.cpp（overtake ブロックの phase / considered / lead_id / delta_v_mps / t_pass_s / required_m / route_budget_m / blocked_reason / cleared_lead）
+    note: >-
+      matcher:overtake_decision_holds が読む。exposure=frame は route_lane_conformance と
+      同じ理由（OSI/HVD に対応概念が無い GT 独自の VD テレメトリ）。
+      **この signal は「追い越したか」ではなく「追い越しを検討したか、しなかったならなぜか」を
+      観測対象にしている。** 理由は偽 PASS の排除で、経路ガードの検証では
+      「ガードが効いて追い越さなかった緑」と「そもそも追い越しを検討していないから緑」が
+      外から区別できなければ意味が無い（overtake_maneuver.md §9-1）。
+      `considered` がその判別子で、**ガードで止めたフレームでも true になる**。
+      `blocked_reason` は固定語彙（"" / route_budget / gap / oncoming / no_passing_lane /
+      suppressed）で gap_reason と同じ流儀。
+      **`cleared_lead` は「本当に先行車を抜き切ったか」だけを意味する。** 実装当初は経路の
+      安全弁で戻った場合も true になっており（弁と幾何クリア判定を1フラグに畳んで短絡していた）、
+      「抜かずに諦めた」と「抜いて戻った」が区別できなかった。2026-08-04 修正。
+      戻った理由は blocked_reason 側へ分離してある。
+      検知器の両極性は2本の刺激（完遂側と中断側）が**同じフィールドの逆極性**を主張することで
+      実証してある — 定数のフィールドは何も判別しない。

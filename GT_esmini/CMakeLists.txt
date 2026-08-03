@@ -124,6 +124,7 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AdasFunctionReport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/RouteLanePlan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/LaneChangeInitiation.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/OvertakeManeuver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/RouteSignalScan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/RouteCrosswalkScan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/policies/JunctionStopGuard.cpp

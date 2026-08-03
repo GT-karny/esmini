@@ -364,6 +364,22 @@ export interface VirtualDriverConfig {
   // acceptance. Separate from indicator_lead_time (intersection turns) —
   // see docs/virtualdriver/design/lane_change_initiation.md §11-10.
   lane_change_indicator_lead_time_s?: number;
+  // vd-func:FUNC-056 — AD overtake maneuver. Passes a slower same-lane lead
+  // when the pass fits within overtake_max_pass_time_s, gated by a route-
+  // budget guard (a route connection is never sacrificed for a pass) and
+  // ordinary gap acceptance (or, for the opposing-lane case, a dedicated
+  // closing-speed check). Default OFF, independent of
+  // lane_change_initiation_enabled — see
+  // docs/virtualdriver/design/overtake_maneuver.md.
+  overtake_enabled?: boolean;
+  // Independent second gate: allows using the OPPOSING lane on a
+  // single-lane-each-way road when no same-direction passing lane exists.
+  // Default OFF (vd-func:FUNC-030 passing-prohibition-zone awareness is not
+  // yet implemented).
+  overtake_use_opposing_lane_enabled?: boolean;
+  overtake_max_pass_time_s?: number;
+  overtake_oncoming_lookahead_m?: number;
+  overtake_oncoming_safety_factor?: number;
   control_point_offset?: number;
   control_point_min_speed?: number;
   // Input source for the run. "network" (default when never configured — see

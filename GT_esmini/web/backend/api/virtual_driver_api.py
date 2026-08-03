@@ -84,6 +84,14 @@ _BOOL_KEYS = frozenset(
         # acceptance ladder step c). Default OFF — see
         # docs/virtualdriver/design/lane_change_initiation.md §8.
         "lane_change_initiation_enabled",
+        # vd-func:FUNC-056 — AD overtake maneuver master gate. Independent of
+        # lane_change_initiation_enabled. Default OFF — see
+        # docs/virtualdriver/design/overtake_maneuver.md §8.
+        "overtake_enabled",
+        # vd-func:FUNC-056 — second, independent gate for opposing-lane passing
+        # (single-lane-each-way roads). Default OFF: vd-func:FUNC-030
+        # passing-prohibition-zone awareness is not yet implemented.
+        "overtake_use_opposing_lane_enabled",
     }
 )
 _NUMBER_KEYS = frozenset(
@@ -133,6 +141,12 @@ _NUMBER_KEYS = frozenset(
         "lane_change_gap_ttc_min_s",
         "lane_change_lateral_accel_comfort",
         "lane_change_indicator_lead_time_s",
+        # vd-func:FUNC-056 — AD overtake maneuver tuning. See
+        # docs/virtualdriver/design/overtake_maneuver.md §8 for the confirmed key
+        # names/defaults (single source of truth).
+        "overtake_max_pass_time_s",
+        "overtake_oncoming_lookahead_m",
+        "overtake_oncoming_safety_factor",
         "control_point_offset",
         "control_point_min_speed",
         "indicator_lead_time",
@@ -392,6 +406,43 @@ DEFAULT_VIRTUAL_DRIVER_CONFIG: dict[str, Any] = {
     "lane_change_gap_ttc_min_s": 3.0,
     "lane_change_lateral_accel_comfort": 1.5,
     "lane_change_indicator_lead_time_s": 3.0,
+    "_overtake": (
+        "vd-func:FUNC-056 AD overtake maneuver (docs/virtualdriver/design/"
+        "overtake_maneuver.md). Passes a slower same-lane lead (gap <= idm "
+        "follow_margin*s*, LeadVehicleAware's own 'not free flow' threshold) "
+        "when the pass fits in overtake_max_pass_time_s (default 10.0s -- "
+        "AASHTO Passing Sight Distance model's t2 component, 9.3-11.3s at "
+        "typical design speeds; this default sits near the middle of that "
+        "range, NOT an on-road measurement). Reuses lane_change_initiation's "
+        "ONE-hop mechanism twice (out, then back) via the SAME shared hop "
+        "state -- overtake and route-required lane changes are mutually "
+        "exclusive by priority (storyboard LaneChangeAction > resume-merge > "
+        "route-required AD LC > this feature). A route connection is never "
+        "sacrificed for a pass: before signaling, the required distance to go "
+        "out, pass, and come back (plus any hops still owed to the route's "
+        "target-lane band) must fit within dist_to_connection, reusing "
+        "lane_change_reserve_distance_m as the safety margin. Signaling is a "
+        "fixed dwell timer (signal for lane_change_indicator_lead_time_s, then "
+        "go), not lane-change-initiation's forward-projected form -- "
+        "overtaking has no deadline to project against. Passing-lane "
+        "selection is 'same direction, one step toward lane id 0' (correct "
+        "under both RHT and LHT). overtake_use_opposing_lane_enabled (default "
+        "OFF, independently gated) additionally allows using the OPPOSING "
+        "lane on a single-lane-each-way road when no same-direction passing "
+        "lane exists; kept off by default because vd-func:FUNC-030 "
+        "(passing-prohibition-zone / solid-line awareness) is not yet "
+        "implemented. overtake_oncoming_lookahead_m (default 400.0m, AASHTO "
+        "PSD at ~60km/h design speed) is a SCAN distance, not a sight-"
+        "distance/occlusion model. overtake_oncoming_safety_factor (default "
+        "1.5) is an engineering margin on the required oncoming gap, not a "
+        "measured value. Default OFF (overtake_enabled), independent of "
+        "lane_change_initiation_enabled."
+    ),
+    "overtake_enabled": False,
+    "overtake_use_opposing_lane_enabled": False,
+    "overtake_max_pass_time_s": 10.0,
+    "overtake_oncoming_lookahead_m": 400.0,
+    "overtake_oncoming_safety_factor": 1.5,
     "_control_point": "P2 issue 2: shift the lateral control point + preview anchor forward (rear->front axle) so the front stays in-lane on tight turns. control_point_offset [m]: >0 explicit, 0=auto(wheel_base), <0 disabled. Only above control_point_min_speed and not during a storyboard lane maneuver.",
     "control_point_offset": 0.0,
     "control_point_min_speed": 1.0,

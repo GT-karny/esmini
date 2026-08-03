@@ -106,3 +106,18 @@ components:
     note: >-
       横/縦の各ドメインを誰（人間 / シナリオ / AD）が書くかを一元管理する。
       ManualDrive と共有するため control/common に置かれている。
+
+  - id: overtake-maneuver
+    title: 追い越しマヌーバ
+    layer: tactical
+    interface: '-'
+    path: GT_esmini/src/control/virtualdriver/OvertakeManeuver.cpp
+    note: >-
+      遅い先行車の追い越しを、vd-component:lane-change-initiation の1ホップ機構の上に
+      「動機」を1つ足す形で実現する。純関数層（trigger / 経路ガード / 対向ギャップ /
+      追い越しレーン選択 / クリア判定 / 合図ドウェル）がここにあり、フェーズ状態機械と
+      エンジン依存の走査は ControllerVirtualDriver 側にある（ScanAdjacentLaneGap が
+      LaneChangeInitiation.hpp で同じ分割をしているのと同型）。
+      軌道は ResumeMergeProfile を無改造で流用し、往路・復路とも同じ1ホップ機構を
+      目標レーンだけ差し替えて2回まわす。設計は
+      GT_esmini/docs/virtualdriver/design/overtake_maneuver.md。

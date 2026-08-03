@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VirtualDriver verification scenario 08_overtake / overtake_aborted_for_route_branch
+
+  vd-func:FUNC-056 (overtake maneuver) / req-vd-ad:REQ-AD-024 acceptance ladder
+  step c ("追い越し中に経路ホップの締切が来たら追い越しを打ち切って戻る" -
+  the section 5-2 safety valve).
+
+  ============================ REVISION HISTORY =============================
+  v1 (discarded): tightened the route-budget MARGIN. The coordinating
+  session verified this author's own algebraic proof that this can never
+  work: the "required" guard formula is self-consistent by construction, so
+  margin-tightening alone can never make the safety valve fire.
+
+  v2 (discarded): kept the guard on the generous-margin side and instead
+  made SlowLead accelerate mid-pass to a speed just under Ego's (19.9 vs
+  20.0 m/s), banking on the residual gap-to-clear still being small enough,
+  at the moment the OUT hop completed, that a near-zero delta_v would blow
+  the remaining route budget before natural clearing. This required a
+  large, carefully-tuned g0=100.0m and a razor-thin-by-construction timing
+  window (~0.4s) for the acceleration event, which this author flagged
+  CONFIDENCE: LOW.
+
+  v3 (this version, 2026-08-04): the coordinating session fixed two things
+  in the C++ implementation that changed which scenario design actually
+  exercises the safety valve:
+    1. The valve now opens on the SIGNAL threshold (ShouldSignalLaneChangeHop)
+       instead of the ARM threshold (ShouldAttemptLaneChangeHop). Opening on
+       the arm threshold left no distance for the legally-required
+       indicator dwell, and v2's real measurement showed the return
+       indicator lead was only 0.05s (a REQ-AD-023 step d violation).
+    2. SIGNAL_BACK no longer skips its dwell or gap-acceptance wait when the
+       deadline arrives - the return hop now ALWAYS requires "dwell
+       complete AND gap accepted", no exceptions.
+  Given fix 2, the coordinating session identified that the return hop's
+  own gap-acceptance requirement (max(lane_change_gap_min_m(8.0),
+  v_pass*lane_change_gap_headway_lead_s(1.2)) = max(8.0,24.0) = 24.0 m) is
+  LARGER than the "cleared" threshold (g1+L_ego/2+L_lead/2 = 13.0 m) -
+  meaning by the time Ego could actually return, it has ALREADY cleared
+  SlowLead in the ordinary "pass and come back" case. The ONLY physical way
+  to return with cleared_lead staying false for the whole run is for
+  SlowLead itself to pull AHEAD of Ego (accelerating past Ego's own cruise
+  speed), opening the original lane's gap from the front while Ego can
+  never actually get ahead of it.
+
+  This version therefore reverts to v1's SIMPLE parameters (g0=40.0m, same
+  as overtake_slow_lead_on_two_lane_road - no special tuning needed) and
+  makes SlowLead accelerate to 25.0 m/s (5.0 m/s FASTER than Ego's 20.0
+  m/s cruise), fired well after Ego has entered PASS (t=8.0s - comfortably
+  past the sibling scenario's measured pass@6.40s under the same g0=40
+  setup, and past the coordinating session's "any time after t~=7s" advice).
+  This is DELIBERATELY not timing-sensitive: whenever the acceleration
+  fires (as long as it is after PASS begins and before Ego would have
+  cleared SlowLead under the original delta_v=12.0), the outcome is the
+  same - SlowLead pulls away forever, Ego can never clear it, the original
+  lane opens up ahead of SlowLead, the return hop's gap-acceptance is
+  satisfied, and the ONLY way PASS ever ends is the section 5-2 safety
+  valve forcing SIGNAL_BACK. No fine-tuned deadline arithmetic is needed
+  (per the coordinating session: "しきい値のチューニングが要らなくなる").
+  ============================================================================
+
+  MEASURED (2026-08-04, this author's own batch run against the rebuilt
+  DLL, GIT REV v3.4.1-863-9488c193-dirty): signal_out@0.05 -> out@3.00
+  (outbound lead 2.95s) -> pass@6.40 -> signal_back@31.75 (route_budget_m=
+  199.14, right at the ~200m SIGNAL threshold = 140m ARM threshold + 60m
+  for the mandatory indicator dwell) -> back@34.75 (inbound lead 3.00s) ->
+  idle@38.15. Final route_lane: deviation_count=0, on_target_lane=true -
+  the safety valve protected the route successfully. Full must-list
+  results and an important open FINDING about telemetry.overtake.
+  cleared_lead's behavior are in the companion .expectations.yaml file
+  (search "FINDING" there) - this author's measurement shows that field
+  tracks the current phase (true for signal_back/back, false for
+  idle/pass) rather than a live re-check against the captured SlowLead
+  pointer once Ego has left its lane, which this author flagged for the
+  coordinating session to judge rather than working around silently.
+
+  == distance-budget arithmetic (identical to overtake_slow_lead_on_two_
+  lane_road - see that file's header comment for the full derivation) ==
+    v_pass = 20.0 m/s, v_lead_initial = 8.0 m/s, g0 = 40.0 m, L_ego=L_lead=
+    5.0 m, g1=8.0 m => L_clear=58.0 m, t_pass=4.8333s (<=overtake_max_
+    pass_time_s=10.0 read from config/virtual_driver.json), required=
+    496.667 m against dist_to_connection=770.0 m (Ego starts at road0 s=30,
+    same as the sibling scenario) - guard passes with the same comfortable
+    273.33 m margin.
+
+  Acceleration event: SimulationTimeCondition value="8.0" steps SlowLead
+  from 8.0 to 25.0 m/s. Once SlowLead is faster than Ego, the relative gap
+  (Ego rear vs SlowLead front) can only ever grow in Ego's favor if Ego
+  were to somehow go faster than 25.0 m/s (it cannot - its own cruise
+  target is fixed at 20.0 m/s), so this author's ORIGINAL prediction was
+  that cleared_lead reads false for the entire run. MEASURED instead:
+  cleared_lead reads false through the whole pass phase (as predicted) but
+  flips true in the same frame the phase transitions to signal_back - see
+  the MEASURED / FINDING note above and the companion .expectations.yaml
+  for why that turned out to be a phase-coupled telemetry artifact rather
+  than a contradiction of this prediction. Meanwhile SlowLead vacates the
+  ORIGINAL lane -2 ahead of Ego, so by the time SIGNAL_BACK's dwell+gap-
+  acceptance are evaluated, the return gap is open (nothing else occupies
+  lane -2 anywhere near Ego) - confirmed by the measured 3.00s inbound
+  indicator lead (dwell was never skipped).
+
+  StopTrigger=60s: generous relative to the un-accelerated sibling's ~43.5s
+  full-route time, to give the safety-valve-forced SIGNAL_BACK/BACK hops
+  and settling time to complete and be observed.
+
+  SlowLead / policies / Ego cruise-speed convention: identical to the other
+  08_overtake scenarios - see overtake_slow_lead_on_two_lane_road.xosc's
+  header comment. policies: [overtake, lead] only - lane_change_initiation
+  is NOT enabled (design doc section 6: the safety valve's own call reads
+  an internally-overridden enabled=true copy of lc_init_cfg_ regardless of
+  the config flag).
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1"
+               revMinor="1"
+               date="2026-08-04T00:00:00"
+               description="VirtualDriver verification: SlowLead accelerates past Ego's own cruise speed mid-pass, so Ego can never clear it - the only way PASS ever ends is the section 5-2 safety valve forcing the return hop"
+               author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoCruiseSpeed" parameterType="double" value="20.0"/>
+      <ParameterDeclaration name="SlowLeadInitialSpeed" parameterType="double" value="8.0"/>
+      <ParameterDeclaration name="SlowLeadAcceleratedSpeed" parameterType="double" value="25.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../scenario_authoring/road_catalog/generated/straight_restricted_exit__l800_lanes2_exitm2.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="VirtualDriverController">
+               <Properties>
+                  <Property name="esminiController" value="VirtualDriverController"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+      <ScenarioObject name="SlowLead">
+         <Vehicle name="car_yellow" vehicleCategory="car" model3d="../../../models/car_yellow.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="1"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-2" offset="0" s="30"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <RoutingAction>
+                     <AssignRouteAction>
+                        <Route name="ego_route" closed="false">
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="0" laneId="-2" offset="0" s="30"/>
+                              </Position>
+                           </Waypoint>
+                           <!--
+                             Explicit connecting-road Waypoint (junction 100,
+                             connection id=2, connecting road 101) - same
+                             requirement as the other 08_overtake scenarios.
+                           -->
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="101" laneId="-1" offset="0" s="30.1"/>
+                              </Position>
+                           </Waypoint>
+                           <Waypoint routeStrategy="shortest">
+                              <Position>
+                                 <LanePosition roadId="2" laneId="-1" offset="0" s="40"/>
+                              </Position>
+                           </Waypoint>
+                        </Route>
+                     </AssignRouteAction>
+                  </RoutingAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <!--
+                       Init-side SpeedAction. REQUIRED, and not redundant with the
+                       Story-side one below. ControllerVirtualDriver::ResolveTargetSpeed()
+                       only picks up a LONG_SPEED action while it is RUNNING; a
+                       dynamicsShape="step" action can complete before the controller ever
+                       observes it, leaving last_action_target_ pinned at its seed value
+                       (object_->GetSpeed() at the first Step). Measured 2026-08-04 without
+                       this action: ego.speed stayed 0.0 and ego.s stayed 30.000444 for the
+                       whole run. Setting the speed here makes that seed the cruise speed,
+                       so the ego is at v_pass from t=0 and the distance budget in this
+                       file's header holds exactly (no acceleration ramp to subtract).
+                     -->
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="$EgoCruiseSpeed"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+            <Private entityRef="SlowLead">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <LanePosition roadId="0" laneId="-2" offset="0" s="75"/>
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="$SlowLeadInitialSpeed"/>
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="OvertakeStory">
+         <Act name="OvertakeAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego"/>
+               </Actors>
+               <Maneuver name="CruiseManeuver">
+                  <Event name="Cruise" priority="overwrite">
+                     <Action name="CruiseAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$EgoCruiseSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CruiseStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="0.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+         <Act name="SlowLeadAccelerateAct">
+            <ManeuverGroup maximumExecutionCount="1" name="SlowLeadSequence">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="SlowLead"/>
+               </Actors>
+               <Maneuver name="AccelerateManeuver">
+                  <!--
+                    THE ABORT-INDUCING EVENT: fires once, at t=8.0s -
+                    comfortably after Ego enters PASS (the sibling
+                    overtake_slow_lead_on_two_lane_road scenario, same
+                    g0=40 setup, measured pass@6.40s) - and steps SlowLead
+                    from 8.0 to 25.0 m/s, i.e. FASTER than Ego's own 20.0
+                    m/s cruise. Ego can never clear a lead that is now
+                    permanently pulling away, so PASS can only ever end via
+                    the section 5-2 safety valve.
+                  -->
+                  <Event name="Accelerate" priority="overwrite">
+                     <Action name="AccelerateAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="step" value="0.0" dynamicsDimension="time"/>
+                                 <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="$SlowLeadAcceleratedSpeed"/>
+                                 </SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="AccelerateStart" delay="0" conditionEdge="none">
+                              <ByValueCondition>
+                                 <SimulationTimeCondition value="8.0" rule="greaterThan"/>
+                              </ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="SlowLeadActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan"/>
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="60" rule="greaterThan"/>
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>
