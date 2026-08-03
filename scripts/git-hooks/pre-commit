@@ -1,0 +1,39 @@
+#!/bin/sh
+# black-format lint (CI 'lint' job) — pre-commit blocking hook.
+#
+# BLOCKS the commit when a staged .py file is not black-formatted. Unlike the
+# advisory commit-msg hook, this one refuses: black-format is a hard CI gate and
+# it is the FIRST job in the graph, so one unformatted file holds up every
+# build and test job behind it for minutes before anyone sees why.
+#
+# Install (per clone; .git/hooks also carries Git LFS hooks, so we install this
+# file individually instead of switching core.hooksPath):
+#   cp scripts/git-hooks/pre-commit .git/hooks/pre-commit
+#
+# The file selection and black flags are NOT hardcoded here — scripts/
+# check_black_format.py reads them from .pre-commit-config.yaml, the same
+# source CI uses, so the two sides cannot drift.
+#
+# Judged on the *staged* content, so a partially-staged file is checked as it
+# will actually land. Nothing is reformatted; the failure message prints a
+# fix command scoped to the offending files (never repo-wide — this worktree
+# is shared between sessions and a sweep would catch their uncommitted work).
+#
+# Escape hatch for a deliberate WIP commit:  git commit --no-verify
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+checker="$repo_root/scripts/check_black_format.py"
+[ -r "$checker" ] || exit 0
+
+# Project venv only (root CLAUDE.md §4: never the system interpreter).
+py="$repo_root/DriverScript/.venv/Scripts/python.exe"
+[ -x "$py" ] || py="$repo_root/DriverScript/.venv/bin/python"
+if [ ! -x "$py" ]; then
+    echo "[pre-commit] DriverScript/.venv not found — skipping the black check." >&2
+    echo "[pre-commit] CI will still enforce it; see root CLAUDE.md §4." >&2
+    exit 0
+fi
+
+"$py" "$checker" --staged || exit 1
+
+exit 0
