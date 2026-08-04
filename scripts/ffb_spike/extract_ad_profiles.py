@@ -39,7 +39,14 @@ SCENARIOS = {
     # stays under 0.07 normalized — 13x smaller than the Day-1 spike amplitude.
     "lc":         "resources/xosc/virtual_driver_basic.xosc",
     "curve":      "resources/xosc/verification/05_anticipation/decelerate_for_curve.xosc",
-    "right_turn": "resources/xosc/verification/05_anticipation/decelerate_for_right_turn.xosc",
+    # Key intentionally left as "right_turn" (not renamed to "left_turn"):
+    # it is the `name` written into the committed scripts/ffb_spike/profiles/
+    # index.json (and the right_turn.csv it points at) from before the
+    # 2026-08-04 decelerate_for_right_turn -> decelerate_for_left_turn
+    # scenario rename. Renaming this key would silently orphan/rename that
+    # committed artifact's identity on the next run. Only the source .xosc
+    # path below was updated to follow the file rename.
+    "right_turn": "resources/xosc/verification/05_anticipation/decelerate_for_left_turn.xosc",
 }
 
 

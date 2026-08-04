@@ -162,7 +162,7 @@ _ANT = ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
 SCENARIOS: dict[str, Path] = {
     # --- straight-start controls (existing F7 asset family; unmodified) ----
     "basic": ROOT / "resources" / "xosc" / "virtual_driver_basic.xosc",
-    "right_turn": _ANT / "decelerate_for_right_turn.xosc",
+    "left_turn": _ANT / "decelerate_for_left_turn.xosc",
     "tljunction": _ANT / "traffic_lights_junction.xosc",
     # --- new curve-onset family (task 1; resources/xodr/f7_curve_onset.xodr) ---
     "curve_onset_00deg": _ANT / "f7_curve_onset_00deg.xosc",
@@ -200,7 +200,7 @@ SCENARIOS: dict[str, Path] = {
 # straight-start controls, same as curve_onset_00deg.
 EXPECTED_WHEEL_DEG: dict[str, float | None] = {
     "basic": None,
-    "right_turn": None,
+    "left_turn": None,
     "tljunction": None,
     "curve_onset_00deg": 0.0,
     "curve_onset_10deg": 10.0,

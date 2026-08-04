@@ -1,4 +1,4 @@
-# タイトな右折交差点手前の予見的減速
+# タイトな左折交差点手前の予見的減速
 
 自車がfabriksgatanの交差点に向けて巡航し、タイトな接続路（R約8 m）を曲がって隣接路へ抜けるシナリオ。
 コマンドされた減速アクションは無く、減速は中長期プランナー（Phase 2）による予見に委ねられる。
@@ -9,7 +9,7 @@ Default(ゼロ慣性)車は巡航速度のまま曲がれるが、物理挙動�
 xosc内コメントによれば、これはPhase 1の残存バグ再現シナリオでもある：中長期プランナーが無いと全速で交差点に進入し、Pure-Pursuitステアリングが飽和して誤った接続路へドリフトする。
 ルートはresources/xosc/traffic_lights.xoscと同じだが、信号と歩行者を取り除いて旋回予見のみを検証する構成にしてある。
 
-expectations.yamlのindicator_leads_junction_turn matcherの注記によれば、ファイル名は「right_turn」だが、接続路13（curvature +0.108108、長さ14.8696、進入hdg 0.1457 rad）の幾何から導かれる実際の旋回はheading delta +1.608 rad(+92度)の**左折**である（OpenDRIVEの正の曲率は反時計回り）。指示灯はLEFTで点灯するのが正しく、これをRIGHTに「修正」してはならない。アセットのリネームは今サイクルではスコープ外とされている。
+接続路13（curvature +0.108108、長さ14.8696、進入hdg 0.1457 rad）の幾何から導かれる実際の旋回はheading delta +1.608 rad(+92度)の**左折**である（OpenDRIVEの正の曲率は反時計回り）。指示灯はLEFTで点灯するのが正しい。以前は`decelerate_for_right_turn`という名前だったが、この幾何を踏まえて2026-08-04に改名した。
 
 ## シーン構成
 
@@ -45,5 +45,5 @@ expectations.yamlのindicator_leads_junction_turn matcherの注記によれば�
 ## 関連
 
 - バッチ: `anticipation_driving_batch.yaml`（所属。dt=0.05, max_time=40.0, osi=true, report=anticipation）
-- 期待値: `decelerate_for_right_turn.expectations.yaml`
+- 期待値: `decelerate_for_left_turn.expectations.yaml`
 - 関連ID: req-vd-ad:REQ-AD-021

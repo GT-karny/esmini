@@ -5,7 +5,7 @@
 
 ## 検証の狙い
 
-decelerate_for_right_turn.xosc（同じ交差点・同じ進入路/レーン）の逆パターンにあたる。
+decelerate_for_left_turn.xosc（同じ交差点・同じ進入路/レーン）の逆パターンにあたる。
 接続路12はheading delta約0.046 radを15.5 mで通過する、ほぼ直線の接続路で、turnRateは約0.003 rad/mとSHARP_TURN_RATE(0.04)を大きく下回る。
 このためManeuverAwareSpeedPlannerはturn_speedキャップを課してはならず、junction制約も立ててはならない。
 xosc内コメントによれば、これは「直進交差点での過減速」バグ（P2 issue 1）の回帰ガードで、修正前は両チェックがFAILし（一律5 m/sの交差点キャップ）、修正後はPASSする。

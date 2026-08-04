@@ -660,11 +660,12 @@ edges:
       **接続路長の両極を意図的に取ってある** — 旧実装の故障モードが接続路長に依存して
       2つに分かれていたためで、片方だけでは再発を捕まえられない:
 
-      - 正・短い接続路: decelerate_for_right_turn（14.87 m）`min_distance_m: 29.5`,
+      - 正・短い接続路: decelerate_for_left_turn（14.87 m。2026-08-04以前は
+        decelerate_for_left_turnという名前だった）`min_distance_m: 29.5`,
         `expect_dir: left`。旧実装ではここが 7.18 m しか出なかった。
-        **資産名は「right」だが幾何は左折である**（同 §5。接続路 road 13 は
+        **幾何は左折である**（同 §5。接続路 road 13 は
         arc curvature +0.108108・length 14.8696 ＝ heading delta +1.608 rad、東向き→北向き）。
-        名前に合わせて expect_dir を right に「直す」と赤くなる。
+        expect_dir を right に「直す」と赤くなる。
       - 正・長い接続路: junction_turn_signal_long_connector（33.2 m）`min_distance_m: 29.5`,
         `expect_dir: right`。旧実装ではここが**点灯フレーム0**だった（接続路長が単独で
         lookahead を超え、走査が出口の腕に届かないため構造的に点灯不能）。
@@ -1274,19 +1275,19 @@ edges:
     type: sustained-by
     source: resources/xosc/verification/anticipation_driving_batch.yaml
     note: >-
-      decelerate_for_curve / decelerate_for_right_turn / speed_limit_change の3シナリオ。
+      decelerate_for_curve / decelerate_for_left_turn / speed_limit_change の3シナリオ。
       osi:true で **a=osi の面1直読加速度**（ego_accel_long ●）から bounded decel/jerk を判定。
   - from: matcher:speed_reduction_before_landmark
     to: gate:anticipation-driving-regression
     type: sustained-by
     source: resources/xosc/verification/anticipation_driving_batch.yaml
-    note: 4シナリオ（curve/right_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。
+    note: 4シナリオ（curve/left_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。
   - from: matcher:indicator_leads_junction_turn
     to: gate:anticipation-driving-regression
     type: sustained-by
     source: resources/xosc/verification/anticipation_driving_batch.yaml
     note: >-
-      3シナリオ（decelerate_for_right_turn / junction_turn_signal_long_connector /
+      3シナリオ（decelerate_for_left_turn / junction_turn_signal_long_connector /
       cross_straight_junction）。このバッチは run_regression_gate.ps1 Step 2.7 と CI の
       vd-behavioral-regression ジョブの**両方**で走るため、新しい gate を起こさずに
       ⑥常設を満たせる（junction_turn_signal.md §4-3）。
@@ -1306,7 +1307,7 @@ edges:
     to: gate:anticipation-driving-regression
     type: sustained-by
     source: resources/xosc/verification/anticipation_driving_batch.yaml
-    note: decelerate_for_right_turn / traffic_lights_junction。コーナーで操舵飽和なし（面2 driver.steer）。
+    note: decelerate_for_left_turn / traffic_lights_junction。コーナーで操舵飽和なし（面2 driver.steer）。
   - from: matcher:no_constraint_kind
     to: gate:anticipation-driving-regression
     type: sustained-by

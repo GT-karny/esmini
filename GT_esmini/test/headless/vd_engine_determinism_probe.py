@@ -74,12 +74,12 @@ DEFAULT_DLL = ROOT / "build" / "GT_esmini" / "Release" / "GT_esminiLib.dll"
 SCENARIOS = {
     # 非決定と報告された側
     "virtual_driver_basic": ROOT / "resources" / "xosc" / "virtual_driver_basic.xosc",
-    "decelerate_for_right_turn": ROOT
+    "decelerate_for_left_turn": ROOT
     / "resources"
     / "xosc"
     / "verification"
     / "05_anticipation"
-    / "decelerate_for_right_turn.xosc",
+    / "decelerate_for_left_turn.xosc",
     "traffic_lights_junction": ROOT
     / "resources"
     / "xosc"

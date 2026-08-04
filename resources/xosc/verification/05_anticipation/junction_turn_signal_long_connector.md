@@ -11,7 +11,7 @@ xosc内コメントによれば、修正前のRouteLookaheadJunctionTurnDirectio
 
 expectations.yamlの注記によれば、この旋回は幾何学的にRIGHT turnである。接続路101はplanView上3つのクロソイド区間(s=[0, 10.4714, 22.7339, 33.2053])で構成され、進入hdg 0 rad、曲率が0→-0.069095→-0.069095→0と推移する。各区間のheading delta（0.5*(k0+k1)*L）を積算すると合計-1.5708 rad(-90度、東→南)になる。接続路の先行道路road0はcontactPoint="end"（順方向リンク）で、自車はs増加方向(trav_dir=+1)に接続路101を走行するため符号反転は不要。dir = sign(heading_delta)*trav_dir = -1 で、design docの規約(+1=左、-1=右)によりRIGHT turnとなる。
 
-decelerate_for_right_turn(接続路14.87 m、expect_dir: left)、cross_straight_junction(expect_dir: none)とあわせて3シナリオで、junction_turn_signal.mdセクション1が測定した欠陥（長すぎて検出不能／短すぎるリード距離／直進での誤検知）をそれぞれ担当する。
+decelerate_for_left_turn(接続路14.87 m、expect_dir: left)、cross_straight_junction(expect_dir: none)とあわせて3シナリオで、junction_turn_signal.mdセクション1が測定した欠陥（長すぎて検出不能／短すぎるリード距離／直進での誤検知）をそれぞれ担当する。
 
 ## シーン構成
 

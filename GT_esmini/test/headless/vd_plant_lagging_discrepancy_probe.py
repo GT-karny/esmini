@@ -23,10 +23,10 @@ own inertia/friction may naturally damp the exact overshoot shape that
 triggered `magnitude_opposition` in the `lagging` run (see
 f7_parity_lagging_overshoot_findings.md §2.1's frame trace: actual_norm
 overshoots target by ~0.08-0.1 for 2 frames right as the AD reverses
-steering at the end of the right turn).
+steering at the end of the left turn).
 
 Test: replay the EXACT scenarios that showed the lagging-mode false latch
-(decelerate_for_right_turn.xosc, traffic_lights_junction.xosc) through
+(decelerate_for_left_turn.xosc, traffic_lights_junction.xosc) through
 "plant" mode instead, hands-off (driver_force=0 throughout — no pushback/
 grip signal injected at all, matching the real-machine check's "don't touch
 the wheel" protocol). Two possible outcomes, both informative (team-lead's
@@ -68,7 +68,7 @@ from vd_ffb_notouch_parity import (
 )  # noqa: E402
 
 SCENARIOS = [
-    "resources/xosc/verification/05_anticipation/decelerate_for_right_turn.xosc",
+    "resources/xosc/verification/05_anticipation/decelerate_for_left_turn.xosc",
     "resources/xosc/verification/05_anticipation/traffic_lights_junction.xosc",
 ]
 
@@ -175,7 +175,11 @@ def main() -> int:
         "parity FAIL data already on hand:"
     )
     print(
-        "  decelerate_for_right_turn: test_results/diag_lag_right_turn.json "
+        # NOTE: the .json filename below is a pre-existing (ephemeral,
+        # test_results/ gitignored) artifact from before the 2026-08-04
+        # decelerate_for_right_turn -> decelerate_for_left_turn rename;
+        # left as-is since it names a past artifact, not the scenario file.
+        "  decelerate_for_left_turn: test_results/diag_lag_right_turn.json "
         "(manual_transition=True @ t=14.10)"
     )
     print(

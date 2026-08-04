@@ -8,7 +8,7 @@ Phase 1の残存バグ（青信号発進時の交差点過速度進入からの�
 xosc内コメントによれば、Phase 1では青信号発進時に全速まで加速してから交差点に進入し、Pure-Pursuitステアリングが飽和して誤った接続路へドリフトしてしまう。
 Phase 2の中長期プランナーは、青信号発進であっても交差点に対するv_targetをキャップするため、減速して正しく旋回できる。
 expectations.yamlの注記によれば、Phase 2導入後の実測(commit 62a5beda)は、s=98.8(t=10.1)で完全停止、交差点進入時速度5.1 m/s(t=15.1)、最大|steer|0.849、接続路13経由でroad2にt=19.6で到達、というものだった。
-deceleration_profile_smooth matcherは意図的に採用していない（完全停止が減速ウィンドウの解釈を混乱させるため。滑らかさの検証はdecelerate_for_right_turn（連続走行版）が担当する）。
+deceleration_profile_smooth matcherは意図的に採用していない（完全停止が減速ウィンドウの解釈を混乱させるため。滑らかさの検証はdecelerate_for_left_turn（連続走行版）が担当する）。
 
 ## シーン構成
 

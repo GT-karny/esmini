@@ -3,7 +3,7 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:4fb5b1a240110514 -->
+<!-- generated-from: sha256:31906ff0fbf635b3 -->
 
 ノード 216・辺 227（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
@@ -732,11 +732,11 @@ flowchart LR
 | `matcher:no_emergency_without_conflict` | `gate:aeb-safety-regression` | 負例3件（normal_following / benign_cutin / parallel_overtake）の主判定 |
 | `req-vd-ad:REQ-AD-001` | `gate:aeb-safety-regression` | 正例2シナリオ（直進=緩和 / カーブ=完全回避） |
 | `req-vd-ad:REQ-AD-013` | `gate:aeb-safety-regression` | 負例3シナリオ（SOTIF ミラー）。正負を同一ゲート・同一ベースラインに置くのは、 片方だけを守ると「閾値を下げて正例を通し負例を壊す」取引が素通りするため。 |
-| `matcher:deceleration_profile_smooth` | `gate:anticipation-driving-regression` | decelerate_for_curve / decelerate_for_right_turn / speed_limit_change の3シナリオ。 osi:true で **a=osi の面1直読加速度**（ego_accel_long ●）から bounded decel/jerk を判定。 |
-| `matcher:speed_reduction_before_landmark` | `gate:anticipation-driving-regression` | 4シナリオ（curve/right_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。 |
-| `matcher:indicator_leads_junction_turn` | `gate:anticipation-driving-regression` | 3シナリオ（decelerate_for_right_turn / junction_turn_signal_long_connector / cross_straight_junction）。このバッチは run_regression_gate.ps1 Step 2.7 と CI の vd-behavioral-regression ジョブの**両方**で走るため、新しい gate を起こさずに ⑥常設を満たせる（junction_turn_signal.md §4-3）。 **req-vd-ad:REQ-AD-018 が sustained-by 未結線のまま放置されている状態を再生産しない** ために、matcher の新設と同じサイクルで結線した（あちらの route_lane_batch.yaml は baseline すら無く、ゲートにも CI にも載っていない孤立 matcher になっている）。 |
+| `matcher:deceleration_profile_smooth` | `gate:anticipation-driving-regression` | decelerate_for_curve / decelerate_for_left_turn / speed_limit_change の3シナリオ。 osi:true で **a=osi の面1直読加速度**（ego_accel_long ●）から bounded decel/jerk を判定。 |
+| `matcher:speed_reduction_before_landmark` | `gate:anticipation-driving-regression` | 4シナリオ（curve/left_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。 |
+| `matcher:indicator_leads_junction_turn` | `gate:anticipation-driving-regression` | 3シナリオ（decelerate_for_left_turn / junction_turn_signal_long_connector / cross_straight_junction）。このバッチは run_regression_gate.ps1 Step 2.7 と CI の vd-behavioral-regression ジョブの**両方**で走るため、新しい gate を起こさずに ⑥常設を満たせる（junction_turn_signal.md §4-3）。 **req-vd-ad:REQ-AD-018 が sustained-by 未結線のまま放置されている状態を再生産しない** ために、matcher の新設と同じサイクルで結線した（あちらの route_lane_batch.yaml は baseline すら無く、ゲートにも CI にも載っていない孤立 matcher になっている）。 |
 | `matcher:lane_keep` | `gate:anticipation-driving-regression` | curve / speed_limit / traffic_lights の3シナリオ。road_id / lane とも面1 lane_map (source_reference) 経由（★2026-07-24 更新: 旧「lane は telemetry＝assigned_lane_id は 別量のため」は 7baf202d の走行レーン由来化と c22aeb5d の lane 面1化で解消。 junction 内 171/15800 フレームのみ telemetry fallback）。 |
-| `matcher:steer_not_saturated` | `gate:anticipation-driving-regression` | decelerate_for_right_turn / traffic_lights_junction。コーナーで操舵飽和なし（面2 driver.steer）。 |
+| `matcher:steer_not_saturated` | `gate:anticipation-driving-regression` | decelerate_for_left_turn / traffic_lights_junction。コーナーで操舵飽和なし（面2 driver.steer）。 |
 | `matcher:no_constraint_kind` | `gate:anticipation-driving-regression` | cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。 |
 | `feature:F6` | `gate:integration-ctest` | F6 環境ヘッドライト 5本＋AutoLight/LightStateAction 6本の per-test アサーション（run_gt_tests.ps1 -IncludeIntegration、opt-in＝既定ゲート外）。 「ビューワー目視未」は残る（アサーションは灯火状態変化のみ）。 |
 | `feature:F7` | `gate:unit-ctest` | OverrideManagerTest 10ケースが傘バイナリ常設（片方向ラッチ仕様の固定＋RESUMEエッジ復帰）。フルサイクルsmoke(scripts/vd_override_smoke.py)はCI未統合＝手動のため計上しない |
@@ -765,11 +765,12 @@ flowchart LR
 | `matcher:no_emergency_without_conflict` | `req-vd-ad:REQ-AD-013` | 誤作動抑止(SOTIF)=衝突コース不在時にsource:"aeb"の緊急制動が不発火（07_aeb負3本） |
 | `matcher:route_lane_plan_holds` | `req-vd-ad:REQ-AD-017` | route_lane_batch.yaml の4シナリオで検証。段 a/b は merge_required_for_exit_ramp （invalid_route 診断）と route_valid_off_target_lane_for_exit_ramp（目標レーン帯からの 逸脱を検出。route_lane_plan_design.md §4-4 実測）。**段 c** は lane_change_to_exit_ramp（隣接車なし・3ホップ）と lane_change_to_exit_ramp_with_traffic （隣接車あり・2ホップ）で、max_deviations: 0 が「接続点を目標レーン帯に乗ったまま 通過した」ことを判定する（2026-08-02 実測: 前者は -1→-2→-3→-4 と移り road4→road2 へ、 後者は 7.5s ギャップを拒否してから 2 ホップ、いずれも deviation_count=0）。 **REQ-AD-017 の段 a/b/c まで**。段 d/e（逸脱復帰・終点停車）は未実装で検証対象外＝ この辺は要求全体の充足を主張しない。どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。 |
 | `matcher:indicator_leads_junction_turn` | `req-vd-ad:REQ-AD-021` | anticipation_driving_batch.yaml の3本で検証する（junction_turn_signal.md §4-3）。 **接続路長の両極を意図的に取ってある** — 旧実装の故障モードが接続路長に依存して 2つに分かれていたためで、片方だけでは再発を捕まえられない:
-- 正・短い接続路: decelerate_for_right_turn（14.87 m）`min_distance_m: 29.5`,
+- 正・短い接続路: decelerate_for_left_turn（14.87 m。2026-08-04以前は
+  decelerate_for_left_turnという名前だった）`min_distance_m: 29.5`,
   `expect_dir: left`。旧実装ではここが 7.18 m しか出なかった。
-  **資産名は「right」だが幾何は左折である**（同 §5。接続路 road 13 は
+  **幾何は左折である**（同 §5。接続路 road 13 は
   arc curvature +0.108108・length 14.8696 ＝ heading delta +1.608 rad、東向き→北向き）。
-  名前に合わせて expect_dir を right に「直す」と赤くなる。
+  expect_dir を right に「直す」と赤くなる。
 - 正・長い接続路: junction_turn_signal_long_connector（33.2 m）`min_distance_m: 29.5`,
   `expect_dir: right`。旧実装ではここが**点灯フレーム0**だった（接続路長が単独で
   lookahead を超え、走査が出口の腕に届かないため構造的に点灯不能）。

@@ -31,8 +31,8 @@ scenarios:
   - scenario: resources/xosc/verification/05_anticipation/decelerate_for_curve.xosc
     expectations: resources/xosc/verification/05_anticipation/decelerate_for_curve.expectations.yaml
     report: anticipation
-  - scenario: resources/xosc/verification/05_anticipation/decelerate_for_right_turn.xosc
-    expectations: resources/xosc/verification/05_anticipation/decelerate_for_right_turn.expectations.yaml
+  - scenario: resources/xosc/verification/05_anticipation/decelerate_for_left_turn.xosc
+    expectations: resources/xosc/verification/05_anticipation/decelerate_for_left_turn.expectations.yaml
     report: anticipation
   - scenario: resources/xosc/verification/05_anticipation/cross_straight_junction.xosc
     expectations: resources/xosc/verification/05_anticipation/cross_straight_junction.expectations.yaml

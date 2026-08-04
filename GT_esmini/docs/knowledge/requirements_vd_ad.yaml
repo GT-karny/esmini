@@ -502,7 +502,7 @@ requirements:
       ＋ CI vd-behavioral-regression の両方で走る）。**接続路長の両極**を意図的に取ってある
       — 旧実装の故障モードが接続路長に依存して2つに分かれていたため、片方だけでは
       再発を捕まえられない:
-      正・短い接続路 `05_anticipation/decelerate_for_right_turn.xosc`（14.87 m）、
+      正・短い接続路 `05_anticipation/decelerate_for_left_turn.xosc`（14.87 m）、
       正・長い接続路 `05_anticipation/junction_turn_signal_long_connector.xosc`（33.2 m、新設）、
       負・直進通過 `05_anticipation/cross_straight_junction.xosc`。
     acceptance_ladder:
@@ -536,7 +536,7 @@ requirements:
 
       | 資産 | 接続路 | 是正前 | 是正後 |
       | :-- | --: | --: | --: |
-      | decelerate_for_right_turn | 14.87 m | 7.18 m | **30.63 m** |
+      | decelerate_for_left_turn | 14.87 m | 7.18 m | **30.63 m** |
       | junction_turn_signal_long_connector | 33.2 m | **点灯0フレーム** | **30.32 m** |
       | cross_straight_junction（負） | 15.5 m | — | 800フレーム全消灯 |
 
@@ -558,11 +558,12 @@ requirements:
       施行令21条1項は「合図を開始していなければならない地点」を定めるので、早い側に
       外すのは適合・遅い側は不適合。車線変更側が §11-11 で採ったのと同じ動きである。
 
-      **副産物の確定事実**: `decelerate_for_right_turn` は**名前に反して幾何は左折**である
+      **副産物の確定事実**: 幾何は**左折**である
       （接続路 road 13 は arc curvature +0.108108・length 14.8696 ＝ heading delta +1.608 rad、
       進入 8.3°→退出 100.5°）。実測で left が点いたのは正しく、LHT/RHT やレーン符号の
-      取り違えではない。**改名は別サイクル**（manifest・expectations・baseline・KG の
-      参照が連動するため、指示器の修正と混ぜない）。expectations に `expect_dir: left` と
+      取り違えではない。旧名 `decelerate_for_right_turn` は**2026-08-04 に
+      `decelerate_for_left_turn` へ改名済み**（manifest・expectations・baseline・KG の
+      参照も同時に更新した）。expectations に `expect_dir: left` と
       理由つきで書いてある。
 
       ---
@@ -583,7 +584,7 @@ requirements:
         実際に左折している。**接続路長 33.2 m が単独で lookahead(≈19.8 m) を超える**ため
         走査が出口へ到達できず、構造的に点灯不能。
       - `fabriksgatan_traffic_lights.xodr`（接続路 14.87 m）の
-        `05_anticipation/decelerate_for_right_turn.xosc` では**点灯する**。ただし
+        `05_anticipation/decelerate_for_left_turn.xosc` では**点灯する**。ただし
         t_sig=10.22 / t_junc=11.76、v@t_sig=5.315 m/s、**点灯距離は 7.18 m**
         （予測 lookahead−接続路長 = 5.76 m と同オーダー。差は区間中の減速ぶん）。
         立ち上がり1回・開始時消灯・車線変更由来の混入0。

@@ -6,7 +6,7 @@ feature:F7のカーブオンセット再現アセット群のひとつ。走行�
 
 f7_curve_onset.xodrの5本の道路(id=0..4)はいずれも独立した行き止まり道路で、自車を各道路上のs=50へ直接テレポートすることで、テレポート直後(t=0)のAD操舵デマンドを道路曲率だけで決め打ちする。
 `GT_esmini/test/headless/f7_curve_onset_probe.py`がこの5本の道路を読み込み、`--mode sweep`（8シナリオ×3 plant variantの曲率スイープ）で、ステアリングホイールが中立のまま操舵デマンドだけが急変したときに、シャドウ/残差方式の手動オーバーライド誤検知が起きないかを比較する。
-xosc内コメントによれば、このファイル(road id=0)は直進のみのin-network直進コントロールで、AD操舵目標は走行全体を通じて約0のままであるべきとされる。virtual_driver_basic.xosc / decelerate_for_right_turn.xosc / traffic_lights_junction.xoscという既存の3つのF7シナリオも同様に直進から始まる点と対応している。
+xosc内コメントによれば、このファイル(road id=0)は直進のみのin-network直進コントロールで、AD操舵目標は走行全体を通じて約0のままであるべきとされる。virtual_driver_basic.xosc / decelerate_for_left_turn.xosc / traffic_lights_junction.xoscという既存の3つのF7シナリオも同様に直進から始まる点と対応している。
 
 ## シーン構成
 

@@ -18,7 +18,7 @@
   R~9.25 m, ~231 deg wheel-equivalent; see f7_curve_onset.xodr's header
   for why those two numbers are not directly comparable). Vehicle bounding
   box (length=5.0 -> wheel_base=3.0m, ControllerVirtualDriver.cpp:312)
-  copied verbatim from decelerate_for_right_turn.xosc so the wheelbase used
+  copied verbatim from decelerate_for_left_turn.xosc so the wheelbase used
   to size the curve matches what actually drives the scenario.
 -->
 <OpenSCENARIO>

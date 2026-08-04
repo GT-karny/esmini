@@ -38,7 +38,9 @@ MAX_STEER_ANGLE = 0.61  # rad, PIDPurePursuitDriver.hpp:17 / RealVehicle steer_g
 WHEEL_BASE = {
     "lc": 5.04 * 0.6,          # VehicleCatalog.xosc car_white length=5.04
     "curve": 5.0 * 0.6,        # inline car_white in decelerate_for_curve.xosc, length=5.0
-    "right_turn": 5.0 * 0.6,   # inline car_white in decelerate_for_right_turn.xosc, length=5.0
+    "right_turn": 5.0 * 0.6,   # inline car_white in decelerate_for_left_turn.xosc, length=5.0
+    # (key stays "right_turn" -- matches the committed profiles/right_turn.csv /
+    # index.json artifact name from before the 2026-08-04 scenario rename)
 }
 
 PATHOLOGICAL_KAPPA = 0.25  # known pathological case: lateral offset 2m @ 8m/s, alpha~=30deg

@@ -54,8 +54,8 @@ PLANT_VARIANTS = [(m, extra) for m, cls, extra in FOLLOWER_MODES if m == "plant"
 
 SCENARIOS = {
     "basic": ROOT / "resources" / "xosc" / "virtual_driver_basic.xosc",
-    "right_turn": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
-                  / "decelerate_for_right_turn.xosc",
+    "left_turn": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
+                 / "decelerate_for_left_turn.xosc",
     "tljunction": ROOT / "resources" / "xosc" / "verification" / "05_anticipation"
                   / "traffic_lights_junction.xosc",
 }

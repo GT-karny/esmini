@@ -3,7 +3,7 @@
 
 ## なぜ要るか
 
-`decelerate_for_right_turn` と `traffic_lights_junction` は残差ピーク時点の指令躍度
+`decelerate_for_left_turn` と `traffic_lights_junction` は残差ピーク時点の指令躍度
 （`target_norm` の2階微分）がほぼ同値なのに、しきい値に対するマージンが違う。
 躍度だけでは tljunction を最悪ケースとして選ぶ根拠にならない。本スクリプトは
 躍度以外に候補となる量（速度・目標のレート/反転回数/滞留、力の性質、残差の
@@ -20,10 +20,10 @@
 
   RATE_SIGN_EPS   = 0.02  /s   `target_norm` レートの符号判定ノイズ床。
                               全フレームの nonzero レートのうち `0<|rate|<0.02` は
-                              tljunction で 145/3500、right_turn で 118/2500 のみ
+                              tljunction で 145/3500、left_turn で 118/2500 のみ
                               （実測。量子化ノイズとみなせる規模）。
   FORCE_SIGN_EPS  = 0.01       `effective_force` の符号判定ノイズ床。
-                              `0<|f|<0.01` は tljunction 4/3502, right_turn 8/2502
+                              `0<|f|<0.01` は tljunction 4/3502, left_turn 8/2502
                               （basic は 606/2002 — ほぼ無操舵区間が多いため別）。
   MOVING_RATE_EPS = 0.05  /s   タスク指定。「目標が動いている」判定。
   STOP_SPEED      = 0.5  m/s   タスク指定。停止判定。

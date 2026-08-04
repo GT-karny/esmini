@@ -48,12 +48,12 @@ MAX_TIME = 45.0
 
 SCENARIOS = {
     "basic": ROOT / "resources" / "xosc" / "virtual_driver_basic.xosc",
-    "right_turn": ROOT
+    "left_turn": ROOT
     / "resources"
     / "xosc"
     / "verification"
     / "05_anticipation"
-    / "decelerate_for_right_turn.xosc",
+    / "decelerate_for_left_turn.xosc",
     "tljunction": ROOT
     / "resources"
     / "xosc"

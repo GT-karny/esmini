@@ -13,7 +13,7 @@
 road を探索して中間 Waypoint を補完する層が要る」だった。issue #31 の症状（交差点で直進/左折 Traj が
 高速交互 → 不要減速）の説明としてそう理解されていた。
 
-**この前提は実測で覆った。** `decelerate_for_right_turn.xosc` から road13（connecting road）の
+**この前提は実測で覆った。** `decelerate_for_left_turn.xosc` から road13（connecting road）の
 Waypoint を削除した粗い版を走らせると、esmini は road13 を**自分で中間 Waypoint として挿入する**。
 
 ```
@@ -274,7 +274,7 @@ esmini 側の2行は元から出ていた（が VD は見ていなかった）�
   目的地まで届く枝を選べる
 
 したがって**静的チェッカが黒と言ったものが実行時には通る**ことがある。実測でその例が出ている
-（`decelerate_for_right_turn.xosc` の粗い版）。逆に**静的チェッカが緑でも実行時に逸脱する**ケースが
+（`decelerate_for_left_turn.xosc` の粗い版）。逆に**静的チェッカが緑でも実行時に逸脱する**ケースが
 穴1（最終ホップの目標レーン未検証）である。両者は補完関係であり、どちらかで代替できない。
 
 ## 7. 参考

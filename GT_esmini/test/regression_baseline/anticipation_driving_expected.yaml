@@ -18,7 +18,7 @@ scenarios:
       status: pass
     - event: lane_keep
       status: pass
-  decelerate_for_right_turn:
+  decelerate_for_left_turn:
     status: pass
     matchers:
     - event: speed_reduction_before_landmark

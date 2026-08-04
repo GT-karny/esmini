@@ -1609,7 +1609,7 @@ TEST(OverrideManagerTest, FalsePositive5_RealMachineTerminalStateDoesNotLatch)
 {
     // (5) THE ONLY REAL-MEASUREMENT acceptance case. Source:
     // test_results/f7_realwheel_stuck_check.log, 2026-07-26 G29 session,
-    // decelerate_for_right_turn.xosc run hands-off to completion. Sampled
+    // decelerate_for_left_turn.xosc run hands-off to completion. Sampled
     // stretch t=17.49-24.99 (7.5 s, 16 samples):
     //     effective force  |f| = 0.166 .. 0.180 (mean 0.1715), sign NEGATIVE
     //     measured wheel displacement = 0 (exactly)
