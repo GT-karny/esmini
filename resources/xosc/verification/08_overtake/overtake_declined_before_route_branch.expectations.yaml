@@ -7,7 +7,16 @@ category: 08_overtake
 # (required=496.667 m against a dist_to_connection=400.0 m budget -- a
 # clear 96.667 m shortfall, deliberately NOT borderline).
 #
-# UNMEASURED (authored before the C++ overtake implementation existed).
+# MEASURED 2026-08-04 against a Release build (esmini GIT REV
+# v3.4.1-872-67b74a60), batch verdict pass, 4/4 must entries:
+#   considered      == true         on all 1240 frames
+#   blocked_reason  == route_budget on all 1240 frames
+#   phase           == idle         on all 1240 frames (never left idle,
+#                                   i.e. the overtake was declined, not
+#                                   started and then aborted -- that case
+#                                   is overtake_aborted_for_route_branch)
+# The two facts holding on the SAME frames is the point: see below.
+#
 # This file's most important assertion is expect_considered: true --
 # design doc section 9-4's explicit warning is that "両立しない配置は
 # 「そもそも検討していないから緑」になる" (a guard-blocked scenario where

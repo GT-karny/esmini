@@ -15,16 +15,18 @@ origin: vd-func:FUNC-056   # 追い越しの発起・完遂。docs/virtualdriver
 #     「両立しない配置は偽PASSになる」警告への対応)。
 #   - overtake_aborted_for_route_branch: REQ-AD-024 段c。§5-2 の安全弁
 #     (経路ホップの締切が先行車クリア前に来たら打ち切って戻る)。
-#     2026-08-04 に開始位置を詰める方式から作り直し済み(親セッションが
-#     この方式は原理的に安全弁へ届かないと検算で確認 -- required 式は
-#     常に単ホップしきい値+reserve だけ余裕を残す自己完結的な式のため)。
-#     正しい機構: SlowLead が PASS 中盤(t=9.2s)で加速し delta_v を
-#     12.0->0.1 m/s へ縮める。considered/guard は他3本と同じく明確な余裕
-#     側(margin 173.33m)。**CONFIDENCE: LOW** -- ビルド前に作成したため
-#     実測なし。機構自体の算術マージンは~14%(締切到達22.3s vs 自然クリア
-#     まで26.0s)で確保できているが、加速イベントの発火時刻(固定
-#     SimulationTimeCondition, t=9.2s)は理想化タイムラインに基づく見積り。
-#     詳細は当該 .xosc / .expectations.yaml のヘッダ参照。
+#     2026-08-04 に v3 へ作り直し済み。開始位置を詰める方式(v1)は原理的に
+#     安全弁へ届かない(required 式は常に単ホップしきい値+reserve だけ余裕を
+#     残す自己完結的な式のため)。delta_v を PASS 中盤で 12.0->0.1 m/s へ
+#     縮める方式(v2)も、実測で戻りの指示器リードが 0.05s しか出ず
+#     REQ-AD-023 段d に反したため破棄した。
+#     v3 の機構: SlowLead が t=8.0s で 25.0 m/s へ加速し Ego(20.0 m/s)を
+#     引き離すため Ego は永久にクリアできず、PASS を終わらせる唯一の経路が
+#     §5-2 の安全弁になる。しきい値の微調整は不要(発火時刻に鈍感)。
+#     considered/guard は他3本と同じく明確な余裕側(margin 273.33m)。
+#     **実測済み**(2026-08-04, 3件のC++修正を載せた Release ビルド,
+#     batch verdict pass / 7 must 全通過)。
+#     詳細は当該 .xosc の REVISION HISTORY / .expectations.yaml のヘッダ参照。
 #   - overtake_into_oncoming_lane_when_clear: REQ-AD-023 段e。片側1車線・
 #     対向車無しでの対向車線追い越し(§7)。対向車の安全マージン算術自体は
 #     このファイルの対象外(対向車が存在しないため空虚に真)。
@@ -68,8 +70,8 @@ scenarios:
     expectations: resources/xosc/verification/08_overtake/overtake_aborted_for_route_branch.expectations.yaml
     policies: [overtake, lead]
     report: overtake
-    # CONFIDENCE: LOW -- see the .xosc / .expectations.yaml headers. This
-    # entry's threshold calibration is unverified against a real build.
+    # MEASURED 2026-08-04 against a Release build (v3 of this scenario, see
+    # the .xosc REVISION HISTORY): batch verdict pass, all 7 must entries.
   - scenario: resources/xosc/verification/08_overtake/overtake_into_oncoming_lane_when_clear.xosc
     expectations: resources/xosc/verification/08_overtake/overtake_into_oncoming_lane_when_clear.expectations.yaml
     policies: [overtake, overtake_opposing_lane, lead]

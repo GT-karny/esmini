@@ -1,8 +1,9 @@
 scenario: yellow_decision_stop
 category: 03_traffic_signals
-# Yellow onset at t=7s catches the ego far enough out that the safe choice is to
-# stop. require_red is relaxed: the stop onset may begin during yellow (before the
-# red at t=12s). Pre-Phase-3b the ego runs through -> stopped_at_signal FAILS.
+# Yellow onset at t=4s (the xosc's green Phase duration; yellow then runs 8s)
+# catches the ego far enough out that the safe choice is to stop. require_red is
+# relaxed: the stop onset may begin during yellow (before the red at t=12s).
+# Pre-Phase-3b the ego runs through -> stopped_at_signal FAILS.
 must:
   - event: stopped_at_signal
     signal_id: 1

@@ -30,7 +30,9 @@
 
 ## 期待する挙動
 
-この結果はC++の追い越し実装が存在する前に作成されたexpectations.yamlに基づいており、実測での確認は行われていない(UNMEASURED)。
+2026-08-04にReleaseビルド（esmini GIT REV v3.4.1-872-67b74a60）で実測済み。
+`considered=true`・`blocked_reason=route_budget`・`phase=idle`のいずれも全1240フレームで成立し、4件のmustが全通過した。
+phaseがidleのまま動かないことが「見送り」であることの証拠で、いったん追い越しに入ってから打ち切る`overtake_aborted_for_route_branch`とはここで区別される。
 不足量(96.667 m)は僅差ではなく明確な不足として設計されているため、判定の感度は低いと見積もられている。
 
 - matcher `overtake_decision_holds`(expect_considered=true): トリガ条件(delta_v=12.0 m/s、t_pass=4.83s、先行車の拘束ギャップ)は姉妹シナリオと同一であり、実際に発火しなければこのシナリオはガードを何もテストしていないことになる。
