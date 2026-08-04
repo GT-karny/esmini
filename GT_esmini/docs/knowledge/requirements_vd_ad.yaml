@@ -890,11 +890,19 @@ requirements:
       - { step: b, claim: ブレーキ踏下で解除し、resume まで再介入しない。アクセル踏下は一時上書きで離すと追従へ復帰, met: false, verified_by: [] }
       - { step: c, claim: OFF→STANDBY→ACTIVE の状態遷移が操作と整合して HVD に出る,                                met: false, verified_by: [] }
       - { step: d, claim: ACC 作動中も AEB は独立監視し、safety が勝つ（tier 調停の手動運転版）,                    met: false, verified_by: [] }
+      - { step: e, claim: 走行中にハンコン等の操作（ボタン）で設定速度を増減でき、変更が即座に追従目標へ反映される,  met: false, verified_by: [] }
+      - { step: f, claim: 利用可能速度域（作動下限/上限）が設定可能で、域外では ACTIVE にならず STANDBY へ遷移する（域内復帰で resume 可）, met: false, verified_by: [] }
+      - { step: g, claim: 制限速度制御（設定速度を道路の制限速度でキャップ）の有無が設定可能で、有効時は制限速度超の設定が実効値でキャップされる, met: false, verified_by: [] }
     acceptance: >-
       段 a は VD 版 REQ-AD-002 の THW レンジ判定を流用（自車状態は OSI scene の is_host から
       読む＝面1化済みの経路）。段 b は操作イベントと状態遷移・ペダル実効値の時系列判定。
       段 c/d の状態は HVD vehicle_automated_driving_function の State 3値規律
-      （ACTIVE/STANDBY/UNAVAILABLE）に従う。THW・応答の定量閾値は要校正。
+      （ACTIVE/STANDBY/UNAVAILABLE）に従う。段 e/g は設定速度と実効上限を
+      custom_detail（gt.acc.set_speed_mps / gt.acc.effective_cap_mps 等、gt.* 命名規約）に
+      出して判定する＝「設定した」と「効いた」を別の観測量で示す。段 f は域外進入で
+      ACTIVE→STANDBY の遷移が起き、かつ介入出力が止むことの両極性判定（負系を兼ねる）。
+      段 g は有効/無効の2構成で同一刺激を走らせ、実効値の差で示す。
+      THW・応答・速度域の定量閾値は要校正。
     realized_by: [vd-func:FUNC-079]
     verified_by: []
     related: [req-vd-ad:REQ-AD-002, req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-028]
@@ -907,6 +915,13 @@ requirements:
       あり、人間が主運転者の場面へそのまま適用する根拠がない（設計書で再定義する）。
       状態遷移イベントはタイムスタンプ付きで出し、下流の TOR 実験（proposal:P17/P18）が
       切替基準点として使える形にする。
+      段 e の操作割当は manual_drive.json のボタンマッピング流儀（既存の
+      OVERRIDE/TAKE_MANUAL/AUTO_RESUME と同じ口）に乗せる＝キーボードでも同経路で
+      注入できるため検証は実機不要。段 g の制限速度参照は VD の前例
+      respect_speed_limit（追い越しの v_pass = min(target, GetSpeedLimit())、
+      req-vd-ad:REQ-AD-023）と同じ GetSpeedLimit() 経路を使い、config キーも同語彙で
+      揃える（acc_respect_speed_limit、既定値は設計書で確定）。利用可能速度域（段 f）は
+      LKA（REQ-AD-027 段 e）と共通の設計・語彙にする（機能ごとの min/max キー）。
 
   - id: REQ-AD-027
     title: 手動運転中の LKA（on/off・逸脱補正・人間操舵優先）
@@ -925,11 +940,13 @@ requirements:
       - { step: b, claim: 人間の明確な操舵入力・方向指示器作動中は介入しない/即時中断する（人間操舵優先）, met: false, verified_by: [] }
       - { step: c, claim: on/off と状態遷移が HVD に出る,                                                met: false, verified_by: [] }
       - { step: d, claim: 補正が FFB 反力として実ハンドルに伝わる（G29 実機限定観点・自動ゲート対象外）,  met: false, verified_by: [] }
+      - { step: e, claim: 利用可能速度域（作動下限/上限）が設定可能で、域外では介入せず STANDBY に留まる（域内復帰で再び作動可）, met: false, verified_by: [] }
     acceptance: >-
       段 a はレーン相対横位置（OSI assigned_lane / lane_map 面1化済み経路）で判定。
       段 b は操舵入力・指示器状態と補正出力の排他の時系列判定。段 d は駐車検証計画 §6 と
-      同じ「G29 実機限定」区分に置き、自動回帰ゲートの対象にしない。閾値（逸脱判定の
-      横位置/横速度、人間操舵優先のトルク/角度閾値）は要校正。
+      同じ「G29 実機限定」区分に置き、自動回帰ゲートの対象にしない。段 e は域外速度での
+      逸脱刺激（介入しないこと＝負系）と域内の同一刺激（介入すること）の両極性で判定する。
+      閾値（逸脱判定の横位置/横速度、人間操舵優先のトルク/角度閾値、速度域の既定値）は要校正。
     realized_by: [vd-func:FUNC-080]
     verified_by: []
     related: [req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-028, feature:F7]
@@ -941,6 +958,9 @@ requirements:
       介入 envelope で cmd.steering に加算/クランプする。人間操舵優先の検出は
       OverrideManager の意味論（人間が AD から奪う）と逆向きのため流用せず、
       対の概念として新設する（f7 検出器の設計パターンは参考にする）。
+      利用可能速度域（段 e）は ACC（REQ-AD-026 段 f）と共通の設計・語彙
+      （機能ごとの min/max キー）。実車の LKA 作動下限（例 60 km/h 前後）は参考値であり、
+      既定値は設計書で確定する。
 
   - id: REQ-AD-028
     title: ADAS の作動状態と運転者上書きが外部（面3）から観測できる
