@@ -39,6 +39,28 @@ from pathlib import Path
 
 import yaml
 
+
+def _make_output_encoding_safe() -> None:
+    """Never let a console encoding turn a PASS into a non-zero exit.
+
+    git runs the pre-commit hook with stdout on the console's ANSI codepage, not
+    UTF-8 (cp932 on a Japanese Windows checkout). Any non-ASCII byte we print
+    then raises UnicodeEncodeError *after* the check itself succeeded, so the
+    hook blocks a commit whose files are perfectly formatted -- the gate fails
+    exactly in the path where it should pass. Degrading unencodable characters
+    is always preferable to that: the exit code must reflect black's verdict and
+    nothing else.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
+_make_output_encoding_safe()
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PRE_COMMIT_CONFIG = REPO_ROOT / ".pre-commit-config.yaml"
 REQUIREMENTS = REPO_ROOT / "support" / "python" / "requirements.txt"
@@ -227,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
 
     scope = "staged" if opts.staged else "tracked"
     if not failed:
-        print(f"[black] OK — {len(paths)} {scope} file(s) already formatted.")
+        print(f"[black] OK -- {len(paths)} {scope} file(s) already formatted.")
         return 0
 
     print(
