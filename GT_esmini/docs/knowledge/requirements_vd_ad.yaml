@@ -1078,3 +1078,42 @@ requirements:
       縮退＝スロットル片側クランプのみ＝追加コストが最小。制限速度参照は REQ-AD-026 段 g と
       同じ GetSpeedLimit() 経路。段 b の全踏み解除は REQ-AD-025 段 d（AEB 抑制）と同じ
       キックダウン検出を共有する。ACC と同時 ON の調停（実車では通常排他）は設計書で確定する。
+
+  - id: REQ-AD-031
+    title: 手動運転中 ACC の Stop&Go（停止までの追従と再発進）
+    tier: comfort
+    agent: ADAS
+    kind: positive
+    statement: >-
+      WHILE ACC が ACTIVE のとき、システムは停止対象（先行車、および構成に応じて
+      信号・一時停止標識）に対して v=0 までの減速・停止保持を行い、運転者のアクセル
+      操作を再発進トリガとして追従を再開すること。
+    scenario: >-
+      未整備。渋滞追従（先行車が停止→発進を繰り返す）、赤信号への接近、一時停止標識。
+      再発進トリガは合成入力のアクセルパルスで与える。
+    acceptance_ladder:
+      - { step: a, claim: 先行車に対して v=0 まで追従減速・停止保持し、人間のアクセル操作で追従を再開する（再発進判断はしない）,                       met: false, verified_by: [] }
+      - { step: b, claim: 信号・一時停止標識も停止対象に構成でき、停止線手前で停止する。再発進は段 a と同じ人間トリガ,                                 met: false, verified_by: [] }
+      - { step: c, claim: 短時間停止（実車標準の約3秒相当・要校正）に限る時限自動再発進が構成可能（将来段・本要求の受入対象外）,                       met: false, verified_by: [] }
+      - { step: d, claim: 発進判断（先行車発進・信号青・横断クリアの複合確認）による完全自動再発進（将来段・vd-func:FUNC-058 依存・本要求の受入対象外）, met: false, verified_by: [] }
+    acceptance: >-
+      段 a/b が実装スコープ（フェーズC、ユーザー判断 2026-08-04）、段 c/d は将来段として
+      分母に残す（REQ-AD-020 段 d と同じ扱い）。段 a は停止保持中に前進しないこと
+      （クリープ抑止）とアクセルパルス→追従再開の時系列で判定。段 b は VD 版
+      REQ-AD-003/004 と同じ停止線基準を使い、停止対象を先行車のみに構成した場合は
+      信号・標識で介入しないこと（構成の両極性）と対で判定する。
+    realized_by: [vd-func:FUNC-079]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-003, req-vd-ad:REQ-AD-004, vd-func:FUNC-014, vd-func:FUNC-058]
+    status: future
+    note: >-
+      3パターン分解はユーザー整理（2026-08-04）: (1) 先行車のみ・人間再発進 (2) 信号/一時
+      停止込み・人間再発進 (3) AD 相当・自動再発進。段 c は 1 と 3 の実用的中間
+      （実車標準は停止約3秒以内のみ自動再発進）。段 b は世間の量産 ACC を超える
+      （信号停止は一部のナビ/カメラ連動車のみ）＝GroundTruth を持つシミュレータ固有の
+      付加価値で、TrafficLightAware / StopYieldSignAware が ITrafficPolicy 契約で
+      コントローラ非依存（AebSafety と同じ調査確定）のため手動スタックへの Add で成立する。
+      段 d は縦ドメインの判断を全部持つ＝ADAS→AD の境界線で、既存 lat/lon split
+      （縦=VD）との違いは「ブレーキで解除する ACC 意味論か AUTO_RESUME で戻る F7 意味論か」
+      に縮退する。この境界は設計書で明示する。停止保持と再発進では
+      AutoTransmission/クリープ挙動（RealVehicle 物理）との整合が要確認（設計書）。

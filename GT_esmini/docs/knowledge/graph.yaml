@@ -833,6 +833,11 @@ edges:
     type: realizes
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: 手動運転中の速度リミッター（AEB envelope の縮退実装）を充足。未実装
+  - from: vd-func:FUNC-079
+    to: req-vd-ad:REQ-AD-031
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 手動 ACC の Stop&Go（段a/b=先行車・信号/一時停止への停止と人間トリガ再発進がフェーズCスコープ。段c/d 自動再発進は将来段、段d は vd-func:FUNC-058 依存）。未実装
 
   # --- 要求 -> concerns/depends-on ---
   - from: req-vd-ad:REQ-AD-002
