@@ -6,7 +6,7 @@
   Asserted with min_speed_above through the signal s-window. This guards against a
   TrafficLightAware policy (Phase 3b, A3) that over-triggers and brakes for a
   green light. It also passes pre-3b (no policy at all), so a green here does not
-  by itself show the policy is present -- red_stop_green_go is the positive
+  by itself show the policy is present; red_stop_green_go is the positive
   counterpart that only passes when the policy actually runs.
   Cruise is a running Story Event; signal driven by a GT_TrafficSignalController.
 -->
