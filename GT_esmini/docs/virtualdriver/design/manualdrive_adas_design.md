@@ -2,7 +2,7 @@
 
 > ステータス: **フェーズA（AEB列、REQ-AD-025）実装済み**（2026-08-04〜05）。
 > C++ ユニット69件緑（`GT_esmini/test/CMakeLists.txt` の manualdrive/ 配下、661/661の内数）、
-> ManualDrive 検証バッチ（`manualdrive_adas_batch.yaml`）の5シナリオがいずれも frames=0 死活問題
+> ManualDrive 検証バッチ（`manualdrive_adas_batch.yaml`）の6シナリオがいずれも frames=0 死活問題
 > 無く440フレームずつ生成、AEB 実発火（gt.aeb ACTIVE 実測）と衝突速度低減（8.26 m/s）を確認、
 > 既存回帰ベースライン3本（car_following_traffic_control / aeb_safety / anticipation_driving、
 > 計25シナリオ）は deviations=0 で不動、全新設機能は既定 OFF。
