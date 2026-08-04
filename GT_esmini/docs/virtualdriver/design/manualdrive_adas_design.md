@@ -1,6 +1,15 @@
 # 手動運転中 ADAS の設計 — AEB / ACC / LKA / MSL 並行稼働
 
-> ステータス: **未実装（設計のみ）**。検証資産の計画は別文書（manualdrive_adas_verification_plan.md、執筆予定）が扱う。
+> ステータス: **フェーズA（AEB列、REQ-AD-025）実装済み**（2026-08-04〜05）。
+> C++ ユニット69件緑（`GT_esmini/test/CMakeLists.txt` の manualdrive/ 配下、661/661の内数）、
+> ManualDrive 検証バッチ（`manualdrive_adas_batch.yaml`）の5シナリオがいずれも frames=0 死活問題
+> 無く440フレームずつ生成、AEB 実発火（gt.aeb ACTIVE 実測）と衝突速度低減（8.26 m/s）を確認、
+> 既存回帰ベースライン3本（car_following_traffic_control / aeb_safety / anticipation_driving、
+> 計25シナリオ）は deviations=0 で不動、全新設機能は既定 OFF。
+> **§2-1（sim_time の由来）・§2-3（ドメイン所有と評価タイミング）・§3-2（FCWリードの成因）の
+> 3点は実装・実測で当初の想定と食い違いが判明し、本改訂で訂正した**（各節参照）。
+> **フェーズB（観測性完成・DriverOverride）〜E（ACC/LKA/常設化）は未実装（設計のみ）**。
+> 検証資産は別文書（manualdrive_adas_verification_plan.md）が扱う。
 > 知識グラフ: `req-vd-ad:REQ-AD-025`（手動AEB）/ `REQ-AD-026`（手動ACC）/ `REQ-AD-027`（手動LKA）/
 > `REQ-AD-028`（面3観測性）/ `REQ-AD-029`（HMI提示）/ `REQ-AD-030`（速度リミッター）/ `REQ-AD-031`（Stop&Go）、
 > `vd-func:FUNC-075`（AEB並行監視と横断基盤）/ `FUNC-079`（手動ACC）/ `FUNC-080`（手動LKA）/ `FUNC-081`（MSL）。
@@ -29,7 +38,14 @@ AEB は実装済みで常設ゲートまで持っているのに、`ITrafficPoli
 内部に `TrafficPolicyManager`（既存）と、後述の調停器（PedalArbitrator）、機能別の状態機械を持つ。
 
 ポリシー本体はゼロ改修で流用する。
-`AebSafety` と `LeadVehicleAware` の `Evaluate()` は `TrafficPolicyContext{ego, entities, sim_time}` だけを消費し、この 3 つはいずれも upstream `Controller` 基底クラスのメンバなので、ManualDrive も既に保持している（2026-08-04 調査確定）。
+`AebSafety` と `LeadVehicleAware` の `Evaluate()` は `TrafficPolicyContext{ego, entities, sim_time}` だけを消費する。
+`ego`（`object_`）と `entities`（`entities_`）は upstream `Controller` 基底クラスのメンバで、ManualDrive も継承済みである。
+
+**★2026-08-05 訂正（実装で判明）**: `sim_time` は upstream `Controller` 基底クラスのメンバでは**ない**（`Controller.hpp` に該当メンバが存在しない）。
+`ControllerVirtualDriver` はタイムステップ加算で維持する自前の `sim_time_` を持ち（`ControllerVirtualDriver.hpp:283`）、`ControllerManualDrive` も同型の自前 `sim_time_` を新設した（`ControllerManualDrive.hpp:120`、`ManualDriveCoordinator::RunFrame` の加算箇所で毎フレーム進める）。
+結論（3値ともゼロ改修で `TrafficPolicyContext` に詰められる）自体は変わらないが、根拠は「継承で無償に得られる」ではなく「ManualDrive 側が自分で維持する責務」である。
+**帰結**: `ctx.sim_time` を読む将来のポリシー・新設ロジック（ヒステリシス・デバウンス・タイマを持つもの全般）は、この per-controller の `sim_time_` 加算が毎フレーム正しく実行され続けることに暗黙に依存する。加算箇所を消す・迂回するリファクタは `sim_time` を凍結させ、時刻依存の判定を沈黙して壊す。
+
 VD 専属だったのは「VD コンストラクタが new する」という所有関係と、constraint を経路追従へ折り込む消費側だけである。
 
 消費側は持ち込まない。
@@ -48,11 +64,17 @@ publish 前に調停すれば、所有チャネルに流れる値が常に ADAS 
 ### 2-3. ドメイン所有による二重装備の回避
 
 ADAS 各機能は縦横いずれかのドメインに属する（AEB、ACC、MSL は縦、LKA と LDW は横）。
-AdasCoexistenceStack は、**自分（ManualDrive）がそのドメインの所有者であるときに限り**、当該ドメインの機能を評価する。
-判定は `DomainOwnershipLedger::OwnerOf` を使う。
+設計当初は「AdasCoexistenceStack は自分（ManualDrive）がそのドメインの所有者であるときに限り当該ドメインの機能を**評価**する」としていた。
+
+**★2026-08-05 訂正（実装で意図的に変更）**: 実装ではこれを外し、`AdasCoexistenceStack::Step` は所有関係にかかわらず policy（`AebSafety`/`LeadVehicleAware` の `Evaluate()`）を**毎フレーム走らせる**（`AdasCoexistenceStack.cpp:218`）。
+`DomainOwnershipLedger::OwnerOf` が効くのは**介入（ペダルへの反映）だけ**で、非所有時は `ComputeManualAdasFrame` が `PassThrough(driver_cmd)` を返して人間の入力をそのまま通す（同 `.cpp:141-145`）。
+
+**理由**: `AebSafety` は3フレームの横方向侵入デバウンス（`dt_history_`）を持つ。評価そのものを所有権で止めると、所有が ManualDrive に戻った直後の数フレームはこの履歴が冷え切っており、AEB が検知すべき遭遇を数フレーム遅れて拾う——所有権受け渡し直後に AEB が効かない窓ができてしまう。これは§12 が既に挙げているリスクと同じ種類のもので、評価を毎フレーム走らせ続けることで履歴を温存し、この窓を消す。
+
+**二重装備が起きないことの確認**: 評価は毎フレーム走るが、非所有時は §8 の HVD 報告行が UNAVAILABLE のまま（介入が無いため detail が空）で、ペダルは人間入力のパススルーに留まる。二重装備（両コントローラが同時に介入する）は起きない——起きているのは「非所有側も内部状態だけ温めておく」ことであり、外部への効果（ペダル・HVD の ACTIVE 遷移）は所有側だけに限定される。
 
 この規則が split 構成の二重装備を消す。
-横=手動、縦=VD の構成では、縦は VD がフルスタック（AebSafety 込み）で持っているから、ManualDrive 側の AEB と ACC は評価自体をしない。
+横=手動、縦=VD の構成では、縦は VD がフルスタック（AebSafety 込み）で持っているから、ManualDrive 側の AEB と ACC は（内部評価はしても）介入を出さない。
 逆構成（横=VD、縦=手動）では LKA 側が眠る。
 機能の availability は所有と連動して STANDBY / UNAVAILABLE に反映する（§8）。
 
@@ -88,6 +110,15 @@ AdasCoexistenceStack は、**自分（ManualDrive）がそのドメインの所�
 FCW（REQ-AD-025 段e）は AEB の前段として同じ policy 出力から作る。
 `AebSafety` は作動しなかったフレームでも gap / ttc / a_req を PolicyDetail に出す（W3 実装済み）ので、警報判定は「TTC が警報閾値を下回った」を介入閾値より緩い側に置くだけでよい。
 警報リード（介入の 0.8 s 以上前が目安）は閾値差から生まれ、時系列は検証で実測する。
+
+**★2026-08-05 訂正（実測）**: 「閾値差からリードが生まれる」という上記の想定は、cut-in（急な割込み）では成立しないことを実測で確認した。
+`md_aeb_unresponsive`（`07_aeb/cutin_hard_brake.xosc` の運転主体差し替え）で `gt.fcw` と `gt.aeb` が**同一フレーム**（t=1.75、frame 34）で ACTIVE になり、リードは **0.000 s** だった（`fcw_leads_intervention` 実測、要求段eの `min_lead_s=0.8` に対し fail。`test_results/mdadas_run1/md_aeb_unresponsive/verdict.json`）。
+
+**原因**: FCW ゲートは `DeriveFcwGateConfig` で `ttc_threshold` / `min_a_req` だけを緩め、候補**選定**パラメータ（lookahead・lateral_tol・stop_margin）は AEB 介入ゲートと verbatim で共有している（`AdasCoexistenceStack.cpp:112-123` のコメント）。
+両ゲートとも、`AebSafety` 自身が持つ3フレームの横方向侵入デバウンス（`dt_history_`）が cut-in の候補を「侵入」と認めるまでは、警報側も介入側もそもそも候補自体が見えない。
+閾値差が動かせるのは「見えている候補にどちらが先に反応するか」だけであり、**候補自体が見えていない間は閾値差が何も買わない**。cut-in はデバウンスが解けた瞬間に両ゲートの閾値をほぼ同時に跨ぐため、リードが潰れる。
+
+**帰結**: REQ-AD-025 段e の ≥0.8 s リードは、候補が数フレームかけて連続的に閾値へ近づく遭遇（同一車線上の先行車・停止車への接近など）でのみ成立し、cut-in のような突発的な候補出現では成立しない。この制約は§12 のリスク一覧にも追記した。
 
 ### 3-3. KickdownDetector（共有部品）
 
@@ -289,6 +320,10 @@ State は既存 3 値規律を踏襲する: config OFF またはドメイン非�
     "kickdown_suppress_enabled": true, // 実車型上書き（方式決定）
     // ttc_threshold 等は AebSafetyConfig を共有。警報閾値のみ追加
     "warning_ttc_threshold_s": 0.0     // 要校正
+    // ★既知のギャップ（2026-08-05）: FCW ゲートは ttc_threshold と min_a_req の
+    // 2値のクランプで決まる（AdasCoexistenceStack.cpp:119-120）が、config で
+    // 露出しているのは前者だけ。後者（warning_min_a_req_mps2）は
+    // AdasCoexistenceStack.hpp の compile-in default のまま。詳細は本節末尾の note。
   },
   "acc": {
     "enabled": false,
@@ -334,6 +369,13 @@ State は既存 3 値規律を踏襲する: config OFF またはドメイン非�
 全機能とも既定 OFF で入れる（F6 AutoLight、lane_change_initiation と同じ導入方針。既定挙動を変えず、回帰ベースラインを不動で通す）。
 利用可能速度域のキー語彙（min/max_speed_mps）は ACC と LKA で共通にする（REQ-AD-026/027 の共通語彙決定）。
 
+**★2026-08-05 追加（別ワーカーの指摘を出典確認のうえ記録）: `warning_min_a_req_mps2` は config に露出していない既知のギャップ**。
+FCW の発火点は `DeriveFcwGateConfig` が `warning_ttc_threshold_s` と `warning_min_a_req_mps2` の**両方**をクランプして決める（`AdasCoexistenceStack.cpp:119-120`）。
+このうち `warning_ttc_threshold_s` は `config_.adas.aeb.warning_ttc_threshold_s`（`adas_aeb_warning_ttc_threshold_s`、`ManualDriveConfig.cpp:173`）として config から読めるが、対になる `warning_min_a_req_mps2`（既定 2.0 m/s²、`AdasCoexistenceStack.hpp:199`）は **`AdasCoexistenceStack.hpp` のコンパイル時デフォルトのみで、対応する config キー・パーサが無い**。
+FCW の発火点は2値のペアで決まる以上、片方だけが config から効くのは校正時に噛み合わない——`warning_ttc_threshold_s` をどう振っても `warning_min_a_req_mps2` が支配的な側では FCW の発火点が動かない、という校正の詰み方をする。
+本設計書は §9 に `warning_ttc_threshold_s` しか載せておらず、これも欠落を見落としていた。
+**対応は次フェーズの実装課題として記録するのみに留める**（本改訂ではデフォルト値もキーも追加しない。追加は実装変更でありユニットテストとセットで行うべきという判断のため）。§12 のリスク一覧にも同じ内容を追記した。
+
 ## 10. 実装フェーズと完了条件
 
 各フェーズは検証スパインの 1 列を①〜⑥まで縫って閉じる。
@@ -360,6 +402,19 @@ State は既存 3 値規律を踏襲する: config OFF またはドメイン非�
 - ハーネス改修の仕様（ManualDrive 実行モード、policy 注入の ManualDrive 版、§8-5 API の受け）
 
 ## 12. 既知のリスクと相互作用
+
+**★2026-08-05 追加: `warning_min_a_req_mps2` が config に露出していない**（§9 の追記を参照）。
+FCW の発火点は `warning_ttc_threshold_s`（config 済み）と `warning_min_a_req_mps2`（compile-in
+デフォルト 2.0 m/s²、`AdasCoexistenceStack.hpp:199`）の両方のクランプで決まるが、後者は config
+キーが無い。ペアの片方しか校正できないため、`warning_min_a_req_mps2` が支配的な条件では
+`warning_ttc_threshold_s` をいくら振っても FCW の発火点（延いては段eのリード）が動かない、という
+校正の詰みが起こりうる。対応は次フェーズの実装課題（config キー新設＋パーサ＋ユニットテスト）
+として記録するのみに留める（本改訂ではC++側は変更していない）。
+
+**★2026-08-05 追加: FCW/AEB 候補選定の共有が cut-in でリードを潰す**（§3-2 訂正の要約）。
+FCW ゲートと AEB 介入ゲートは候補**選定**パラメータ（lookahead・lateral_tol・stop_margin）を共有しており、両者とも `AebSafety` の3フレーム侵入デバウンスが候補を認識するまで発火できない。
+cut-in のように候補が突発的に出現する遭遇では、デバウンスが解けた瞬間に両ゲートの閾値をほぼ同時に跨ぐためリードが潰れる（実測: リード0.000s、`md_aeb_unresponsive`）。
+段eの≥0.8sリードは、候補が徐々に閾値へ近づく遭遇（同一車線上の先行車・停止車接近）でのみ成立する。この制約自体を仕様として認めるか、候補選定パラメータをFCW側だけ緩めて先出しできるようにする改修が必要かは、フェーズB以降の判断課題として残る。
 
 **RealVehicleBackend の HVD ハンドル角欄**。
 RealVehicleBackend.cpp:133-134 は内部 `current_hvd_` のハンドル角欄にタイヤ角を書いており、FFB / Coordinator / VD が一貫してタイヤ角として読むことで内部整合が取れている。

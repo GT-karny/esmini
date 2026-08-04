@@ -1693,3 +1693,144 @@ edges:
   #   (1) REQ-AD-023 の acceptance_ladder 段 f が met: false
   #   (2) 同 related に vd-func:FUNC-030
   #   (3) FUNC-030 の note に「FUNC-056 実装で本項の不在が実害になった」旨
+
+  # ===== ManualDrive中ADAS フェーズA 縦串（vd-func:FUNC-075 / req-vd-ad:REQ-AD-025・028、2026-08-05） =====
+  # FUNC-075 の realizes 辺は2026-08-04に張り済み（未実装注記つき、上部参照）。ここはフェーズA
+  # 実装後に追加する②刺激・④観測・⑤判定・⑥常設の縦串。根拠は実際に発火/観測する資産
+  # （test_results/mdadas_run1/*/verdict.json の実測、GT_esmini/scripts/verification/
+  # test_manualdrive_matchers.py の35テスト実行、GT_esmini/test/CMakeLists.txt の69新規ケース）。
+  #
+  # ②刺激の対象は policy:aeb（末尾コメント line ~942 の慣行と同型）: 10_manualdrive_adas/ の
+  # 5xosc は scenario-variant 化されていない手書き資産（07_aeb/06_lead/03/04 と同じ扱い）で、
+  # manualdrive_adas_batch.yaml は VD の「policies:」リスト機構を使わない
+  # （controller: manualdrive + manualdrive_config、検証計画§7-1）。それでも実際に発火する実装は
+  # AebSafety（policy:aeb）そのもの — AdasCoexistenceStack::Step は ITrafficPolicy の Evaluate()
+  # を毎フレーム呼ぶだけで policy 本体は無改修（design §2-1/§2-3、AdasCoexistenceStack.cpp:198-202,218）。
+  # 「policies リストに乗る」ではなく「同じ policy クラスを別経路から起動する」形で face:2 実装
+  # ノードを共有するため、req-vd-ad(face:3) -> policy:aeb(face:2) の直結は既知の許容パターン。
+  - from: req-vd-ad:REQ-AD-025
+    to: policy:aeb
+    type: stimulated-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      10_manualdrive_adas/ の5シナリオ（md_aeb_unresponsive / md_aeb_no_conflict /
+      md_aeb_strong_brake_driver / md_aeb_kickdown_suppress / md_fcw_warning_only、
+      controller: manualdrive）が AdasCoexistenceStack 経由で AebSafety(policy:aeb) を
+      毎フレーム発火させる（design §2-1、ゼロ改修流用）。実測（test_results/mdadas_run1/
+      md_aeb_unresponsive/verdict.json）: gt.aeb が t=2.00 で ACTIVE、impact_speed 8.26 m/s
+      まで低減（段a）。段b-eは同バッチの他4シナリオが刺激する。段d（キックダウン抑制）・
+      段e（FCWリード）は閾値未校正・実測で design §3-2 の想定と食い違いが判明済み
+      （design doc 訂正・下の verifies 辺の note を参照）。
+  - from: req-vd-ad:REQ-AD-028
+    to: policy:aeb
+    type: stimulated-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      要求自身の scenario 欄が明記するとおり「REQ-AD-025/026/027 の刺激と同一バッチで
+      判定面として使う」（専用刺激を持たない横断適用）。段a（正規Name列挙でのState報告）は
+      matcher:adas_state_matches が同じ5シナリオの実行から判定する（下の verifies 辺）。
+      段b（DriverOverride）はフェーズAでは populate 未実装のため未結線（実体の無い辺は張らない）。
+      段c（ハーネスがHVDを読めること）は、このバッチが frames=0 エラー無く440フレームずつ
+      実行できたこと自体で実証済み（test_results/mdadas_run1/*/telemetry.jsonl 実測）。
+
+  # ---- ④観測: ManualDrive ADAS 5 matcher -> signal:manualdrive_adas_states ----
+  # 5つとも vd_metrics.py の _hvd_adas_record(frames[i], function) 経由で
+  # frame["hvd"]["adas"][function] を読む（1585-1919行）。これは signal:manualdrive_adas_states
+  # が指す HVD ADAS states そのもの（GetADASFunctions -> AddADASFunctionEx 経路、design §8-1）。
+  # ★このsignalのcatalogエントリは exposure:[hvd] / state:"(a)"（未実装スタブ）のまま
+  # 2026-07-21時点で凍結されており、フェーズA実装後の現状（HVDへ実際にemitされている）を
+  # 反映していない。signal_catalog.yaml は本作業の許可ファイル外につき編集せず、
+  # コーディネータへ別途報告する（PROCESS CONSTRAINTS 遵守）。
+  - from: matcher:manual_aeb_fires
+    to: signal:manualdrive_adas_states
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: 窓内でfunctionのstate_nameが一度でもactiveになるかをframe["hvd"]["adas"][function]から判定
+  - from: matcher:no_intervention_in_window
+    to: signal:manualdrive_adas_states
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      窓内でactiveが一度も無いことに加え、reported かつ not-unavailable（＝正しく
+      STANDBYで見張っていた）であることも要求する（REQ-AD-028のSTANDBY/UNAVAILABLE区別に
+      判定が依存する、vd_metrics.py:1646-1649のコメント）。
+  - from: matcher:brake_not_stacked
+    to: signal:manualdrive_adas_states
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: active区間のcustom_detail（driver_brake/brake_request/brake_outキー）を読み、max合成かを判定
+  - from: matcher:fcw_leads_intervention
+    to: signal:manualdrive_adas_states
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: warning_function/intervention_functionの2行を読み、最初のactive遷移の時刻差をリードとする
+  - from: matcher:adas_state_matches
+    to: signal:manualdrive_adas_states
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: functionのstate_name列が窓内でexpectと一致するか（modeパラメータでall/any切替）を判定する汎用matcher
+
+  # ---- ⑤判定: 5 matcher -> verifies -> req-vd-ad ----
+  - from: matcher:manual_aeb_fires
+    to: req-vd-ad:REQ-AD-025
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_aeb_unresponsive.expectations.yaml
+    note: >-
+      段a（無反応ドライバ＋衝突コースでAEB介入）の主判定。md_aeb_kickdown_suppressでは
+      キックダウン前区間の前提（段d抑制の対照）としても使う。実測: t=2.00でACTIVE
+      （test_results/mdadas_run1/md_aeb_unresponsive/verdict.json）。
+  - from: matcher:no_intervention_in_window
+    to: req-vd-ad:REQ-AD-025
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_aeb_no_conflict.expectations.yaml
+    note: >-
+      段b（衝突コース不在で誤介入しない）の主判定。md_aeb_kickdown_suppressでは段d
+      （抑制後の窓）、md_fcw_warning_onlyでは段e（警報単独エピソードでAEB非介入）にも使う。
+  - from: matcher:brake_not_stacked
+    to: req-vd-ad:REQ-AD-025
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_aeb_strong_brake_driver.expectations.yaml
+    note: >-
+      段c（人間がAEB要求以上を踏んでいるとき上乗せしない＝max合成）の主判定。この E2E 資産は
+      threshold未校正で needs-review（test_results/mdadas_run1/batch_summary.md）＝緑担保に
+      留まらず未計測。赤実証は matcher:brake_not_stacked の実装を直接叩く Python ユニット
+      テストが担う（検証計画§4-1の unit-level 許容、verification_plan.md §4-2で訂正済み）。
+  - from: matcher:fcw_leads_intervention
+    to: req-vd-ad:REQ-AD-025
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_aeb_unresponsive.expectations.yaml
+    note: >-
+      段e（警報が介入に先行しリード≥0.8s）の判定。実測ではcut-inにつきリード0.000sでfail
+      （gt.fcw/gt.aebが同一フレームt=1.75でACTIVE、test_results/mdadas_run1/
+      md_aeb_unresponsive/verdict.json）。design §3-2訂正・検証計画の対象。
+      **この辺は「matcherが正しく判定を出す」ことを主張するのであって「要求段eが
+      現状達成されている」ことは主張しない**（現に fail）。
+  - from: matcher:adas_state_matches
+    to: req-vd-ad:REQ-AD-025
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_aeb_no_conflict.expectations.yaml
+    note: >-
+      段b（config OFFでなくSTANDBYで見張っていたことの確認、負系の意味を担保）と
+      段e（md_fcw_warning_only、gt.fcwが少なくとも一度activeになること）の補助判定。
+  - from: matcher:adas_state_matches
+    to: req-vd-ad:REQ-AD-028
+    type: verifies
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      コード自身のコメント（vd_metrics.py:1853-1854）が「req-vd-ad:REQ-AD-026 step c /
+      REQ-AD-028 step a」の主判定と明記。正規Name列挙のstate_nameが期待どおりに出ることの
+      確認そのものが観測性要求（3値規律のUNAVAILABLE/STANDBY/ACTIVE区別）の判定にあたる。
+
+  # ---- ⑥常設: vd-func:FUNC-075 の69新規C++ユニットがgate:unit-ctest傘バイナリに乗る ----
+  # feature:F7 -> gate:unit-ctest（本ファイル上部）と同型。manualdrive_adas_batchはphase E待ちの
+  # 候補ゲートであり常設ではない（design §10）ため、この辺は claim しない。
+  - from: vd-func:FUNC-075
+    to: gate:unit-ctest
+    type: sustained-by
+    source: GT_esmini/test/CMakeLists.txt
+    note: >-
+      test_ManualAdasFunctionReport.cpp / test_KickdownDetector.cpp / test_PedalArbitrator.cpp /
+      test_ManualDriveAdasConfig.cpp / test_AdasCoexistenceStack.cpp 他が傘バイナリ常設
+      （69新規ケース、661/661緑の内数、2026-08-05実測）。matcher実装自体の赤実証（Python側）は
+      GT_esmini/scripts/verification/test_manualdrive_matchers.py（35テスト）が別途担うが、
+      これは gt_sim_test 検証ハーネス側であり ctest 傘バイナリの外＝この辺には含めない。

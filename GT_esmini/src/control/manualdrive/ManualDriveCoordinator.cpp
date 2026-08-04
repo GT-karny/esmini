@@ -4,6 +4,7 @@
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
 #include "gt_esmini/control/common/DomainOwnershipLedger.hpp"
+#include "gt_esmini/control/virtualdriver/ITrafficPolicy.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "Entities.hpp"
@@ -14,6 +15,16 @@ namespace gt_esmini
 
 void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
 {
+    // req-vd-ad:REQ-AD-025/028, vd-func:FUNC-075 -- local simulation clock for
+    // TrafficPolicyContext::sim_time (step 3a-adas below). Mirrors
+    // ControllerVirtualDriver::Step's own `sim_time_ += timeStep;` (its FIRST
+    // statement): sim_time is NOT actually an upstream scenarioengine::
+    // Controller base-class member -- only object_/entities_/scenario_engine_
+    // are (Controller.hpp) -- so ManualDrive keeps its own accumulator the
+    // same way VD does, incremented unconditionally on every RunFrame() call
+    // regardless of which branch below returns early.
+    c.sim_time_ += dt;
+
     // 1. Poll input source
     InputFrame frame = c.input_source_->Poll(dt);
 
@@ -88,6 +99,95 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
             cmd.brake = 0.0;
         }
     }
+
+    // 3a-adas. req-vd-ad:REQ-AD-025/028, vd-func:FUNC-075 (design
+    // manualdrive_adas_design.md §2-2) -- AdasCoexistenceStack arbitration.
+    // MUST run HERE: after cmd is assembled, BEFORE the 3-bus publish block
+    // immediately below. Do not move this.
+    //
+    // WHY HERE AND NOWHERE ELSE: the bus contract (3-bus block's own comment,
+    // and DomainOwnershipLedger.hpp) is "publish what you own, consume what
+    // you don't". If arbitration ran AFTER publish, a split configuration's
+    // peer (the other domain's owner/integrator) would already have consumed
+    // the PRE-arbitration value off the bus for this frame -- so under a
+    // lat=manual/lon=VD-style split, an AEB intervention decided here would
+    // never reach the channel that actually drives the vehicle; it would be
+    // silently dropped. Arbitrating BEFORE publish means the owned
+    // (longitudinal) channel this controller is about to publish always
+    // carries the ADAS-arbitrated value, never the raw driver value.
+    //
+    // ctx.{ego,entities} come from the upstream scenarioengine::Controller
+    // base class's own object_/entities_ members (Controller.hpp) -- the same
+    // ones ControllerVirtualDriver reads for its own TrafficPolicyContext.
+    // ctx.sim_time does NOT: it is ManualDrive's own accumulator (see this
+    // function's top), because sim_time is NOT actually a Controller
+    // base-class member despite manualdrive_adas_design.md §2-1 describing
+    // all three as "upstream Controller基底クラスのメンバ" -- confirmed by
+    // reading Controller.hpp; VirtualDriver's own sim_time_ is a
+    // ControllerVirtualDriver member (ControllerVirtualDriver.hpp), not
+    // inherited either. This did not change the hook's shape, only where
+    // sim_time comes from.
+    //
+    // owns_longitudinal is read from the ledger HERE, once, and both used for
+    // arbitration and CACHED (adas_last_owns_longitudinal_) for
+    // GetADASFunctions() below -- see that method's own comment for why the
+    // cached value (not a fresh re-read) is correct there.
+    //
+    // Runs unconditionally whenever c.object_ exists, i.e. also when this
+    // controller turns out NOT to be the integrator (the `is_integrator`
+    // check happens further down, AFTER this block and after 3-bus publish).
+    // That is intentional, not an oversight: DomainOwnershipLedger::
+    // IntegratorOf() prefers the LONGITUDINAL owner, falling back to the
+    // LATERAL owner only when nobody owns LONGITUDINAL -- so the only way
+    // this controller can be a NON-integrator is if it does NOT own
+    // LONGITUDINAL (e.g. the reverse split, lat=manual/lon=VD). In that case
+    // owns_longitudinal below reads false, and AdasCoexistenceStack::Step()'s
+    // own domain-ownership bypass (AdasCoexistenceStack.hpp) makes this a
+    // correct no-op for ARBITRATION while still evaluating the AEB/FCW
+    // policies every frame -- which is exactly what that class's own header
+    // asks for, to keep AebSafety's cross-frame encroachment debounce warm
+    // across an ownership hand-off (design §12's dynamic-ownership risk item).
+    //
+    // Deliberately NOT run on the two early-return paths ABOVE this point in
+    // the function (AUTO_RESUME hand-back to VirtualDriverControl, and the
+    // fully-AUTO/no-split scenario-delegation return): both returns happen
+    // before cmd is even assembled, so there is nothing yet to arbitrate, and
+    // both represent this controller NOT being the human driver this frame
+    // (design §1's scope is explicitly "human stays the primary driver" --
+    // full delegation to the scenario/story is out of scope for ADAS
+    // coexistence, and AUTO_RESUME's whole point is that longitudinal
+    // ownership has already been handed back to VirtualDriverController by
+    // the time that return executes). A consequence worth stating plainly:
+    // AebSafety's cross-frame debounce state goes cold while this controller
+    // is not driving at all (full AUTO) and re-warms over the following
+    // few frames once manual driving resumes -- accepted for phase A, not a
+    // defect, since that window is not a "manually driving but ADAS silently
+    // skipped" case.
+    if (c.object_)
+    {
+        auto&      ledger           = DomainOwnershipLedger::Instance();
+        const int  obj_id           = c.object_->GetId();
+        const bool owns_longitudinal = ledger.IsOwner(obj_id, &c, OwnedDomain::LONGITUDINAL);
+
+        TrafficPolicyContext pctx;
+        pctx.ego      = c.object_;
+        pctx.entities = c.entities_;
+        pctx.sim_time = c.sim_time_;
+
+        ManualAdasFrameResult adas_result = c.adas_stack_->Step(pctx, owns_longitudinal, cmd, dt);
+
+        // Apply the arbitrated pedals back into cmd BEFORE the publish block
+        // below -- phase A is longitudinal-only (design §10's phase table),
+        // so cmd.steering is deliberately left untouched here.
+        cmd.throttle = adas_result.pedals.throttle_out;
+        cmd.brake    = adas_result.pedals.brake_out;
+
+        // Cache for GetADASFunctions(), called by GT_Step AFTER this Step()
+        // returns -- see that method's header comment for why "this frame".
+        c.adas_last_result_            = adas_result;
+        c.adas_last_owns_longitudinal_ = owns_longitudinal;
+    }
+
     // 3-bus. feature:F7 S3 — publish owned channels, then consume the unowned
     // ones if this controller is the integrator. See the bus contract in
     // DomainOwnershipLedger.hpp for why the merge is at the command stage.

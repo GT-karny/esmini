@@ -31,5 +31,18 @@
     },
     "ffb": {
         "target_track_enabled": false
+    },
+    "adas": {
+        "adas_aeb_enabled": false,
+        "adas_aeb_kickdown_suppress_enabled": true,
+        "adas_aeb_warning_ttc_threshold_s": 3.5,
+        "adas_brake_full_decel_mps2": 8.0,
+        "adas_brake_kp": 0.05,
+        "adas_brake_ki": 0.6,
+        "adas_kickdown_threshold": 0.95,
+        "adas_kickdown_release_threshold": 0.80
+    },
+    "input_scripted": {
+        "input_scripted_profile_file": ""
     }
 }

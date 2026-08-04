@@ -1,0 +1,10 @@
+{
+  "name": "strong_brake_at",
+  "description": "RETUNED 2026-08-05 from real telemetry (test_results/mdadas_run1/md_aeb_unresponsive/telemetry.jsonl, same underlying geometry). That run showed gt.aeb's candidate is admitted at t=1.75s with a_req_mps2 already at 11.46 (ttc_s=0.738), and the run's whole AEB-active window is only t=1.75-2.85s before contact -- the original guess (brake onset at t=3.0) landed entirely AFTER that window closed, which is why AEB was never observed ACTIVE and brake_not_stacked SKIPped ('nothing to check for stacking'). This profile now ramps to full brake (1.0) at t=1.55-1.60, i.e. shortly BEFORE the measured t=1.75 admission, so the driver is already at maximum brake by the time AEB's candidate is admitted. Serves md-aeb-brake-not-stacked (REQ-AD-025 step c). Level is 1.0 (not a sub-saturation value) because the measured gt.aeb.brake_request in the reference run is ALSO already at/near 1.0 the instant the candidate is admitted (a_req=11.46 is far past adas_brake_full_decel_mps2=8.0's saturation point) -- see md_aeb_strong_brake_driver.md for why this means the matcher's coverage here is GREEN-only (proves the system produces sane, driver-dominant output during a live conflict) rather than a clean sum-vs-max discriminator, and why that split (E2E green, C++ unit test red) is the verification plan's own documented design for this matcher, not a new compromise.",
+  "keyframes": [
+    { "t": 0.0, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 1.55, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 1.60, "throttle": 0.0, "brake": 1.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 21.0, "throttle": 0.0, "brake": 1.0, "steering": 0.0, "gear": 1, "buttons": 0 }
+  ]
+}

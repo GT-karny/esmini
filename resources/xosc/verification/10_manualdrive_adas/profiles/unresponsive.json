@@ -1,0 +1,8 @@
+{
+  "name": "unresponsive",
+  "description": "All-zero human input for the full run (throttle/brake/steering held at 0.0, gear held in Drive). Serves md-aeb-intervention-unresponsive-driver (REQ-AD-025 step a) and, on the same asset, md-fcw-leads-intervention (step e) -- the driver never reacts, so AEB's own FCW-then-intervention sequence is the only thing that ever moves the pedals.",
+  "keyframes": [
+    { "t": 0.0, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 21.0, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 }
+  ]
+}

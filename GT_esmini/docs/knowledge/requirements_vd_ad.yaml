@@ -850,11 +850,11 @@ requirements:
       置き換えて構成する。人間入力プロファイル（無反応・定常アクセル・AEB以上の強ブレーキ・
       全踏み加速）が新しい刺激軸になる。
     acceptance_ladder:
-      - { step: a, claim: 無反応ドライバ＋衝突コースで AEB が介入し接触を回避/緩和する（VD版 REQ-AD-001/010 相当の手動版）, met: false, verified_by: [] }
-      - { step: b, claim: 衝突コース不在では人間のペダル指令に一切介入しない（VD版 REQ-AD-013 相当の誤介入抑止・負系）,       met: false, verified_by: [] }
-      - { step: c, claim: 人間が AEB 要求以上のブレーキを既に踏んでいる場合は介入を上乗せしない（ブレーキは max 合成）,      met: false, verified_by: [] }
-      - { step: d, claim: 運転者の明確な加速意思（アクセル全踏み相当・閾値は要校正）で介入を抑制し、抑制事象が観測できる,    met: false, verified_by: [] }
-      - { step: e, claim: AEB 介入に先立ち警報フェーズ（FCW）を運転者へ提示し（目安 ≥0.8 s 前・R152 由来で要校正）、警報事象が HVD で観測できる, met: false, verified_by: [] }
+      - { step: a, claim: 無反応ドライバ＋衝突コースで AEB が介入し接触を回避/緩和する（VD版 REQ-AD-001/010 相当の手動版）, met: true, verified_by: [matcher:manual_aeb_fires, matcher:impact_speed_below] }
+      - { step: b, claim: 衝突コース不在では人間のペダル指令に一切介入しない（VD版 REQ-AD-013 相当の誤介入抑止・負系）,       met: true, verified_by: [matcher:no_intervention_in_window, matcher:adas_state_matches] }
+      - { step: c, claim: 人間が AEB 要求以上のブレーキを既に踏んでいる場合は介入を上乗せしない（ブレーキは max 合成）,      met: true, verified_by: [matcher:brake_not_stacked] }
+      - { step: d, claim: 運転者の明確な加速意思（アクセル全踏み相当・閾値は要校正）で介入を抑制し、抑制事象が観測できる,    met: true, verified_by: [matcher:manual_aeb_fires, matcher:no_intervention_in_window] }
+      - { step: e, claim: AEB 介入に先立ち警報フェーズ（FCW）を運転者へ提示し（目安 ≥0.8 s 前・R152 由来で要校正）、警報事象が HVD で観測できる, met: true, verified_by: [matcher:fcw_leads_intervention, matcher:adas_state_matches] }
     acceptance: >-
       段 a/b は VD 版 AEB と同じ幾何判定（OBB分離・衝突速度）を OSI scene 経由で流用できる
       （運転主体非依存）。段 c/d は人間入力と介入出力の関係の主張であり、HVD の
@@ -863,12 +863,49 @@ requirements:
       時系列（警報 timestamp が介入に先行しリード ≥ 閾値）で判定し、警報だけで済んだ
       場合（人間が反応して回避＝介入なし）も警報単独事象として観測できること。
       運転者への提示先は REQ-AD-029（HMI）、emit は gt.aeb.warning 等の gt.* 規約。
+
+      **段 c の E2E 証拠には識別限界がある（2026-08-05 実測で確定）**: `md_aeb_strong_brake_driver`
+      の幾何では AEB 自身のブレーキ要求が飽和する（a_req=11.46 m/s² を
+      `adas_brake_full_decel_mps2`=8.0 に対して要求するため、ブレーキ出力は 1.0 に張り付く）。
+      この張り付きは「max 合成（上乗せしない）」と「合算してから 1.0 でクランプ（実質的に
+      上乗せしている）」のどちらでも同じ観測値（brake_out=1.0）になり、**E2E 資産単体では
+      両者を判別できない**。合成規則そのものを判別する赤実証は
+      `GT_esmini/test/unit/manualdrive/test_PedalArbitrator.cpp`（C++ ユニットテスト）が担う
+      （検証計画§4-1/§4-2、E2E で赤実証を作りにくいものは単体テストに置く規律）。E2E 側の
+      PASS は「この幾何で少なくとも矛盾は出ていない」ことの緑担保であり、**合成規則が
+      max であることの証明ではない**——読者はここを取り違えないこと。
+
+      **段 e のリードは遭遇の発展のしかたに依存する（design §3-2/§12 で訂正済み）**:
+      候補が徐々に閾値へ近づく遭遇（`md_aeb_stationary_lead`、停止先行車への接近）では
+      リードが正しく現れる（実測 1.450 s）。一方、候補が突発的に出現する cut-in
+      （`md_aeb_unresponsive`）では FCW と AEB が同一フレームで ACTIVE になりリードは
+      0.000 s になる——両ゲートが候補選定パラメータ（lookahead/lateral_tol/stop_margin）を
+      共有し、`AebSafety` の3フレーム侵入デバウンスが解けるまでどちらも候補を見ていないため。
+      段 e の claim は「AEB 介入に先立ち警報フェーズを提示し」であって全遭遇類型での
+      リード達成を主張していないため met: true としているが、**cut-in 類型ではリードが
+      事実上消える**ことは要求を読む側が知っておくべき制約であり、ここに明記する。
     source: "UN R152 運転者上書き規定 相当（二次資料経由・原文未確認。翻案であり準拠主張はしない）"
     realized_by: [vd-func:FUNC-075]
-    verified_by: []
+    verified_by: [matcher:manual_aeb_fires, matcher:impact_speed_below, matcher:no_intervention_in_window, matcher:adas_state_matches, matcher:brake_not_stacked, matcher:fcw_leads_intervention]
     related: [req-vd-ad:REQ-AD-001, req-vd-ad:REQ-AD-013, req-vd-ad:REQ-AD-028, req-vd-ad:REQ-AD-029, vd-func:FUNC-005, feature:F7]
-    status: future
+    status: done
     note: >-
+      **2026-08-05 実測（フェーズA、manualdrive_adas_batch.yaml、run: test_results/mdadas_run3、
+      overall=pass、6/6 シナリオ・全440フレーム）**: `md_aeb_unresponsive`
+      （manual_aeb_fires PASS: gt.aeb ACTIVE t=2.00／impact_speed_below PASS: 8.26 m/s vs
+      閾値10.0）、`md_aeb_stationary_lead`（fcw_leads_intervention PASS: リード1.450 s
+      [gt.fcw ACTIVE t=3.30 frame65 → gt.aeb ACTIVE t=4.75 frame94]、要求 ≥0.8 s／
+      manual_aeb_fires PASS）、`md_aeb_no_conflict`（no_intervention_in_window PASS／
+      adas_state_matches(gt.aeb, standby) PASS）、`md_aeb_strong_brake_driver`
+      （brake_not_stacked PASS、26 eligible frame で brake_out==driver_brake——ただし上記
+      段c注記のとおり識別力に限界あり）、`md_aeb_kickdown_suppress`（両matcher PASS）、
+      `md_fcw_warning_only`（adas_state_matches(gt.fcw, active) PASS t=3.30／
+      no_intervention_in_window(gt.aeb) PASS）。
+      並走: C++ ユニットゲート661/661（新規69件含む）、既存回帰ベースライン3本
+      （car_following_traffic_control/aeb_safety/anticipation_driving、計25シナリオ）は
+      deviations=0 で不動、ディスパッチの非摂動性はA/Bで実測（ManualDrive分岐の
+      AddADASFunctionEx ループを除去すると ManualDrive 側の行が2→0に落ちる一方、
+      RealDriver 側の出力は不変）。
       段 e（FCW）は vd-func:FUNC-005 の oos 理由「no-human-driver」が ManualDrive 文脈で
       反転することから採用（2026-08-04 精査）: G29 の前に人間がいるため警報が本来の意味を
       持つ。FUNC-005 自体は VD（AD走行）文脈の判断として oos を維持し、手動文脈の FCW は
@@ -993,27 +1030,68 @@ requirements:
       未整備。REQ-AD-025/026/027 の刺激と同一バッチで判定面として使う
       （観測性は専用刺激を持たず、全 ADAS シナリオに横断適用する）。
     acceptance_ladder:
-      - { step: a, claim: "3機能の状態が vehicle_automated_driving_function[] に正規 Name 列挙で出る（NAME_OTHER でなく実列挙。custom_detail に gt.* 規約の内部量）", met: false, verified_by: [] }
+      - { step: a, claim: "3機能の状態が vehicle_automated_driving_function[] に正規 Name 列挙で出る（NAME_OTHER でなく実列挙。custom_detail に gt.* 規約の内部量）", met: true, verified_by: [matcher:adas_state_matches] }
       - { step: b, claim: "運転者上書き事象が DriverOverride{active, reason} に出る（Reason はブレーキ/ステアの2値＝規格制約。アクセル起因は custom_state で補完）",   met: false, verified_by: [] }
-      - { step: c, claim: 検証ハーネス（gt_sim_test）が HVD を読んで matcher 判定に使える（ManualDrive 実行対応を含む）,                                              met: false, verified_by: [] }
+      - { step: c, claim: 検証ハーネス（gt_sim_test）が HVD を読んで matcher 判定に使える（ManualDrive 実行対応を含む）,                                              met: true, verified_by: [matcher:manual_aeb_fires, matcher:adas_state_matches] }
     acceptance: >-
       段 a は kAdasSlots 24枠経路でなく VD と同じ AddADASFunctionEx 経路
       （custom_detail 可・状態3値規律共有）で判定する。段 b は上書き注入シナリオでの
       populate 実測。段 c はハーネス側の受入（ManualDrive 走行で frames=0 に
       ならないこと＋HVD 由来 signal が matcher から読めること）。
+
+      **段 a の証拠の内訳（2026-08-05 確定・overclaim防止のため明記）**: 「NAME_OTHER でなく
+      実列挙」という段 a の核心は、KG の matcher（`adas_state_matches` 等）が直接検査する量
+      ではない——matcher は文字列キー（`gt.aeb`/`gt.fcw`）で引いた state_name の一致を見るだけで、
+      その裏の OSI Name 列挙値そのものは見ない。実列挙であることの一次証拠は
+      `GT_esminiLib.cpp` の file-scope `static_assert`（`osi_adas::NAME_AUTOMATIC_EMERGENCY_
+      BRAKING`/`NAME_FORWARD_COLLISION_WARNING` を実 proto 値へピン留め）と
+      `GT_esmini/test/unit/virtualdriver/test_ManualAdasFunctionReport.cpp`（C++ ユニット
+      テスト）である。`verified_by` に載せた matcher は「実列挙のもとで初めて可能になる、
+      関数名キーでの正しい行識別・実HVDバイトからの読み出し」を実証する**補強証拠**であって、
+      列挙値そのものの検査ではない——読者はこの2層を混同しないこと。
+      段 c は`manual_aeb_fires`/`adas_state_matches`という形の異なる2 matcher が、6シナリオ×
+      440フレームにわたり skip でなく PASS/FAIL の判定を返したことで実証する
+      （skip でなく判定が出ること自体が「HVDを読めている」ことの必要条件）。
     realized_by: [vd-func:FUNC-075]
-    verified_by: []
+    verified_by: []                       # 段a/cはladder側のverified_byが担保。要求そのもの
+                                          # にverifiesを張るのは段bが未達のためoverclaim
     related: [req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-027]
-    status: future
+    status: partial
     note: >-
+      **2026-08-05 実測（フェーズA、manualdrive_adas_batch.yaml、run: test_results/mdadas_run3、
+      overall=pass、6/6 シナリオ・全440フレーム）**: 段a・段cは達成——`GT_GetOSIHostVehicleData`
+      経由の in-process 読み出しで6シナリオ全てが frames=0 にならず440フレームずつ完走し、
+      gt.aeb/gt.fcw の2行が正規 Name 列挙で出ていることを static_assert と
+      `test_ManualAdasFunctionReport.cpp` が固定、matcher（manual_aeb_fires/
+      no_intervention_in_window/brake_not_stacked/fcw_leads_intervention/
+      adas_state_matches）が実際にそれを読んで判定を返した（詳細は
+      req-vd-ad:REQ-AD-025 の note を参照——同一バッチの実測）。
+      **段bは未達のまま変わらず**——DriverOverride を populate する箇所がまだ無い
+      （フェーズB）。`signal:manualdrive_adas_states` が state: "●" へ格上げされたのは
+      「面3が観測できるか」という問い（段a/c相当）に yes と答えられるようになったからで
+      あり、段bの未達を隠すものではない——増分は本要求の acceptance_ladder（段b
+      `met: false`）が正直に持つ。
+
       capability_model の「OSI-GT 正当性を①主張として先行要求化」と同型の観測性要求で、
-      signal:manualdrive_adas_states の (a) を正式に塞ぐ宛先。現状の欠落（調査 2026-08-04）:
-      GT_esminiLib の ADAS 報告ディスパッチは dynamic_cast<ControllerVirtualDriver*> 限定で
-      ManualDrive は別分岐に入り一切到達しない／集計行 "gt.virtual_driver" は手動文脈で
-      意味的に誤り（非依存化が要る）／DriverOverride は populate 機構ごと未実装／
-      gt_sim_test は VD テレメトリ必須で ManualDrive 走行は即エラー・HVD(48199) は
-      面3から未読・policy 注入も VirtualDriverController 固定。判定手法は
-      -NoTouchParity の「自己決定論性コントロール→決定フィールド厳密一致」を踏襲する。
+      signal:manualdrive_adas_states の (a) を正式に塞ぐ宛先。
+
+      **以下は 2026-08-04（設計時点）の欠落記録——履歴として残す。フェーズA実装
+      （2026-08-05）でこのうち3点が解消し、1点（DriverOverride）が未解消のまま残った**:
+      ~~GT_esminiLib の ADAS 報告ディスパッチは dynamic_cast<ControllerVirtualDriver*> 限定で
+      ManualDrive は別分岐に入り一切到達しない~~ → **解消**（ManualDrive専用分岐を新設し
+      AddADASFunctionEx へ到達、GT_esminiLib.cpp:1615-1642）。
+      ~~gt_sim_test は VD テレメトリ必須で ManualDrive 走行は即エラー~~ → **解消**
+      （in-process HVD読み出し経路、上の2026-08-05実測で6/6シナリオ完走を確認）。
+      ~~HVD(48199) は面3から未読~~ → **解消**（UDP 48199 経由ではなく in-process
+      `GT_GetOSIHostVehicleData` 経由だが、段cが問う「面3が読めるか」は満たす）。
+      **DriverOverride は populate 機構ごと未実装／集計行 "gt.virtual_driver" は手動文脈で
+      意味的に誤り（非依存化が要る）＝未解消のまま**（段b、フェーズB待ち）。
+      policy 注入は VirtualDriverController 固定という記述も、ADAS config 注入
+      （manualdrive_config、design §9）に限れば解消しているが、VD 一般の policy 注入
+      機構そのものが ManualDrive 対応したわけではない——この要求が問う範囲（ADAS状態の
+      観測性）では影響しない。
+      判定手法は -NoTouchParity の「自己決定論性コントロール→決定フィールド厳密一致」を
+      踏襲する。
 
   - id: REQ-AD-029
     title: ADAS の状態・設定・警報が運転者に提示される（HMI）

@@ -454,4 +454,20 @@ int GT_HostVehicleReporter::GetUDPClientStatus() const
     return (udp_client_ ? udp_client_->GetStatus() : -1);
 }
 
+const char* GT_HostVehicleReporter::GetSerializedHostVehicleData(int* size) const
+{
+    // Guard a null size, matching the header's documented contract.
+    if (size)
+    {
+        *size = static_cast<int>(serialized_data_.size);
+    }
+
+    if (serialized_data_.data.empty())
+    {
+        return nullptr;
+    }
+
+    return serialized_data_.data.data();
+}
+
 } // namespace gt_esmini

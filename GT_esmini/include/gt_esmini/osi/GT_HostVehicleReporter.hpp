@@ -143,6 +143,39 @@ public:
     int GetUDPClientStatus() const;
 
     /**
+     * Pointer into this reporter's OWN serialization buffer (serialized_data_),
+     * for in-process verification harnesses that cannot use the UDP 48199 HVD
+     * stream (req-vd-ad:REQ-AD-028 段c). Mirrors OSIReporter::GetOSIGroundTruth's
+     * pattern: a raw pointer into a long-lived member std::string, with the
+     * length written through the out-param, so no allocation crosses the DLL
+     * boundary.
+     *
+     * Lifetime contract: the returned pointer is valid only until the NEXT
+     * UpdateFromObjectState() call, which overwrites serialized_data_ in place
+     * (Send() does NOT clear it). A caller must copy the bytes out before the
+     * next GT_Step.
+     *
+     * Deliberately does NOT force a re-serialization the way
+     * SE_GetOSIGroundTruth does for GroundTruth. GroundTruth is
+     * frequency-gated (SE_GetOSIGroundTruth must force UpdateOSIGroundTruth()
+     * because the reporter may not have run this frame), but HostVehicleData
+     * has no such gate: GT_Step calls UpdateFromObjectState() + Send() for the
+     * ego unconditionally every frame, so by the time any caller reaches this
+     * accessor the buffer is already current for the frame just stepped.
+     * Forcing another serialization here would be redundant work and would
+     * require re-resolving which Object is "ego" — logic that already lives
+     * in GT_Step and should not be duplicated here.
+     *
+     * @param size Output: number of bytes in the returned buffer. Written as 0
+     *             when nothing has been serialized yet, or left untouched if
+     *             size is null.
+     * @return Pointer to the serialized bytes, or nullptr if nothing has been
+     *         serialized yet (size is written to 0 in that case too, guarded
+     *         against a null size).
+     */
+    const char* GetSerializedHostVehicleData(int* size) const;
+
+    /**
      * Cleanup resources
      */
     void Close();

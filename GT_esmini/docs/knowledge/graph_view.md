@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:31906ff0fbf635b3 -->
+<!-- generated-from: sha256:93bf1490741421b2 -->
 
-ノード 216・辺 227（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 222・辺 241（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -215,6 +215,11 @@ flowchart LR
     n_matcher_steer_not_saturated["steer_not_saturated"]
     n_matcher_no_constraint_kind["no_constraint_kind"]
     n_matcher_overtake_decision_holds["overtake_decision_holds"]
+    n_matcher_manual_aeb_fires["manual_aeb_fires"]
+    n_matcher_no_intervention_in_window["no_intervention_in_window"]
+    n_matcher_brake_not_stacked["brake_not_stacked"]
+    n_matcher_fcw_leads_intervention["fcw_leads_intervention"]
+    n_matcher_adas_state_matches["adas_state_matches"]
   end
   subgraph sg_vd_component["vd-component｜VirtualDriver 実装ユニット（ITrafficPolicy 以外の層）"]
     n_vd_component_route_lane_plan["route-lane-plan"]
@@ -241,6 +246,7 @@ flowchart LR
     n_signal_lane_change_signal_timing["lane_change_signal_timing"]
     n_signal_junction_turn_signal_distance["junction_turn_signal_distance"]
     n_signal_overtake_decision["overtake_decision"]
+    n_signal_manualdrive_adas_states["manualdrive_adas_states"]
   end
   subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
     n_gate_vd_behavior_regression["vd-behavior-regression"]
@@ -484,6 +490,20 @@ flowchart LR
   n_matcher_overtake_decision_holds -->|verifies| n_req_vd_ad_REQ_AD_024
   n_matcher_indicator_leads_lane_change -->|verifies| n_req_vd_ad_REQ_AD_023
   n_req_vd_ad_REQ_AD_024 -->|depends-on| n_req_vd_ad_REQ_AD_017
+  n_req_vd_ad_REQ_AD_025 -->|stimulated-by| n_policy_aeb
+  n_req_vd_ad_REQ_AD_028 -->|stimulated-by| n_policy_aeb
+  n_matcher_manual_aeb_fires -->|observes| n_signal_manualdrive_adas_states
+  n_matcher_no_intervention_in_window -->|observes| n_signal_manualdrive_adas_states
+  n_matcher_brake_not_stacked -->|observes| n_signal_manualdrive_adas_states
+  n_matcher_fcw_leads_intervention -->|observes| n_signal_manualdrive_adas_states
+  n_matcher_adas_state_matches -->|observes| n_signal_manualdrive_adas_states
+  n_matcher_manual_aeb_fires -->|verifies| n_req_vd_ad_REQ_AD_025
+  n_matcher_no_intervention_in_window -->|verifies| n_req_vd_ad_REQ_AD_025
+  n_matcher_brake_not_stacked -->|verifies| n_req_vd_ad_REQ_AD_025
+  n_matcher_fcw_leads_intervention -->|verifies| n_req_vd_ad_REQ_AD_025
+  n_matcher_adas_state_matches -->|verifies| n_req_vd_ad_REQ_AD_025
+  n_matcher_adas_state_matches -->|verifies| n_req_vd_ad_REQ_AD_028
+  n_vd_func_FUNC_075 -->|sustained-by| n_gate_unit_ctest
 ```
 
 ## 辺の一覧（type別）
@@ -608,7 +628,7 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### observes (24)
+### observes (29)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -636,6 +656,11 @@ flowchart LR
 | `matcher:indicator_leads_lane_change` | `signal:lane_change_signal_timing` | vd_metrics.py:1708-1836 の indicator_leads_lane_change 分岐が、frames[i]["lane_change"] の signal_active/armed/direction と frames[i]["indicator"] の left/right を**両方**読む。 片方だけでは判定にならない（lane_change_initiation.md §11-8）: signal_active だけだと 意図が AutoIndicatorPolicy に握り潰されていても真になり、indicator だけだと DetectJunctionTurn の交差点旋回による点灯と区別できない。両ブロックとも欠けていれば skip（「何も評価しないものを pass にしない」規律、route_lane_plan_holds と同型）。 |
 | `matcher:indicator_leads_junction_turn` | `signal:junction_turn_signal_distance` | vd_metrics.py:1838- の indicator_leads_junction_turn 分岐が、frames[i]["junction_turn"] の dir/dist_to_entry_m/on_connector と frames[i]["indicator"] の left/right を**両方**読む。 **on_connector が無いと成立しない**: テレメトリ単体では road id から junction 所属を 判定できず、検証ハーネスは xodr を読めないため、「交差点に進入したフレーム」を 機械判定する手段が他に無い（junction_turn_signal.md §3-4）。 距離は ego.x/y のフレーム間ユークリッド距離の積算で測る（domain_split_holds と同型。 speed×dt の積分より頑健で、バッチ末尾の同一 sim_time 重複フレームにも耐える）。 どちらのブロックも欠けていれば skip（「何も評価しないものを pass にしない」規律）。 |
 | `matcher:overtake_decision_holds` | `signal:overtake_decision` | vd_metrics.py の overtake_decision_holds 分岐が frames[i]["overtake"] を読む。 must で指定されたキー（expect_considered / expect_blocked_reason / expect_phases / forbid_phases / expect_cleared_lead）だけを評価し、**何も指定しない must は skip** （route_lane_plan_holds / indicator_leads_lane_change と同じ「何も評価しないものを pass にしない」規律）。overtake ブロックを持つフレームが窓に1つも無ければ skip＝ 古い DLL の検出。 |
+| `matcher:manual_aeb_fires` | `signal:manualdrive_adas_states` | 窓内でfunctionのstate_nameが一度でもactiveになるかをframe["hvd"]["adas"][function]から判定 |
+| `matcher:no_intervention_in_window` | `signal:manualdrive_adas_states` | 窓内でactiveが一度も無いことに加え、reported かつ not-unavailable（＝正しく STANDBYで見張っていた）であることも要求する（REQ-AD-028のSTANDBY/UNAVAILABLE区別に 判定が依存する、vd_metrics.py:1646-1649のコメント）。 |
+| `matcher:brake_not_stacked` | `signal:manualdrive_adas_states` | active区間のcustom_detail（driver_brake/brake_request/brake_outキー）を読み、max合成かを判定 |
+| `matcher:fcw_leads_intervention` | `signal:manualdrive_adas_states` | warning_function/intervention_functionの2行を読み、最初のactive遷移の時刻差をリードとする |
+| `matcher:adas_state_matches` | `signal:manualdrive_adas_states` | functionのstate_name列が窓内でexpectと一致するか（modeパラメータでall/any切替）を判定する汎用matcher |
 
 ### realizes (47)
 
@@ -696,7 +721,7 @@ flowchart LR
 | `proposal:P5` | `proposal:P40` | ReplayInputSource機構の一本化必須 |
 | `proposal:P1` | `proposal:P23` | 外部制御注入の二重資産回避のため設計共有必須 |
 
-### stimulated-by (10)
+### stimulated-by (12)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -710,6 +735,8 @@ flowchart LR
 | `req-vd-ad:REQ-AD-005` | `scenario-variant:09_crosswalk_pedestrian__p005` | p005（crosswalk_pedestrian_batch.yaml:36-38, policies:[crosswalk]）が横断中歩行者へ発火。 min_obb_separation_above(閾0.3, 歩行者 footprint 0.6x0.5 実寸との分離)＋speed_below で衝突回避を判定。 登録済み scenario-variant を直指し＝face:3 で face-clean（policy:crosswalk 迂回を回避）。 |
 | `req-vd-ad:REQ-AD-006` | `scenario-variant:07_oncoming_yield__p017` | p017（junction_conflict_batch.yaml:31-33, policies:[conflict]）＝Ego 左折が 14m/s 対向直進車を横切る ＝要求 title「対向直進車に譲る」に字句一致。min_obb_separation_above/speed_below で判定。 face:3 scenario-variant を直指し。 |
 | `req-vd-ad:REQ-AD-006` | `scenario-variant:08_unsignalized_junction__p004` | p004_nonpriority_yield（junction_priority_batch.yaml:38-40, policies:[conflict,junction_priority]）＝ 非優先(MINOR)側が優先側に譲り STOP_AT_S で待つ＝要求 rationale「優先権を評価…非優先側は STOP_AT_S」 および realized_by FUNC-029(交差点優先権) に一致（直交交差車で title の「対向直進」とは別ファセット）。 title=p017／rationale=p004 の2ファセットを別辺で明示（要求が両面を包含）。 |
+| `req-vd-ad:REQ-AD-025` | `policy:aeb` | 10_manualdrive_adas/ の5シナリオ（md_aeb_unresponsive / md_aeb_no_conflict / md_aeb_strong_brake_driver / md_aeb_kickdown_suppress / md_fcw_warning_only、 controller: manualdrive）が AdasCoexistenceStack 経由で AebSafety(policy:aeb) を 毎フレーム発火させる（design §2-1、ゼロ改修流用）。実測（test_results/mdadas_run1/ md_aeb_unresponsive/verdict.json）: gt.aeb が t=2.00 で ACTIVE、impact_speed 8.26 m/s まで低減（段a）。段b-eは同バッチの他4シナリオが刺激する。段d（キックダウン抑制）・ 段e（FCWリード）は閾値未校正・実測で design §3-2 の想定と食い違いが判明済み （design doc 訂正・下の verifies 辺の note を参照）。 |
+| `req-vd-ad:REQ-AD-028` | `policy:aeb` | 要求自身の scenario 欄が明記するとおり「REQ-AD-025/026/027 の刺激と同一バッチで 判定面として使う」（専用刺激を持たない横断適用）。段a（正規Name列挙でのState報告）は matcher:adas_state_matches が同じ5シナリオの実行から判定する（下の verifies 辺）。 段b（DriverOverride）はフェーズAでは populate 未実装のため未結線（実体の無い辺は張らない）。 段c（ハーネスがHVDを読めること）は、このバッチが frames=0 エラー無く440フレームずつ 実行できたこと自体で実証済み（test_results/mdadas_run1/*/telemetry.jsonl 実測）。 |
 
 ### supersedes (1)
 
@@ -717,7 +744,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (19)
+### sustained-by (20)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -740,6 +767,7 @@ flowchart LR
 | `matcher:no_constraint_kind` | `gate:anticipation-driving-regression` | cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。 |
 | `feature:F6` | `gate:integration-ctest` | F6 環境ヘッドライト 5本＋AutoLight/LightStateAction 6本の per-test アサーション（run_gt_tests.ps1 -IncludeIntegration、opt-in＝既定ゲート外）。 「ビューワー目視未」は残る（アサーションは灯火状態変化のみ）。 |
 | `feature:F7` | `gate:unit-ctest` | OverrideManagerTest 10ケースが傘バイナリ常設（片方向ラッチ仕様の固定＋RESUMEエッジ復帰）。フルサイクルsmoke(scripts/vd_override_smoke.py)はCI未統合＝手動のため計上しない |
+| `vd-func:FUNC-075` | `gate:unit-ctest` | test_ManualAdasFunctionReport.cpp / test_KickdownDetector.cpp / test_PedalArbitrator.cpp / test_ManualDriveAdasConfig.cpp / test_AdasCoexistenceStack.cpp 他が傘バイナリ常設 （69新規ケース、661/661緑の内数、2026-08-05実測）。matcher実装自体の赤実証（Python側）は GT_esmini/scripts/verification/test_manualdrive_matchers.py（35テスト）が別途担うが、 これは gt_sim_test 検証ハーネス側であり ctest 傘バイナリの外＝この辺には含めない。 |
 
 ### upstream-candidate (6)
 
@@ -752,7 +780,7 @@ flowchart LR
 | `fork-patch:10` | `odr-upstream-pr:PR-4` |  |
 | `fork-patch:17` | `odr-upstream-pr:PR-5` |  |
 
-### verifies (18)
+### verifies (24)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -800,6 +828,12 @@ min_distance_m の 29.5 は法定 30.0 に対する**フレーム量子化の余
 | `matcher:overtake_decision_holds` | `req-vd-ad:REQ-AD-023` | overtake_batch.yaml の4本で検証。段 a は expect_considered、段 b/c は expect_phases （signal_out → out → pass → signal_back → back → idle の部分列）と expect_cleared_lead、 段 e は同じ判定を対向車線シナリオで。**段 d（指示器）はこの matcher では判定しない** — matcher:indicator_leads_lane_change の担当。段 f/g は未達で検証対象外。 どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。 |
 | `matcher:overtake_decision_holds` | `req-vd-ad:REQ-AD-024` | 段 b は overtake_declined_before_route_branch で **considered=true かつ blocked_reason=route_budget かつ phase が終始 idle** の3点同時成立を判定する （forbid_phases で「一度も合図すらしていない」ことも押さえる）。 considered を落とすと「そもそも検討していないから緑」＝偽 PASS と区別できない。 段 c は overtake_aborted_for_route_branch で **cleared_lead=false（全フレーム）** と blocked_reason=route_budget を判定する。 この2本は完遂側 overtake_slow_lead_on_two_lane_road と**同じフィールドの逆極性**を 主張しており、それによって検知器の両極性が実証されている。 |
 | `matcher:indicator_leads_lane_change` | `req-vd-ad:REQ-AD-023` | **段 d のみ**（往路・復路の両方で進路変更の前から予告する）。追い越しは車線変更が2回なので、 同 matcher を **window で往路・復路に分けて2エントリ**呼ぶ — matcher は窓内の最初の signal_active / armed しか拾わないため（vd_metrics.py の next(...)）。 matcher 自体は変更していない。direction と点灯側の一致検査が入っているので、 復路で左右が反転していることも同時に検査される。 実測 2026-08-04: 往路 t_sig=0.05 / t_arm=3.00 = 2.95 s、復路 t_sig=10.25 / t_arm=13.25 = 3.00 s。 min_lead_s: 2.9 は法定 3.0 s からフレーム量子化（dt=0.05）ぶんを引いた値で主張の緩和ではない。 |
+| `matcher:manual_aeb_fires` | `req-vd-ad:REQ-AD-025` | 段a（無反応ドライバ＋衝突コースでAEB介入）の主判定。md_aeb_kickdown_suppressでは キックダウン前区間の前提（段d抑制の対照）としても使う。実測: t=2.00でACTIVE （test_results/mdadas_run1/md_aeb_unresponsive/verdict.json）。 |
+| `matcher:no_intervention_in_window` | `req-vd-ad:REQ-AD-025` | 段b（衝突コース不在で誤介入しない）の主判定。md_aeb_kickdown_suppressでは段d （抑制後の窓）、md_fcw_warning_onlyでは段e（警報単独エピソードでAEB非介入）にも使う。 |
+| `matcher:brake_not_stacked` | `req-vd-ad:REQ-AD-025` | 段c（人間がAEB要求以上を踏んでいるとき上乗せしない＝max合成）の主判定。この E2E 資産は threshold未校正で needs-review（test_results/mdadas_run1/batch_summary.md）＝緑担保に 留まらず未計測。赤実証は matcher:brake_not_stacked の実装を直接叩く Python ユニット テストが担う（検証計画§4-1の unit-level 許容、verification_plan.md §4-2で訂正済み）。 |
+| `matcher:fcw_leads_intervention` | `req-vd-ad:REQ-AD-025` | 段e（警報が介入に先行しリード≥0.8s）の判定。実測ではcut-inにつきリード0.000sでfail （gt.fcw/gt.aebが同一フレームt=1.75でACTIVE、test_results/mdadas_run1/ md_aeb_unresponsive/verdict.json）。design §3-2訂正・検証計画の対象。 **この辺は「matcherが正しく判定を出す」ことを主張するのであって「要求段eが 現状達成されている」ことは主張しない**（現に fail）。 |
+| `matcher:adas_state_matches` | `req-vd-ad:REQ-AD-025` | 段b（config OFFでなくSTANDBYで見張っていたことの確認、負系の意味を担保）と 段e（md_fcw_warning_only、gt.fcwが少なくとも一度activeになること）の補助判定。 |
+| `matcher:adas_state_matches` | `req-vd-ad:REQ-AD-028` | コード自身のコメント（vd_metrics.py:1853-1854）が「req-vd-ad:REQ-AD-026 step c / REQ-AD-028 step a」の主判定と明記。正規Name列挙のstate_nameが期待どおりに出ることの 確認そのものが観測性要求（3値規律のUNAVAILABLE/STANDBY/ACTIVE区別）の判定にあたる。 |
 
 ## OpenX概念 逆引き
 

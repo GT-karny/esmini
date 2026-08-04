@@ -104,4 +104,87 @@ std::vector<AdasFunctionState> BuildAdasFunctionReport(const VdPolicyEnableFlags
     return report;
 }
 
+// ============================================================================
+// ManualDrive ADAS coexistence report (req-vd-ad:REQ-AD-025 REQ-AD-028,
+// vd-func:FUNC-075, phase A). See AdasFunctionReport.hpp for the full design
+// rationale (no aggregate row, decision-boolean input, domain-ownership gate).
+// ============================================================================
+std::vector<AdasFunctionState> BuildManualAdasFunctionReport(const ManualAdasEnableFlags& flags,
+                                                              bool                         owns_longitudinal_domain,
+                                                              const ManualAdasDecision&    decision,
+                                                              const PolicyDetail&          detail)
+{
+    std::vector<AdasFunctionState> report;
+    report.reserve(2);
+
+    // design §2-3 (slug md-split-no-double-equipment): not owning the
+    // longitudinal domain collapses to the same UNAVAILABLE verdict as a
+    // config-disabled function -- both AEB and FCW are longitudinal-domain
+    // functions in phase A, so the same ownership flag gates both rows.
+    const bool domain_gate = owns_longitudinal_domain;
+
+    // AEB (design §8-2: NAME_AUTOMATIC_EMERGENCY_BRAKING). State follows the
+    // 3-value discipline: UNAVAILABLE (off / not owning) / STANDBY (armed,
+    // quiet) / ACTIVE (intervening this frame).
+    {
+        AdasFunctionState f;
+        f.name        = osi_adas::NAME_AUTOMATIC_EMERGENCY_BRAKING;
+        f.custom_name = "gt.aeb";
+
+        if (!flags.aeb || !domain_gate)
+            f.state = osi_adas::STATE_UNAVAILABLE;
+        else if (decision.aeb_intervening)
+            f.state = osi_adas::STATE_ACTIVE;
+        else
+            f.state = osi_adas::STATE_STANDBY;
+
+        // design §8-4: gt.aeb.* diagnostics (ttc_s / a_req_mps2 / triggered /
+        // ..., plus gt.aeb.warning -- the FCW flag; see below) all route here
+        // by key prefix, regardless of this row's own state -- a consumer
+        // reading a STANDBY or UNAVAILABLE AEB row still gets the numbers
+        // that produced the verdict (same convention as BuildAdasFunctionReport
+        // above).
+        for (const auto& kv : detail)
+            if (StartsWith(kv.first, "gt.aeb.")) f.detail.push_back(kv);
+
+        report.push_back(std::move(f));
+    }
+
+    // FCW (design §8-2: NAME_FORWARD_COLLISION_WARNING). Built from the same
+    // AebSafety output as AEB, one threshold earlier (design §3-2): a frame
+    // can have fcw_warning=true while aeb_intervening stays false (warning
+    // precedes intervention, REQ-AD-025 step e), so this row's state is
+    // computed independently of the AEB row's above, from decision.fcw_warning.
+    {
+        AdasFunctionState f;
+        f.name        = osi_adas::NAME_FORWARD_COLLISION_WARNING;
+        f.custom_name = "gt.fcw";
+
+        if (!flags.fcw || !domain_gate)
+            f.state = osi_adas::STATE_UNAVAILABLE;
+        else if (decision.fcw_warning)
+            f.state = osi_adas::STATE_ACTIVE;
+        else
+            f.state = osi_adas::STATE_STANDBY;
+
+        // No "gt.fcw." keys exist yet in phase A (design §8-4's table has no
+        // FCW-specific quantity; gt.aeb.warning -- the FCW flag itself --
+        // routes to the AEB row above by key prefix, intentionally, per the
+        // design table). Routing "gt.fcw." here anyway (rather than omitting
+        // it) keeps this row symmetric with AEB's and future-proofs it for a
+        // later phase that adds one, at zero cost today since no caller emits
+        // such a key.
+        for (const auto& kv : detail)
+            if (StartsWith(kv.first, "gt.fcw.")) f.detail.push_back(kv);
+
+        report.push_back(std::move(f));
+    }
+
+    // No aggregate row here -- see BuildManualAdasFunctionReport's doc comment
+    // in AdasFunctionReport.hpp for why (unlike BuildAdasFunctionReport above,
+    // which does add one).
+
+    return report;
+}
+
 }  // namespace gt_esmini

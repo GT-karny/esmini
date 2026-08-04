@@ -172,6 +172,43 @@ GT_ESMINI_API void GT_SetExternalLightState(int vehicleId, int lightType, int mo
      */
     GT_ESMINI_API int GT_SetDriveMode(const char* mode);
 
+    /**
+     * Retrieve this frame's serialized OSI HostVehicleData for a vehicle, in-process.
+     *
+     * Mirrors SE_GetOSIGroundTruth's in-process access pattern (a raw pointer into
+     * a buffer owned by the DLL, valid until the next GT_Step) but for
+     * HostVehicleData rather than GroundTruth. Exists so verification harnesses
+     * that run GT_esminiLib.dll in-process (gt_lib.py) can read HVD without the
+     * UDP 48199 transport, which does not fit an in-process harness
+     * (req-vd-ad:REQ-AD-028 段c; design doc manualdrive_adas_design.md §8-5).
+     *
+     * Unlike SE_GetOSIGroundTruth, this does NOT force a re-serialization:
+     * GT_Step already calls UpdateFromObjectState() + Send() for the ego
+     * unconditionally every frame (HVD is not frequency-gated the way
+     * GroundTruth is), so the buffer is already current by the time any caller
+     * can reach this function.
+     *
+     * IMPORTANT limitation: GT_HostVehicleReporter holds exactly ONE
+     * serialization buffer — whichever vehicle GT_Step most recently resolved
+     * as ego/target, not one buffer per vehicle_id. A vehicle_id that does not
+     * match that resolved vehicle is REFUSED (returns nullptr, *size = 0)
+     * rather than silently handed a different vehicle's bytes mislabeled as
+     * its own — a verification harness that reports the wrong vehicle's HVD as
+     * "measured" is a worse failure than one that visibly gets nothing.
+     *
+     * @param vehicle_id Vehicle (object) id, or -1 for the first/ego vehicle
+     *                    (same resolution rule as GT_SetHostVehicleInputs).
+     * @param size       Output: number of bytes in the returned buffer. Written
+     *                   as 0 on any failure path (null player, uninitialized
+     *                   HVD reporter, unresolved/non-ego vehicle_id, nothing
+     *                   serialized yet, or _USE_OSI undefined); left untouched
+     *                   if size itself is null.
+     * @return Pointer to the serialized HostVehicleData bytes (valid only
+     *         until the next GT_Step — copy before stepping again), or
+     *         nullptr if unavailable for any of the reasons above.
+     */
+    GT_ESMINI_API const void* GT_GetOSIHostVehicleData(int vehicle_id, int* size);
+
     // =====================================
     // Traffic Signal State API
     // =====================================

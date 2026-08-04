@@ -17,6 +17,16 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         return false;
     }
 
+    // Record the directory this config file lives in so an input source
+    // (ScriptedInputSource) can resolve a config-relative path itself,
+    // without ControllerManualDrive having to thread the config path through
+    // a second channel. Not a JSON key -- filepath is the argument this
+    // function was called with, not something read from the file.
+    {
+        const size_t slash = filepath.find_last_of("/\\");
+        config_dir = (slash == std::string::npos) ? std::string() : filepath.substr(0, slash);
+    }
+
     std::string line;
     while (std::getline(file, line))
     {
@@ -143,6 +153,29 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_string("transport_type", input_network.transport_type);
         parse_int("port", input_network.port);
         parse_string("level", input_network.level);
+
+        // Input: scripted profile playback (req-vd-ad:REQ-AD-025..031,
+        // vd-func:FUNC-075). On-disk key is "input_scripted_profile_file",
+        // not the bare "profile_file" a nested-object reading of
+        // ManualDriveConfig.hpp's input_scripted block might suggest -- see
+        // the PARSER NOTE on the `adas` member below for why every key in
+        // this file must be flat and globally unique regardless of JSON
+        // nesting.
+        parse_string("input_scripted_profile_file", input_scripted.profile_file);
+
+        // ManualDrive ADAS -- phase A only. req-vd-ad:REQ-AD-025,
+        // vd-func:FUNC-075. See ManualDriveConfig.hpp's `adas` member for the
+        // PARSER NOTE explaining why every one of these on-disk keys is flat
+        // and prefixed ("adas_aeb_enabled", not "enabled") rather than
+        // matching the human-readable nested JSON shape.
+        parse_bool("adas_aeb_enabled", adas.aeb.enabled);
+        parse_bool("adas_aeb_kickdown_suppress_enabled", adas.aeb.kickdown_suppress_enabled);
+        parse_double("adas_aeb_warning_ttc_threshold_s", adas.aeb.warning_ttc_threshold_s);
+        parse_double("adas_brake_full_decel_mps2", adas.brake_control.full_brake_decel_mps2);
+        parse_double("adas_brake_kp", adas.brake_control.brake_kp);
+        parse_double("adas_brake_ki", adas.brake_control.brake_ki);
+        parse_double("adas_kickdown_threshold", adas.kickdown_threshold);
+        parse_double("adas_kickdown_release_threshold", adas.kickdown_release_threshold);
 
         // Physics: RealVehicle
         parse_string("vehicle_params_file", real_vehicle.vehicle_params_file);

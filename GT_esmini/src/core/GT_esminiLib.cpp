@@ -165,6 +165,41 @@ static_assert(AdasSlotTableMatchesOsi(),
               "OSI Name enum drift: kAdasSlots no longer matches osi_hostvehicledata.proto");
 }  // namespace
 
+// ============ Pin the ManualDrive-ADAS osi_adas::Name additions to the real OSI enum ====
+// req-vd-ad:REQ-AD-025 REQ-AD-028, vd-func:FUNC-075 (design doc
+// manualdrive_adas_design.md §8-2) added 4 mirrored `Name` values to
+// gt_esmini::osi_adas (AdasFunctionReport.hpp) for the ManualDrive ADAS report
+// path (FCW/LDW/LKA/MSL). That header stays OSI-free on purpose (`control`
+// must not depend on `osi`, GT_esmini/CLAUDE.md §2), so, same as
+// AdasSlotTableMatchesOsi() above, this is the one place that sees both and
+// can verify the mirror: if OSI renumbers the enum, the build breaks instead
+// of the stream being silently mislabeled.
+//
+// NOTE: the pre-existing pins for NAME_OTHER / NAME_AUTOMATIC_EMERGENCY_BRAKING
+// (AEB) / NAME_ADAPTIVE_CRUISE_CONTROL (ACC) / NAME_URBAN_DRIVING and the 3
+// State values live further down, INSIDE the VirtualDriver controller-dispatch
+// branch — that region belongs to another agent and is intentionally left
+// untouched here. These 4 are pinned at FILE SCOPE instead, specifically so
+// they are checked regardless of which dispatch branch runs (they back the
+// ManualDrive report path, §8-1/§8-2, not the VirtualDriver one that owns the
+// branch further down).
+static_assert(
+    gt_esmini::osi_adas::NAME_FORWARD_COLLISION_WARNING ==
+        static_cast<int>(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_FORWARD_COLLISION_WARNING),
+    "OSI Name enum drift: NAME_FORWARD_COLLISION_WARNING");
+static_assert(
+    gt_esmini::osi_adas::NAME_LANE_DEPARTURE_WARNING ==
+        static_cast<int>(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_LANE_DEPARTURE_WARNING),
+    "OSI Name enum drift: NAME_LANE_DEPARTURE_WARNING");
+static_assert(
+    gt_esmini::osi_adas::NAME_LANE_KEEPING_ASSIST ==
+        static_cast<int>(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_LANE_KEEPING_ASSIST),
+    "OSI Name enum drift: NAME_LANE_KEEPING_ASSIST");
+static_assert(
+    gt_esmini::osi_adas::NAME_SPEED_LIMIT_CONTROL ==
+        static_cast<int>(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_SPEED_LIMIT_CONTROL),
+    "OSI Name enum drift: NAME_SPEED_LIMIT_CONTROL");
+
 // File-scope HVD estimator for non-GT-controller vehicles
 static gt_esmini::HVDEstimator s_hvdEstimator;
 
@@ -1580,6 +1615,30 @@ GT_ESMINI_API void GT_Step(double dt)
                     else if (auto* manualDrive = dynamic_cast<gt_esmini::ControllerManualDrive*>(ctrl))
                     {
                         pushControllerState(manualDrive);
+
+                        // req-vd-ad:REQ-AD-025/028, vd-func:FUNC-075 (design
+                        // manualdrive_adas_design.md §8-1/§12) -- same
+                        // AddADASFunctionEx path the VirtualDriver branch
+                        // below uses, NOT the fixed 24-slot GetADASStates()
+                        // path pushControllerState() just used above:
+                        // ControllerManualDrive::GetADASStates() deliberately
+                        // always returns empty (see its own header comment),
+                        // so the `adasStates.size() >= kAdasFunctionCount`
+                        // guard inside pushControllerState() never fires for
+                        // ManualDrive and the 24-row block above contributes
+                        // nothing here -- this loop is ManualDrive's ONLY
+                        // source of ADAS rows. The gt.aeb/gt.fcw NAME values
+                        // this reads (osi_adas::NAME_AUTOMATIC_EMERGENCY_
+                        // BRAKING / NAME_FORWARD_COLLISION_WARNING) are
+                        // pinned against the real OSI enum by the file-scope
+                        // static_asserts above (another agent's region, left
+                        // untouched here); this branch does not need its own.
+                        std::vector<gt_esmini::AdasFunctionState> manualAdasFunctions;
+                        manualDrive->GetADASFunctions(manualAdasFunctions);
+                        for (const auto& f : manualAdasFunctions)
+                        {
+                            hvReporter.AddADASFunctionEx(vehicleId, f.name, f.custom_name, f.state, f.detail);
+                        }
                     }
                     else if (auto* virtualDriver = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl))
                     {
@@ -2012,6 +2071,93 @@ GT_ESMINI_API int GT_SetDriveMode(const char* mode)
 {
     if (mode == nullptr) return -1;
     return s_hvdEstimator.SetActiveMode(std::string(mode)) ? 0 : -1;
+}
+
+// In-process OSI HostVehicleData access (req-vd-ad:REQ-AD-028 段c, vd-func:FUNC-075).
+// See the doc-comment on the declaration (GT_esminiLib.hpp) for the full
+// contract. Short version: GT_Step already keeps GT_HostVehicleReporter's
+// buffer current every frame (HVD is not frequency-gated like GroundTruth),
+// so this does not force a re-serialization -- it only decides whether the
+// caller is allowed to see the buffer that is already there.
+GT_ESMINI_API const void* GT_GetOSIHostVehicleData(int vehicle_id, int* size)
+{
+#ifdef _USE_OSI
+    if (size)
+    {
+        *size = 0;
+    }
+
+    if (!player || !player->scenarioEngine)
+    {
+        return nullptr;
+    }
+
+    auto& hvReporter = gt_esmini::GT_HostVehicleReporter::Instance();
+    if (!hvReporter.IsInitialized())
+    {
+        return nullptr;
+    }
+
+    const auto& entities = player->scenarioEngine->entities_.object_;
+
+    // Resolve vehicle_id < 0 to the ego, same idiom as GT_SetHostVehicleInputs.
+    int actual_id = vehicle_id;
+    if (actual_id < 0 && !entities.empty())
+    {
+        actual_id = entities[0]->id_;
+    }
+    if (actual_id < 0)
+    {
+        return nullptr;
+    }
+
+    // GT_HostVehicleReporter holds exactly ONE serialization buffer: whichever
+    // vehicle GT_Step most recently resolved as ego/target (GetTargetVehicle()
+    // name match, else entities[0] -- the same resolution GT_Step performs
+    // right before calling UpdateFromObjectState(), see the HVD block near the
+    // top of GT_Step). Recompute that same resolution here and refuse the
+    // request if it does not match actual_id: silently handing back a
+    // DIFFERENT vehicle's bytes would let a caller believe it measured the
+    // vehicle it asked for when it did not. This repo has a documented history
+    // of fabricated-measurement / silent-instrument failures; getting nothing
+    // back is a visible, honest failure, getting the wrong vehicle's data back
+    // is not.
+    scenarioengine::Object* egoObj    = nullptr;
+    const auto&             targetName = hvReporter.GetTargetVehicle();
+    if (!targetName.empty())
+    {
+        for (auto* obj : entities)
+        {
+            if (obj && obj->name_ == targetName)
+            {
+                egoObj = obj;
+                break;
+            }
+        }
+        if (!egoObj)
+        {
+            egoObj = entities.empty() ? nullptr : entities[0];
+        }
+    }
+    else
+    {
+        egoObj = entities.empty() ? nullptr : entities[0];
+    }
+
+    if (!egoObj || egoObj->id_ != actual_id)
+    {
+        return nullptr;
+    }
+
+    return hvReporter.GetSerializedHostVehicleData(size);
+#else
+    if (size)
+    {
+        *size = 0;
+    }
+    (void)vehicle_id;
+    return nullptr;
+#endif  // _USE_OSI
 }
 
 // GT-flavored variant of SE_OpenOSISocket (auto-enables per-frame OSI frequency);

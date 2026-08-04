@@ -1,0 +1,45 @@
+scenario: md_aeb_strong_brake_driver
+category: 10_manualdrive_adas
+# REQ-AD-025 step c (safety, positive), slug md-aeb-brake-not-stacked: a ManualDrive
+# human already braking at/above AEB's own request (strong_brake_at profile: full
+# brake=1.0 from t=1.60s) must not get an ADDITIONAL AEB contribution stacked on top
+# of their own input. Geometry is 07_aeb/cutin_hard_brake.xosc's composite cut-in +
+# hard-brake conflict (same as md_aeb_unresponsive.xosc), reused unmodified.
+#
+# RETUNED WINDOW 2026-08-05: mdadas_run1 (2026-08-04) measured 'gt.aeb' never ACTIVE
+# over the reported frames -- SKIP, "nothing to check for stacking" -- because the
+# original window (after: 3.3) started AFTER this geometry's real AEB-active episode
+# (measured t=1.75-2.85, contact by ~t=2.9) had already ended. The window below is
+# retimed to sit inside that measured episode; see profiles/strong_brake_at.json and
+# md_aeb_strong_brake_driver.md for the matching profile retune and full derivation.
+# min_lead_s/tolerance/threshold VALUES are unchanged -- only geometry/timing moved,
+# per instruction not to tune matcher thresholds to make a scenario pass.
+#
+# brake_not_stacked: per the verification plan (§4-2), an E2E red-demonstration for
+# this matcher is hard to construct deliberately (you would need to break the
+# max-composition into a sum on purpose); the plan explicitly assigns this matcher's
+# red-proof to a C++ unit test on the composition function and treats this E2E asset
+# as green-coverage only, not the red-demonstration itself. This is now doubly true
+# for THIS geometry specifically: mdadas_run1 shows gt.aeb.brake_request already
+# saturates near 1.0 the instant its candidate is admitted (a_req=11.46 vs.
+# adas_brake_full_decel_mps2=8.0's saturation point), so the driver's brake level is
+# also pinned at 1.0 rather than some intermediate value strictly below AEB's own
+# ask -- there is no headroom below the 1.0 pedal ceiling on this violent geometry to
+# distinguish "output correctly clamped at max(human, aeb)=1.0" from "output would
+# have summed past 1.0 but got clamped there anyway". See md_aeb_strong_brake_driver.md
+# for the full reasoning; this is reported as a genuine finding, not something this
+# asset alone can resolve without moving to a gentler (e.g. md_aeb_stationary_lead-style)
+# geometry where a_req stays sub-saturation, which was judged out of scope for this
+# retune pass (coordinator's request was to retime this asset on its existing
+# geometry, not redesign it).
+#
+# tolerance: 0.05 (pedal fraction, 0-1 scale) remains a GUESS -- no measured noise
+# floor for the brake-composition path exists yet. Unchanged from authoring.
+must:
+  - event: brake_not_stacked
+    function: gt.aeb
+    tolerance: 0.05              # GUESS, uncalibrated -- unchanged, see rationale above
+    after: { sim_time: 1.65 }    # after the driver's brake ramp completes (was 3.3, retuned -- see header)
+    before: { sim_time: 3.0 }    # measured AEB-active episode ends ~2.85-2.9 (contact); small margin added
+    min_frames: 1
+    reason: "運転者が既にAEB要求以上のブレーキを踏んでいる区間で、実効ブレーキが人間値のmax合成であり上乗せされないこと(md-aeb-brake-not-stacked, REQ-AD-025段c)"

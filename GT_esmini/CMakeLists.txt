@@ -147,11 +147,15 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/EngineModel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/AutoTransmission.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/HVDStateApplier.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/KickdownDetector.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/PedalArbitrator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveCoordinator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/UdpTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/TcpTransport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/NetworkInputBridge.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/NetworkPhysicsBridge.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/NetworkPhysicsBridge.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ScriptedInputSource.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/AdasCoexistenceStack.cpp)
 
 set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/AutoLightController.hpp
@@ -220,11 +224,15 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/AebSafety.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/virtualdriver/policies/SignalJunctionResolver.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/HVDStateApplier.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/KickdownDetector.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/PedalArbitrator.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/UdpTransport.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/TcpTransport.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkInputBridge.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ScriptedInputSource.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/AdasCoexistenceStack.hpp)
 
 # Embedded Python controller sources (conditional on GT_ENABLE_EMBEDDED_PYTHON)
 if(GT_ENABLE_EMBEDDED_PYTHON)

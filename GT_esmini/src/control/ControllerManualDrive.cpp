@@ -10,6 +10,7 @@
 #include "gt_esmini/control/manualdrive/NetworkInputBridge.hpp"
 #include "gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp"
 #include "gt_esmini/control/manualdrive/HeadlessFfbInput.hpp"
+#include "gt_esmini/control/manualdrive/ScriptedInputSource.hpp"
 #ifdef GT_ENABLE_SDL2
 #include "gt_esmini/control/manualdrive/SDL2WheelInput.hpp"
 #include "gt_esmini/control/manualdrive/SDL2KeyboardInput.hpp"
@@ -82,6 +83,15 @@ ControllerManualDrive::ControllerManualDrive(InitArgs* args)
         // the real device-holder FFB path headlessly, with no G29 plugged in.
         input_source_ = new HeadlessFfbInput();
     }
+    else if (config_.input_type == "scripted")
+    {
+        // req-vd-ad:REQ-AD-025..031, vd-func:FUNC-075 -- deterministic
+        // profile-file replay for the ManualDrive ADAS batch (design
+        // manualdrive_adas_verification_plan.md §7-4/§3-3). See
+        // ScriptedInputSource.hpp for the profile format and self-determinism
+        // rationale (no socket, replays against SIMULATION time).
+        input_source_ = new ScriptedInputSource();
+    }
     else
     {
         input_source_ = new StubInputSource();
@@ -108,6 +118,26 @@ ControllerManualDrive::ControllerManualDrive(InitArgs* args)
 
     // Configure override manager
     override_mgr_.Configure(config_);
+
+    // req-vd-ad:REQ-AD-025/028, vd-func:FUNC-075 (design §2-1/§9/§10, phase
+    // A) -- build the AEB/FCW coexistence stack from config_.adas, now that
+    // config_ has actually been loaded above (constructed here, not as a
+    // default member initializer -- see ControllerManualDrive.hpp's comment
+    // on adas_stack_ for why). Phase A's config skeleton (design §9) does not
+    // expose warning_min_a_req_mps2 or the intervention-stage AebSafetyConfig
+    // itself as separate keys (manualdrive_adas_design.md §3-2: "ttc_threshold
+    // 等はAebSafetyConfigを共有"), so ManualAdasStackConfig::aeb and
+    // ::warning_min_a_req_mps2 are left at their compiled-in defaults.
+    ManualAdasStackConfig adas_cfg;
+    adas_cfg.aeb_enabled                   = config_.adas.aeb.enabled;
+    adas_cfg.kickdown_suppress_enabled     = config_.adas.aeb.kickdown_suppress_enabled;
+    adas_cfg.warning_ttc_threshold_s       = config_.adas.aeb.warning_ttc_threshold_s;
+    adas_cfg.arbitrator.full_brake_decel_mps2 = config_.adas.brake_control.full_brake_decel_mps2;
+    adas_cfg.arbitrator.brake_kp           = config_.adas.brake_control.brake_kp;
+    adas_cfg.arbitrator.brake_ki           = config_.adas.brake_control.brake_ki;
+    adas_cfg.kickdown.engage_threshold     = config_.adas.kickdown_threshold;
+    adas_cfg.kickdown.release_threshold    = config_.adas.kickdown_release_threshold;
+    adas_stack_ = std::make_unique<AdasCoexistenceStack>(adas_cfg);
 
     // Create coordinator
     coordinator_ = new ManualDriveCoordinator();
@@ -385,6 +415,22 @@ int ControllerManualDrive::BuildLightMaskFromExtension() const
         is_on(VehicleLightType::FOG_LIGHTS_FRONT) ||
         is_on(VehicleLightType::FOG_LIGHTS_REAR))  mask |= 16;
     return mask;
+}
+
+void ControllerManualDrive::GetADASFunctions(std::vector<AdasFunctionState>& functions) const
+{
+    // Config-derived enable flags (design §8-1, mirrors
+    // ControllerVirtualDriver::GetADASFunctions' VdPolicyEnableFlags split
+    // between "configured on" and "this frame's decision"). FCW has no
+    // separate config key in phase A: it is AebSafety's own warning
+    // pre-stage, built from the SAME config_.adas.aeb.enabled flag
+    // (AdasFunctionReport.hpp's ManualAdasEnableFlags doc comment).
+    ManualAdasEnableFlags flags;
+    flags.aeb = config_.adas.aeb.enabled;
+    flags.fcw = config_.adas.aeb.enabled;
+
+    functions = BuildManualAdasFunctionReport(
+        flags, adas_last_owns_longitudinal_, adas_last_result_.decision, adas_last_result_.detail);
 }
 
 void ControllerManualDrive::GetPowertrainForOSI(double& rpm, double& torque) const

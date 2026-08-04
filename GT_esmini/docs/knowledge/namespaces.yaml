@@ -267,14 +267,20 @@ namespaces:
     title: 検証matcher（vd_metrics event語彙）
     entity_type: matcher
     face: "3"
-    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn|overtake_decision_holds)"
+    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn|overtake_decision_holds|manual_aeb_fires|no_intervention_in_window|brake_not_stacked|fcw_leads_intervention|adas_state_matches)"
     source_of_truth: GT_esmini/web/backend/services/vd_metrics.py
     status: active
-    count: 19
+    count: 24
     notes: >-
       min_separation_above（中心間距離）は 2026-07-24 に実装ごと削除（DEPRECATED 確定
       2026-07-21、min_obb_separation_above の厳密な劣位版・参照資産0件。根拠は graph.yaml の
-      matcher 節 DEPRECATED note）。
+      matcher 節 DEPRECATED note）。manual_aeb_fires/no_intervention_in_window/
+      brake_not_stacked/fcw_leads_intervention/adas_state_matches は
+      req-vd-ad:REQ-AD-025 フェーズA（手動運転中ADAS・AEB列）で新設
+      （2026-08-04、manualdrive_adas_verification_plan.md §4）。
+      既知の drift（本作業では未修正、別途報告）: id_pattern に domain_split_holds /
+      vd_control_relinquished が未収載（コードには if kind== 分岐が存在）で、
+      count もその2件を含まない現状の集計慣行のまま。
 
   - slug: openx
     title: ASAM OpenX Ontology 概念（コミット済みスナップショット）

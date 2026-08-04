@@ -29,6 +29,7 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_VirtualDriverTelemetryJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_PolicyDetail.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_AdasFunctionReport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_ManualAdasFunctionReport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_ControllerVirtualDriverActivation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrSideModel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrForkPatches.cpp
@@ -46,6 +47,11 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_OverrideManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_FfbTargetServo.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_EngineModel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_KickdownDetector.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_PedalArbitrator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_ScriptedInputSource.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_ManualDriveAdasConfig.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_AdasCoexistenceStack.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)

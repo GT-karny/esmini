@@ -8,9 +8,18 @@ namespace gt_esmini
 struct ManualDriveConfig
 {
     // Top-level type selection
-    std::string input_type   = "sdl2_wheel";     // "sdl2_wheel", "network", "stub"
+    std::string input_type   = "sdl2_wheel";     // "sdl2_wheel", "network", "stub", "headless_ffb", "scripted"
     std::string physics_type = "real_vehicle";    // "real_vehicle", "network"
     bool        ffb_enabled  = true;
+
+    // Populated by LoadFromFile() itself: the directory containing the file
+    // that was loaded (not a JSON key). Lets an input source resolve a
+    // config-relative path (e.g. input_scripted.profile_file below) without
+    // ControllerManualDrive having to thread the config path through a second
+    // channel -- LoadFromFile already receives the full path. Empty if
+    // LoadFromFile was never called (or was called with a bare filename with
+    // no directory component).
+    std::string config_dir;
 
     // Input: SDL2 wheel
     struct
@@ -69,6 +78,27 @@ struct ManualDriveConfig
         int         port           = 9100;
         std::string level          = "pedal_steer";  // "pedal_steer", "motion_request"
     } input_network;
+
+    // Input: scripted profile playback (req-vd-ad:REQ-AD-025..031, vd-func:
+    // FUNC-075; manualdrive_adas_verification_plan.md §7-4). Deterministic,
+    // piecewise-linear replay of a recorded input profile against SIMULATION
+    // time -- see ScriptedInputSource.hpp for the profile file schema and
+    // interpolation rules. No socket: self-determinism (identical replay
+    // every run) is the property the whole ManualDrive-ADAS batch judgment
+    // rests on (verification plan §7-5), and a socket cannot give that
+    // guarantee the way a file replayed against sim-time dt can.
+    struct
+    {
+        // Path to the profile JSON. A relative path resolves against
+        // config_dir above (the directory of THIS config file); an absolute
+        // path (gt_esmini::ConfigLoader::IsAbsolutePath) passes through
+        // unchanged. Empty (the shipped default) means "no profile" --
+        // ScriptedInputSource::Init() fails loudly if input_type=="scripted"
+        // and this is empty, rather than silently falling back to all-zero
+        // input (a silently-zeroed run is a fabricated measurement, not a
+        // real one -- project convention).
+        std::string profile_file;
+    } input_scripted;
 
     // Physics: RealVehicle
     struct
@@ -538,6 +568,102 @@ struct ManualDriveConfig
         bool   button_override     = true;
         bool   button_takeover     = false;  // physical toggle: AUTO -> MANUAL
     } override_cfg;
+
+    // ManualDrive ADAS -- PHASE A ONLY (AEB + the shared kickdown detector +
+    // the §3-4 decel->brake PI conversion). req-vd-ad:REQ-AD-025,
+    // vd-func:FUNC-075. manualdrive_adas_design.md §9 sketches the FULL
+    // config skeleton across every phase (A-D); this struct implements ONLY
+    // the phase-A subset (design §10 phase table) -- do NOT add acc/lka/msl
+    // blocks here until those phases actually land, per the phase-A task
+    // scope ("do not add config keys for functions phase A does not
+    // implement").
+    //
+    // Every key below ships at a default-OFF / harmless value, same
+    // convention as F6 AutoLight and lane_change_initiation: adding this
+    // struct must not change any existing config file's runtime behaviour
+    // (design §9 "全機能とも既定 OFF").
+    //
+    // PARSER NOTE -- READ BEFORE ADDING A KEY HERE. LoadFromFile() below is
+    // NOT a real JSON parser: it scans the file LINE BY LINE and matches a
+    // key by flat substring search (`line.find("\"" + key + "\"")`),
+    // ignoring which JSON object the key is textually nested inside. Two
+    // fields using the same on-disk key name -- e.g. this struct's "aeb
+    // enabled" and override_cfg's existing "enabled" -- would silently alias
+    // (whichever line the scanner is on assigns to BOTH C++ fields). The
+    // existing ffb block already hit this and solved it the same way this
+    // struct does: flat, prefixed, globally-unique on-disk key names
+    // (ffb_enabled / target_track_enabled, not bare "enabled") even though
+    // the JSON nests them for human readability. See LoadFromFile's parse_*
+    // calls for the exact on-disk key strings used for each field below.
+    struct
+    {
+        struct
+        {
+            // On-disk key: adas_aeb_enabled (see PARSER NOTE above -- bare
+            // "enabled" would alias with override_cfg.enabled's own
+            // "enabled" key).
+            bool enabled = false;
+
+            // Driver-override suppression (design §3-2): while the shared
+            // KickdownDetector (kickdown_threshold/kickdown_release_threshold
+            // below) is active, AEB does not intervene -- a translation of
+            // UN R152's driver-override provision (SECONDARY SOURCE, original
+            // text unread, no conformance claimed; see KickdownDetector.hpp).
+            bool kickdown_suppress_enabled = true;
+
+            // REQUIRES CALIBRATION -- verification plan §5. Must stay
+            // LOOSER (numerically larger) than AebSafetyConfig::ttc_threshold
+            // (2.5s, AebSafety.hpp) so FCW warns strictly before AEB
+            // intervenes (design §3-2, slug md-fcw-leads-intervention); the
+            // >=0.8s lead time itself is also unanchored (secondary-source
+            // UN R152 concept, same §5 entry). 3.5s is a placeholder chosen
+            // only to satisfy that ordering constraint, not a measured value.
+            double warning_ttc_threshold_s = 3.5;
+        } aeb;
+
+        // §3-4: required-deceleration -> brake-pedal PI conversion.
+        // PedalArbitrator (control/manualdrive/PedalArbitrator.hpp, owned by
+        // another agent and deliberately NOT included from this header) is
+        // the C++-side single source of truth for these three constants --
+        // the same relationship VirtualDriverConfig has with
+        // AdSteeringEnvelopeConfig (see AdSteeringEnvelope.hpp's "Single
+        // source of truth ON THE C++ SIDE" paragraph). These fields exist
+        // only so the config *file* can override PedalArbitrator's
+        // compiled-in defaults; the numeric values below are copied from
+        // PedalArbitratorConfig's own default member initializers on
+        // 2026-08-04 and a recalibration must update both places by hand.
+        struct
+        {
+            // On-disk key: adas_brake_full_decel_mps2.
+            // REQUIRES CALIBRATION (verification plan §5) -- mirrors
+            // PedalArbitratorConfig::full_brake_decel_mps2: a textbook
+            // full-ABS dry-pavement figure, not measured against
+            // RealVehicleBackend's actual brake model.
+            double full_brake_decel_mps2 = 8.0;   // [m/s^2]
+            // REQUIRES CALIBRATION -- mirrors PedalArbitratorConfig::brake_kp:
+            // a placeholder picked only to give the PI loop a visibly-
+            // converging shape.
+            double brake_kp = 0.05;
+            // REQUIRES CALIBRATION -- mirrors PedalArbitratorConfig::brake_ki.
+            double brake_ki = 0.6;   // [1/s]
+        } brake_control;
+
+        // Shared by AEB suppression (above) and, in phase C, MSL's temporary
+        // cap release (design §3-3 -- ONE detector so the two edges can never
+        // disagree). Mirrors KickdownDetectorConfig's own default member
+        // initializers (KickdownDetector.hpp) for the same "config overrides
+        // the C++-side default" relationship as brake_control above.
+        // REQUIRES CALIBRATION (verification plan §5): placeholders picked to
+        // be obviously "floored" vs "not floored", not measured values.
+        // kickdown_threshold is compared directly against the normalized
+        // throttle axis ([0,1]). A real G29 pedal may never reach 0.95 after
+        // deadzone/axis calibration, even though synthetic input
+        // (ScriptedInputSource) can always emit exactly 1.0 -- see
+        // test_results/f7_realmachine_checklist.md R-4 for the real-pedal
+        // measurement that resolves this (2026-08-05).
+        double kickdown_threshold         = 0.95;  // engage, accelerator fraction [0,1]
+        double kickdown_release_threshold = 0.80;  // release (hysteresis band), [0,1]
+    } adas;
 
     bool LoadFromFile(const std::string& filepath);
 };

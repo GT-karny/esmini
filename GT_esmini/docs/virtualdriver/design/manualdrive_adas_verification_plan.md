@@ -1,6 +1,10 @@
 # 手動運転中 ADAS 検証計画
 
-> ステータス: **未実装（計画のみ）**。方式は
+> ステータス: **フェーズA（AEB列、§2-1・§4-2の該当5 matcher）は実装・実行済み**（2026-08-04〜05:
+> §7 のハーネス改修一式、`manualdrive_adas_batch.yaml` の5シナリオが実行可能・440フレームずつ
+> 生成、赤実証は当初計画のE2E設定極性反転ではなく Python 両極性ユニットテストへ差し替え済み
+> — 詳細は §4-2 の訂正注記）。**§2-2〜§2-4（観測性完成/ACC・Stop&Go・MSL/LKA・LDW・HMI、
+> フェーズB-D）と§3-4の常設化（フェーズE）は未実装（計画のみ）**。方式は
 > [manualdrive_adas_design.md](manualdrive_adas_design.md) が真実源であり、本文書はその §10 の
 > フェーズ完了条件（対応する負 matcher が緑）を満たすために何を作るかを定める。
 > 知識グラフ: `req-vd-ad:REQ-AD-025`〜`REQ-AD-031`、`vd-func:FUNC-075`/`FUNC-079`/`FUNC-080`/`FUNC-081`。
@@ -170,15 +174,15 @@ E2E で赤実証を作りにくいものは C++ 単体テストで赤実証し�
 
 | matcher | 状態 | 概要 | 赤実証資産 |
 | :--- | :--- | :--- | :--- |
-| `adas_state_matches` | 新規 | 窓内の機能別 State 列（ACTIVE/STANDBY/UNAVAILABLE）が期待と一致。REQ-AD-026 段c と 028a の主判定 | 同一資産を config OFF で回す（ACTIVE 期待が UNAVAILABLE になり赤） |
-| `adas_state_sequence` | 新規 | State 遷移の部分列一致（overtake の expect_phases と同型） | 操作列の順序を崩したプロファイル |
+| `adas_state_matches` | 実装済み（フェーズA） | 窓内の機能別 State 列（ACTIVE/STANDBY/UNAVAILABLE）が期待と一致。REQ-AD-026 段c と 028a の主判定 | **実績（2026-08-05）**: Python 両極性ユニットテスト `test_manualdrive_matchers.py`（35テスト、§4-1のunit-level許容を適用）。E2E（`10_manualdrive_adas/`）は正例の緑担保のみで、当初計画の「同一資産を config OFF で回す」E2E 赤実証は未実施のまま置き換え |
+| `adas_state_sequence` | 新規（未着手） | State 遷移の部分列一致（overtake の expect_phases と同型） | 操作列の順序を崩したプロファイル |
 | `min_obb_separation_above` | 既存流用 | 衝突分離。OSI scene 駆動で運転主体非依存 | （既存の赤実証を継承） |
 | `impact_speed_below` | 既存流用 | 衝突速度低減（緩和域） | 同上 |
-| `manual_aeb_fires` | 新規 | HVD の AEB 行が窓内で ACTIVE になり、gt.aeb.* に発火量が出る | AEB を config OFF にした同一資産 |
-| `no_intervention_in_window` | 新規（負） | 窓内で指定機能の ACTIVE が無く、ペダル実効値が入力プロファイルと一致 | 誤介入を誘発する閾値へ緩めた config |
-| `brake_not_stacked` | 新規 | 人間ブレーキ ≥ AEB 要求の窓で実効ブレーキ＝人間値 | E2E 赤実証は困難。max 合成を単体テストで赤実証し、E2E は緑担保のみ |
-| `fcw_leads_intervention` | 新規 | 警報立ち上がりが介入立ち上がりに先行し、リード ≥ min_lead_s | 警報閾値を介入閾値と同値にした config（リード 0 で赤） |
-| `driver_override_reported` | 新規 | 上書き入力の窓と DriverOverride/custom_state の一致 | populate を止めた単体赤実証＋入力プロファイル時刻ずらし |
+| `manual_aeb_fires` | 実装済み（フェーズA） | HVD の AEB 行が窓内で ACTIVE になり、gt.aeb.* に発火量が出る | **実績（2026-08-05）**: `test_manualdrive_matchers.py` の単体テスト。E2E（`md_aeb_unresponsive.xosc`）は正例の緑担保（実測: t=2.00 で ACTIVE）のみで、当初計画の「AEB を config OFF にした同一資産」でのE2E赤実証は未実施のまま置き換え |
+| `no_intervention_in_window` | 実装済み（フェーズA） | 窓内で指定機能の ACTIVE が無く、ペダル実効値が入力プロファイルと一致 | **実績（2026-08-05）**: `test_manualdrive_matchers.py` の単体テスト。当初計画の「誤介入を誘発する閾値へ緩めた config」でのE2E赤実証は未実施のまま置き換え |
+| `brake_not_stacked` | 実装済み（フェーズA） | 人間ブレーキ ≥ AEB 要求の窓で実効ブレーキ＝人間値 | E2E 赤実証は困難（計画時点の想定どおり）。**実績**: max 合成を `test_manualdrive_matchers.py` の単体テストで赤実証し、E2E（`md_aeb_strong_brake_driver.xosc`）は緑担保のみ——ただし当該 E2E 資産は閾値未校正で needs-review（実行はできるが判定が確定しない、`test_results/mdadas_run1/batch_summary.md`） |
+| `fcw_leads_intervention` | 実装済み（フェーズA） | 警報立ち上がりが介入立ち上がりに先行し、リード ≥ min_lead_s | **実績（2026-08-05）**: `test_manualdrive_matchers.py` の単体テスト。当初計画の「警報閾値を介入閾値と同値にした config」でのE2E赤実証は未実施のまま置き換え。**副産物として E2E 側（`md_aeb_unresponsive.xosc`、cut-in 幾何）が実際に fail した**（リード 0.000s、design §3-2 訂正参照）——想定していた「config を壊して赤」ではなく「現状の想定どおりの入力で赤」という、計画時点で想定していなかった種類の赤である |
+| `driver_override_reported` | 新規（未着手） | 上書き入力の窓と DriverOverride/custom_state の一致 | populate を止めた単体赤実証＋入力プロファイル時刻ずらし |
 | `setting_reflected` | 新規 | 設定値（set_speed / thw_setting）の変化が実効値（effective_cap / thw_actual）に段差として現れる。**切替が 1 回も起きなければ赤**（定数フィールドの偽 PASS 防止） | 設定変更を含まないプロファイルで回す（構造的に赤） |
 | `speed_capped_at` | 新規 | 窓内の最大速度がキャップ値＋許容差以下 | respect_speed_limit / MSL を OFF にした同一資産 |
 | `no_brake_output` | 新規（負） | 窓内でシステム由来のブレーキ出力が無い（MSL 下り坂） | AEB 用ブレーキ変換を MSL に誤結線した場合を単体で赤実証 |
@@ -187,6 +191,15 @@ E2E で赤実証を作りにくいものは C++ 単体テストで赤実証し�
 | `lane_kept_within` | 新規 | 窓内の \|offset\| が車線内閾値以下（LKA 正例） | LKA OFF の同一資産（ドリフトで逸脱し赤） |
 | `steer_output_absent` | 新規（負） | 窓内で補正操舵の出力が無い（LDW モード、人間優先、域外） | warning_only を外した同一資産 |
 | `stopped_at_stop_line` 系 | 既存流用 | 停止線手前停止（REQ-AD-003/004 の判定を Stop&Go 段b に転用） | （既存の赤実証を継承） |
+
+**★2026-08-05 訂正**: フェーズA実装時点で、新設5 matcher（`adas_state_matches` / `manual_aeb_fires` /
+`no_intervention_in_window` / `brake_not_stacked` / `fcw_leads_intervention`）の赤実証は、
+計画段階で書いた E2E の config 極性反転ではなく、**Python 両極性ユニットテスト
+`GT_esmini/scripts/verification/test_manualdrive_matchers.py`（35テスト、vd_metrics.py の
+該当分岐を直接叩く）**に統一した。§4-1 が明示的に許す「E2E で赤実証を作りにくいものは
+単体テストで赤実証し、E2E は緑担保のみとする」の適用範囲を、`brake_not_stacked` 1件だけでなく
+新設5件全体へ広げた判断で、E2E側（`10_manualdrive_adas/`）は正例シナリオでの緑担保用途に
+専念させている。各行の「赤実証資産」列は実績を反映済み。
 
 既存 matcher の流用可否は、自車状態の取得元（telemetry か OSI scene か）に依存する。
 OSI scene 駆動のもの（OBB 分離、衝突速度）は主体非依存で流用できるが、telemetry の `frame["ego"]` を併用するもの（THW 系）は §7-3 の HVD/scene 投影が入るまで確定しない。

@@ -1,0 +1,8 @@
+{
+  "name": "steady_throttle",
+  "description": "Constant low-level throttle held for the whole run (no braking, no steering). Serves md-aeb-no-false-intervention (REQ-AD-025 step b, negative): a driver cruising normally with no collision course must never see AEB intervene. throttle=0.30 is a GUESS -- it is not calibrated against real_vehicle_params.json's torque/gearing model, chosen only as a plausible steady-cruise input (well under adas_kickdown_threshold=0.95) that should roughly sustain the Init SpeedAction's 25 m/s starting speed without materially outrunning the lead vehicle. Needs calibration once the scripted-input path can actually be run; the scenario's TTC margin (see md_aeb_no_conflict.md) is deliberately widened to absorb this uncertainty.",
+  "keyframes": [
+    { "t": 0.0, "throttle": 0.30, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 14.0, "throttle": 0.30, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 }
+  ]
+}

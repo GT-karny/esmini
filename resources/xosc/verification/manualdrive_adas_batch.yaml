@@ -1,0 +1,125 @@
+name: manualdrive_adas
+origin: vd-func:FUNC-075 / req-vd-ad:REQ-AD-025,REQ-AD-028   # 由来はメタデータ。名前には工程・採番を焼き込まない — capability_model.md §7.1 規約2/4
+# 手動運転中ADAS(REQ-AD-025 AEB列、フェーズA)の常設回帰バッチ候補。
+#
+# 【何を主張し、何を主張しないか】
+# 主張する: REQ-AD-025 段a-eの6つの検証観点(2-1節、slug md-aeb-* / md-fcw-*)。
+# ManualDriveController配下でも AEB/FCW が独立に監視・介入し、人間のペダル入力との
+# 合成規則(max合成・キックダウン抑制)を守ること。
+# 主張しない: 段a-eの数値閾値の最終校正(§5参照 — このバッチの資産の一部は依然として
+# 実測未確認の推測を含む。各 .md の「未検証部分」節を参照)。
+# 主張しない: REQ-AD-025以外の列(観測性=REQ-AD-028、ACC/Stop&Go/MSL=REQ-AD-026/030/031、
+# LKA/LDW/HMI=REQ-AD-027/029)。これらはフェーズB-Dで別途行を追加する
+# (manualdrive_adas_verification_plan.md §3-4: バッチは1本を育てる、機能別に分けない)。
+#
+# 【2026-08-05 改版】mdadas_run1(2026-08-04、初回実ハーネス実行)の結果を受けて
+# 6本構成へ変更。旧5本のうち3本の欠陥を実測telemetryに基づき是正・再設計した:
+#   - md_aeb_unresponsive: fcw_leads_intervention を撤去(実測リード=0.000s、
+#     候補確定デバウンスがカットイン幾何では閾値差を消費し尽くす — 恒久知見)。
+#   - md_aeb_stationary_lead: 新設。fcw_leads_intervention の担い手を、カットイン無しの
+#     緩やかな同一レーン接近幾何へ移し、リードをしきい値から算術的に導出(≈1.0s)。
+#   - md_aeb_strong_brake_driver: ブレーキ入力タイミングを実測AEB作動区間
+#     (t=1.75-2.85)に合わせてretune(旧タイミングは作動区間の外にありSKIPしていた)。
+#   - md_fcw_warning_only: 全面再設計(カットイン無し同一レーン接近へ)。旧幾何は
+#     FCWのゲートにすら届いていなかった(実測 min ttc=9.914 vs 閾値3.5)。
+#   詳細と算術導出は各シナリオの .md 参照。matcherのパラメータ(閾値・tolerance・
+#   min_lead_s)は一切変更していない — 変更したのは幾何・タイミング・入力プロファイルのみ。
+#
+# 【なぜ正例と負例が1本のマニフェストか】
+# aeb_safety_batch.yaml が確立した前例と同じ理由(検証計画§3-4)。AEBは「衝突コースで
+# 介入する」と「衝突コース不在で介入しない」が対で初めて主張になる。片方だけを回帰に
+# 載せると、他方を犠牲にする退行(閾値を緩めて正例を通し負例を壊す取引)がゲートを
+# 素通りする。正負を同一マニフェスト・同一ベースラインに置くことで、その取引を
+# per-matcher照合が必ず捕まえる。
+#
+# 【controller / manualdrive_config キー】
+# controller: manualdrive を指定したシナリオは、gt_sim_test のVDテレメトリ必須の
+# 前提から外れ(VirtualDriverController前提のフレーム取得を使わない)、代わりに
+# OSI scene と HVD(in-process C API 経由)からフレームを取る
+# (manualdrive_adas_verification_plan.md §7-1/§7-3、ハーネス改修=他エージェント担当)。
+# manualdrive_config のキーはFLATかつグローバルに一意 — C++側ローダーは行単位の
+# 部分文字列スキャナであってJSONパーサではないため、ネストしたキー名を使わない
+# (コーディネータ確定の契約、変更しないこと)。base = GT_esmini/config/manual_drive_headless_stub.json
+# にこのキー集合をマージして per-run config を生成する想定(_prepare_policy_xosc の
+# ManualDrive版、§7-2)。
+#
+# 【osi:true / dt / max_time / snapshots】
+# osi:true -> 幾何駆動のmatcher(impact_speed_below)がOSI groundtruth scene を
+# 必要とするため必須。他のmatcher(manual_aeb_fires等)はHVD駆動だが、バッチ内の
+# 一貫性のためosiは全シナリオで有効にする(aeb_safety_batch.yamlと同じ方針)。
+# dt=0.05 は aeb_safety_batch.yaml / 他の常設回帰バッチと揃えた既定値。
+# max_time=22.0 は本バッチ内の最長StopTrigger(md_aeb_unresponsive / strong_brake_driver /
+# kickdown_suppress = 20.0s)+ ~2sグレース。aeb_safety_batch.yamlの同じ理屈・同じ数値。
+# snapshots=3 は他バッチと揃えた既定値。
+#
+# 【常設ゲートとしての位置づけ】
+# ステータス=候補(manualdrive_adas_verification_plan.md冒頭: 実装は未ビルド)。
+# 実装(ScriptedInputSource / ManualDrive config注入 / HVD読み取り / matcher新設)が
+# 揃い、waypoint規律・スキーマ検証・実行時グリーンを確認してから
+# gate_catalog.yaml への登録・run_regression_gate.ps1への配線を検討する
+# (aeb前例の前例=検証計画§8「常設ゲートのStep番号とCI配線はフェーズEで確定」)。
+#
+# Run (実装完了後):
+#   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/manualdrive_adas_batch.yaml --out test_results/web/manualdrive_adas
+defaults:
+  dt: 0.05
+  max_time: 22.0   # >= 最長StopTrigger(unresponsive/strong_brake_driver/kickdown_suppress = 20.0s)+ ~2sグレース。他3本(no_conflict=13.0s, stationary_lead=12.0s, fcw_warning_only=12.0s)は余裕内
+  snapshots: 3
+  osi: true
+scenarios:
+  # ---- 正例 / REQ-AD-025 段a: 無反応ドライバへのAEB介入 ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_unresponsive.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_unresponsive.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/unresponsive.json
+      adas_aeb_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-025 段e: 警報(FCW)が介入(AEB)に先行する(緩やかな同一レーン接近) ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_stationary_lead.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_stationary_lead.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/unresponsive.json
+      adas_aeb_enabled: true
+    osi: true
+  # ---- 負例 / REQ-AD-025 段b: 衝突コース不在でAEBが誤介入しない ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_no_conflict.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_no_conflict.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/steady_throttle.json
+      adas_aeb_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-025 段c: 人間の強ブレーキにAEBが上乗せしない(max合成) ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_strong_brake_driver.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_strong_brake_driver.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/strong_brake_at.json
+      adas_aeb_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-025 段d: 全踏み(キックダウン)によるAEB抑制 ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_kickdown_suppress.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_kickdown_suppress.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/kickdown_at.json
+      adas_aeb_enabled: true
+      adas_aeb_kickdown_suppress_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-025 段e: 警報単独エピソード(FCWのみ、AEB非介入) ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_fcw_warning_only.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_fcw_warning_only.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/brake_after_warning.json
+      adas_aeb_enabled: true
+    osi: true

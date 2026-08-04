@@ -1,0 +1,38 @@
+scenario: md_aeb_kickdown_suppress
+category: 10_manualdrive_adas
+# REQ-AD-025 step d (safety, positive), slug md-aeb-kickdown-suppression: a
+# ManualDrive human's unambiguous accelerate-intent (full-throttle kickdown,
+# kickdown_at profile: zero pedal until t=5.0s then throttle=1.0 held) suppresses
+# further AEB intervention. Geometry is 07_aeb/cutin_hard_brake.xosc's composite
+# conflict, reused unmodified (same as md_aeb_unresponsive.xosc).
+#
+# The two matchers below are deliberately scoped to prove SUPPRESSION rather than
+# mere absence, per the coordinator's guidance and the verification plan's red-asset
+# discipline (§4-1: a matcher with no way to fail is not worth having):
+#   - manual_aeb_fires scoped BEFORE the kickdown (2.0-5.0s): the driver is
+#     unresponsive in that window (identical to md_aeb_unresponsive.xosc's profile
+#     up to t=5.0), so AEB is expected to already be intervening by the time the
+#     kickdown lands -- this half of the run is effectively md_aeb_unresponsive's
+#     assertion, replayed as a precondition.
+#   - no_intervention_in_window scoped to the kickdown window (5.3-20.0s, after the
+#     throttle ramp completes): with the driver now floored, AEB must go silent even
+#     though the underlying conflict (cut-in + hard brake) has not necessarily
+#     resolved by t=5.3s. If manual_aeb_fires above were absent, this alone could not
+#     distinguish "suppression worked" from "there was never anything to suppress".
+#
+# t=5.0 as the AEB-has-already-engaged cutoff is a GUESS (see kickdown_at.json's
+# description) -- not measured against an actual engagement timestamp, since no
+# build exists yet to produce one.
+must:
+  - event: manual_aeb_fires
+    function: gt.aeb
+    after: { sim_time: 2.0 }    # cut-in onset, same window basis as md_aeb_unresponsive
+    before: { sim_time: 5.0 }   # kickdown onset -- proves AEB was already active before suppression
+    min_frames: 1
+    reason: "全踏み(キックダウン)前は無反応ドライバと同じ入力であり、AEBが既に介入していること(抑制の前提、md-aeb-kickdown-suppression, REQ-AD-025段d)"
+  - event: no_intervention_in_window
+    function: gt.aeb
+    after: { sim_time: 5.3 }    # after the kickdown ramp completes
+    before: { sim_time: 20.0 }  # StopTrigger
+    min_frames: 1
+    reason: "全踏み(キックダウン)後は、直前まで介入していたAEBが抑制されて介入しないこと(md-aeb-kickdown-suppression, REQ-AD-025段d)"

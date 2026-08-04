@@ -405,9 +405,12 @@ signals:
 
   - id: manualdrive_adas_states
     title: ManualDrive の ADAS states
-    exposure: [hvd]
-    state: "(a)"
-    emit: null  # ControllerManualDrive.hpp:36 で恒久的に空
+    exposure: [hvd, frame]
+    state: "●"
+    emit: >-
+      GT_esminiLib.cpp:1636-1641（ManualDrive分岐、manualDrive->GetADASFunctions() の結果を
+      ループしてhvReporter.AddADASFunctionEx()へ）／ControllerManualDrive.cpp:420-434
+      （GetADASFunctions()本体、BuildManualAdasFunctionReport()でgt.aeb/gt.fcwの2行を組む）
     note: >-
       **★2026-07-21 訂正: 当初の「設計上の非該当＝人間が運転するので AD機能状態が無い」は誤り**。
       実車では手動運転中も AEB は稼働し、ペダル手動のまま LKA・ACC のままステア操作もあり得る。
@@ -419,6 +422,29 @@ signals:
       ④ OSI DriverOverride（W4）は populate 箇所ゼロ。GT_esminiLib.cpp:1312-1315 で ManualDrive
       搭載車は自動スタックから明示除外。→ **派生レポートが (a) に挙げるのは誤検出ではなく真の検出**。
       (-) に寄せると穴が消える。機能ギャップ（ManualDrive 中の ADAS 全停止）は別プログラム規模。
+
+      **★2026-08-05 更新（フェーズA実装・実測により state を (a) → ● へ）**: 上記4点のうち①が
+      解消した。`ControllerManualDrive::GetADASFunctions()`（①の恒久スタブとは別の新設メソッド、
+      `GetADASStates` は変更していない）が `gt.aeb`/`gt.fcw` の2行を組み、
+      `GT_esminiLib.cpp` の ManualDrive 分岐が VirtualDriver と同じ `AddADASFunctionEx` 経路へ流す。
+      5 matcher（manual_aeb_fires / no_intervention_in_window / brake_not_stacked /
+      fcw_leads_intervention / adas_state_matches、graph.yaml の observes 辺）が
+      `vd_metrics.py` の `_hvd_adas_record` 経由でこれを読み、`hvd.adas` として telemetry frame
+      にも投影される（exposure に frame を追加）。実測: `gt.aeb` が t=2.00 で ACTIVE、
+      `gt.fcw`/`gt.aeb` が t=1.75 で同時 ACTIVE
+      （`test_results/mdadas_run1/md_aeb_unresponsive/verdict.json`）。
+      この signal が問うのは「面3が観測できるか」であり、答えは実測で yes になった＝
+      カタログの定義どおり `●`。**`(a)` に留めるのは、もはや事実として誤り**（観測不能を
+      主張することになる）。
+      **●であってもまだ埋まっていない機能ギャップ**（②のOSI DriverOverride populate＝
+      REQ-AD-028段b、④の「横だけ自動」実体の是正、ACC/LKA/MSL行＝フェーズC/D）は、
+      この signal を弱めるのではなく `req-vd-ad:REQ-AD-028` の `acceptance_ladder` 側
+      （段bは `met: false` のまま）に記録する——増分は要求の段で持つのがこのプロジェクトの
+      記帳規約であり、signal の state をハイフン付きで曖昧化する扱いはしない。
+      **`signal:manualdrive_driver_override` の新設は見送った**: on-demand 原則
+      （「主張/matcher が実際に参照した signal だけを起こす」）に従うと、その消費者は
+      フェーズB（REQ-AD-028段b実装後）であり、参照する matcher（`driver_override_reported`、
+      検証計画§4-2、未着手）が存在しない現時点で起こすのは早い。フェーズB着手時に判断し直す。
 
   - id: override_domain_state
     title: 操作権限ドメイン（lat/lon が manual か scenario か）

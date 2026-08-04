@@ -1,0 +1,67 @@
+scenario: md_fcw_warning_only
+category: 10_manualdrive_adas
+# REQ-AD-025 step e (safety, positive), slug md-fcw-warning-only-episode: when a
+# ManualDrive human reacts to the FCW warning with their own (moderate, not maximal)
+# braking, the episode should resolve as warning-only -- FCW fires, AEB's own
+# intervention gate never trips. Contrast with md_aeb_stationary_lead.xosc, which
+# carries md-fcw-leads-intervention because BOTH events occur there by design.
+# fcw_leads_intervention itself is NOT applicable here per the coordinator's
+# guidance: it asserts an intervention event exists and measures the lead time to
+# it, which is meaningless in a run where no intervention ever happens.
+#
+# REDESIGNED 2026-08-05 (first pass): mdadas_run1 (2026-08-04) measured the
+# original geometry never reached even the FCW gate (max a_req_mps2=0.391 vs. 2.0
+# threshold, min ttc_s=9.914 vs. 3.5 threshold). Rebuilt as a same-lane approach
+# with v_close=16.0 m/s / gap0=104.0m -- the SAME numbers md_aeb_stationary_lead.xosc
+# uses, so the closed-form UNMANAGED crossing times are identical (t_warn=3.0s,
+# t_interv=4.0s).
+#
+# RETUNED 2026-08-05 (second pass): mdadas_run2 measured this asset's own
+# adas_state_matches(gt.fcw, active) FAIL -- the driver profile reacted at t=3.1s,
+# anchored to the DERIVED t_warn=3.0s, but the companion md_aeb_stationary_lead.xosc
+# run (same pre-reaction dynamics) measured the warning actually firing at t=3.30s.
+# Reacting at 3.1 meant braking BEFORE the warning existed, which suppressed the
+# warning gate entirely. profiles/brake_after_warning.json now reacts at t=3.5,
+# anchored to the MEASURED 3.30 with a 0.20s margin -- see md_fcw_warning_only.md
+# for the full writeup (this is also a semantic fix, not just numeric: the slug
+# requires the driver to react TO an already-fired warning).
+#
+# adas_state_matches (gt.fcw, expect: active, mode: any): proves the warning
+# actually fired at some point in the window (mode: any, not all -- a warning is
+# transient/event-like, not expected to hold every frame the way a sustained
+# STANDBY arm-state would). min_frames raised from 1 to 3 (coordinator's request,
+# 2026-08-05 second pass) so a future regression that produces only a single-frame
+# flicker cannot pass as "any" -- 3 matches the AebSafety candidate-admission
+# debounce width already established elsewhere in this codebase
+# (GT_esmini/config/virtual_driver.json's "_policy_aeb" comment: 3-frame lateral
+# encroachment debounce), chosen for consistency rather than being a fresh guess.
+# Window lower bound (after: 2.5) is a safety margin before the MEASURED t=3.30 (was
+# framed as margin before the derived 3.0 in the first pass; re-anchored here).
+#
+# no_intervention_in_window (gt.aeb): proves AEB's own intervention gate never
+# tripped despite the conflict and the FCW warning having fired -- this is the
+# "warning-only" half of the claim. Unchanged across both retune passes.
+#
+# The one number in this scenario that is still NOT verified (a GUESS, unchanged
+# across both passes): whether brake=0.6 ramped over 0.3s starting at the (now
+# measured-anchored) t=3.5 actually reduces v_close enough to keep a_req/ttc from
+# crossing AEB's gate before the companion run's measured t_interv=4.75 -- that
+# requires integrating against RealVehicleBackend's AT/engine model, which cannot
+# be done by hand. See profiles/brake_after_warning.json's description. If the
+# coordinator's next run shows AEB still intervenes, the fix is to react earlier
+# (still after 3.30) or brake harder, never to touch these matcher parameters.
+must:
+  - event: adas_state_matches
+    function: gt.fcw
+    expect: active
+    mode: any
+    after: { sim_time: 2.5 }    # margin before the MEASURED t_warn=3.30 (mdadas_run2, md_aeb_stationary_lead)
+    before: { sim_time: 12.0 }  # StopTrigger
+    min_frames: 3               # raised from 1 -- guards against a single-frame flicker false-passing as "any" (coordinator's request)
+    reason: "警報(FCW)が本エピソード中に少なくとも一度ACTIVEになること(md-fcw-warning-only-episode, REQ-AD-025段e)"
+  - event: no_intervention_in_window
+    function: gt.aeb
+    after: { sim_time: 0.5 }    # let Init/controller-activation transients settle
+    before: { sim_time: 12.0 }  # StopTrigger
+    min_frames: 1
+    reason: "運転者が警報に反応して減速するため、AEBの介入ゲートが一度もトリップしないこと(警報単独事象, md-fcw-warning-only-episode, REQ-AD-025段e)"
