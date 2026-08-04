@@ -15,7 +15,12 @@ in place, so this builder:
   3. tags scenarios per CATEGORY_POLICY with a ``policies`` Property so a GUI
      VirtualDriver run enables the matching Phase-3 policy (the web runner
      reads it — opt-in; categories without an entry get no auto-enabled policy),
-  4. writes a README and (optionally) a .zip for the GUI "Upload ZIP" flow.
+  4. copies each scenario's sibling ``<stem>.md`` into ``<project>/docs/`` under
+     the *renamed* stem, which is where the GUI's scenario-detail panel reads the
+     description from (``GET /api/projects/{id}/scenarios/{file}/docs`` resolves
+     ``<project>/docs/<xosc stem>.md``, so the doc name must track the renamed
+     scenario, not the source one),
+  5. writes a README and (optionally) a .zip for the GUI "Upload ZIP" flow.
 
 By default it writes the project straight into the dev projects dir
 (``test_results/web/projects``) where ``sync_projects`` auto-registers it, so it
@@ -137,10 +142,12 @@ def build(out_dir: Path, make_zip: bool) -> Path:
     (out_dir / "xosc").mkdir(parents=True)
     (out_dir / "xodr").mkdir(parents=True)
     (out_dir / "models").mkdir(parents=True)
+    (out_dir / "docs").mkdir(parents=True)
 
     missing: list[str] = []
     listed: list[tuple[str, str | None]] = []
     unmapped: list[str] = []
+    undocumented: list[str] = []
 
     categories = sorted(p.name for p in SRC.iterdir() if p.is_dir())
     for cat in categories:
@@ -174,6 +181,14 @@ def build(out_dir: Path, make_zip: bool) -> Path:
             )
             listed.append((out_name, policy))
 
+            # The description panel keys off the *project* scenario's stem, so
+            # the sibling <stem>.md has to follow the same rename.
+            doc_src = xosc.with_suffix(".md")
+            if doc_src.is_file():
+                shutil.copy2(doc_src, out_dir / "docs" / f"{cat}_{xosc.stem}.md")
+            else:
+                undocumented.append(f"{cat}/{xosc.name}")
+
     if unmapped:
         print(
             "[build] NOTE: no CATEGORY_POLICY entry for: "
@@ -188,10 +203,21 @@ def build(out_dir: Path, make_zip: bool) -> Path:
         for m in sorted(set(missing)):
             print(f"  - {m}", file=sys.stderr)
 
+    if undocumented:
+        print(
+            f"[build] NOTE: {len(undocumented)} scenario(s) without a sibling .md "
+            "(the GUI detail panel shows its placeholder for these):",
+            file=sys.stderr,
+        )
+        for u in sorted(undocumented):
+            print(f"  - {u}", file=sys.stderr)
+
     n_xodr = len(list((out_dir / "xodr").glob("*")))
     n_mdl = len(list((out_dir / "models").glob("*")))
+    n_doc = len(list((out_dir / "docs").glob("*.md")))
     print(
-        f"[build] {len(listed)} scenarios, {n_xodr} xodr, {n_mdl} models -> {out_dir}"
+        f"[build] {len(listed)} scenarios, {n_xodr} xodr, {n_mdl} models, "
+        f"{n_doc} docs -> {out_dir}"
     )
 
     if make_zip:
@@ -221,7 +247,11 @@ def _write_readme(out_dir: Path, listed: list[tuple[str, str | None]]) -> None:
     ]
     for name, policy in listed:
         lines.append(f"| {name} | {policy or '— (mid/long only)'} |")
-    lines += ["", "xosc/ — scenarios · xodr/ — roads · models/ — 3D models"]
+    lines += [
+        "",
+        "xosc/ — scenarios · xodr/ — roads · models/ — 3D models · "
+        "docs/ — per-scenario descriptions shown in the GUI detail panel",
+    ]
     (out_dir / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
