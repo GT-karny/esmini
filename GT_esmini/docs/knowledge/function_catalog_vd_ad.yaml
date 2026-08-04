@@ -168,7 +168,7 @@ functions:
   # 「既存体系に新 ID を足さない」）だが、本カタログは機能台帳そのものであり完全凍結では
   # 台帳が育たない。網羅性の穴（ManualDrive 中の ADAS 全停止）を分母に載せるため
   # FUNC-075 を例外的に追加する（体系の内容 slug 移行時に他 FUNC と一緒に移行する）。
-  - { id: FUNC-075, tier: safety, layer: '-', kind: behavior, agent: ADAS, dim: both, status: none, by: '', note: "運転主体によらない ADAS 並行稼働。実車では手動運転中も AEB は監視し続け、LKA/ACC と手動操作は共存する。本 repo では未実装4点の重なりで ManualDrive 中は ADAS 全停止（① GetADASStates 恒久スタブ ControllerManualDrive.hpp:36 ② AebSafety は ITrafficPolicy として VD 専属生成 ③「横だけ自動」の実体は ManualDriveCoordinator の素の OSC 追従 ④ OSI DriverOverride 未populate。詳細 signal:manualdrive_adas_states / capability_model.md §7 derived-report-lint 積み残し(b)）。規模は AebSafety の VD からの切り出し＋ドメイン別スタック拡張＝別プログラム。layer='-'（コントローラ横断）" }
+  - { id: FUNC-075, tier: safety, layer: '-', kind: behavior, agent: ADAS, dim: both, status: none, by: '', note: "運転主体によらない ADAS 並行稼働 — AEB 並行監視＋横断基盤（ポリシースタック配線・constraint→ペダル envelope・HVD 報告経路・DriverOverride）。ACC/LKA は FUNC-079/080 へ分離（2026-08-04、列単位の追跡のため）。実車では手動運転中も AEB は監視し続ける。本 repo では未実装4点の重なりで ManualDrive 中は ADAS 全停止（① GetADASStates 恒久スタブ ControllerManualDrive.hpp:42 ② AebSafety は ControllerVirtualDriver コンストラクタ専属生成＝ただし Evaluate 自体は TrafficPolicyContext のみ消費でコントローラ非依存（2026-08-04 調査確定・ゼロ改修流用可） ③「横だけ自動」の実体は ManualDriveCoordinator の素の OSC 追従 ④ OSI DriverOverride 未populate。詳細 signal:manualdrive_adas_states / capability_model.md §7）。req-vd-ad:REQ-AD-025/028 対応。layer='-'（コントローラ横断）" }
 
   # ----- 2026-08-03 追加: 駐車機能（scene:SCN-014、req-vd-ad:REQ-AD-019/020 に対応） -----
   # ★凍結例外（ユーザー判断 2026-08-03）: FUNC-075 の前例と同じ理由（機能台帳そのものであり
@@ -179,3 +179,10 @@ functions:
   # ----- 2026-08-03 追加: 出庫（unparking）機能（scene:SCN-014、req-vd-ad:REQ-AD-022 に対応） -----
   # ★凍結例外（ユーザー判断 2026-08-03）: FUNC-076/077 の前例と同じ理由で FUNC-078 を追加する。
   - { id: FUNC-078, tier: '-', layer: operational, kind: behavior, agent: AD, dim: both, status: none, by: '', note: "出庫マヌーバ実行。枠内（レーン外）からの駐車モード起動、退出軌道生成（入庫経路の時間反転と同型＝Han円弧幾何/RS検算/操舵レート制限/修正ループ/後退ギア経路を流用）、通路交通（接近車両・歩行者）への譲り判断、driving レーンへの合流とレーン走行モードへの復帰。req-vd-ad:REQ-AD-022 対応。未実装" }
+
+  # ----- 2026-08-04 追加: ManualDrive 中 ADAS（req-vd-ad:REQ-AD-026/027 に対応） -----
+  # ★凍結例外（ユーザー判断 2026-08-04）: FUNC-075 の前例と同じ理由で FUNC-079/080 を追加する。
+  # FUNC-075 を傘にせず分離するのは「深掘り=列を①〜⑥まで縫う」の追跡単位を機能ごとに保つため
+  # （1ノードに AEB/ACC/LKA の3列が同居すると --spine-matrix の欠落が見えなくなる）。
+  - { id: FUNC-079, tier: comfort, layer: operational, kind: behavior, agent: ADAS, dim: lon, status: none, by: '', note: "手動運転中の ACC。人間がステアを握ったまま縦制御（設定速度上限＋THW維持）を重ね、ブレーキ=解除/アクセル=一時上書き/set・resume・cancel の実車標準操作系を持つ。土台は LeadVehicleAware（ITrafficPolicy）＋速度 envelope。upstream ControllerACC は Object 直接書き換え型のため土台にしない。VD の FUNC-013（AD 文脈の定常追従）と運転主体で区別。req-vd-ad:REQ-AD-026 対応。未実装" }
+  - { id: FUNC-080, tier: safety, layer: operational, kind: behavior, agent: ADAS, dim: lat, status: none, by: '', note: "手動運転中の LKA。車線逸脱傾向で補正操舵を加え、人間の明確な操舵入力・方向指示器作動中は介入しない（人間操舵優先）。レーン中心偏差→補正操舵のコンポーネントは既存部品に無く新設の本体（PIDPurePursuit はトラジェクトリ追従でレーン中心を追わない）。FFB 反力伝達は G29 実機限定観点。req-vd-ad:REQ-AD-027 対応。未実装" }

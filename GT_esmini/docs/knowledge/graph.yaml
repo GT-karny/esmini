@@ -785,6 +785,43 @@ edges:
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: 前進入庫状態からの後退出庫（段b）が対象とするODD軸
 
+  # ---- ManualDrive 中 ADAS 並行稼働（req-vd-ad:REQ-AD-025..028、vd-func:FUNC-075/079/080）: 2026-08-04 新設 ----
+  # 凍結名前空間（req-vd-ad / vd-func）への追加につきユーザー承認済み（FUNC-079/080 新設・
+  # 実車型 AEB 上書き・ACC 実車標準操作系・HVD 直読の4点は同日の方式決定）。FUNC-075
+  # （2026-07-24 新設・feature:F7 と complements 済み）はここで AEB 並行監視＋横断基盤に
+  # スコープを絞り、ACC/LKA を FUNC-079/080 へ分離した。実装・検証資産とも未着手のため
+  # matcher -> verifies -> req 辺は張らない（実体の無い辺は overclaim）。
+  - from: vd-func:FUNC-075
+    to: req-vd-ad:REQ-AD-025
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 手動運転中の AEB 並行監視・介入（実車型上書きを含む）を充足。未実装
+  - from: vd-func:FUNC-075
+    to: req-vd-ad:REQ-AD-028
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: ADAS 状態・DriverOverride の HVD 報告基盤（横断基盤側）が観測性要求を充足。signal:manualdrive_adas_states の (a) を塞ぐ宛先。未実装
+  - from: vd-func:FUNC-079
+    to: req-vd-ad:REQ-AD-026
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 手動運転中の ACC（実車標準操作系）を充足。未実装
+  - from: vd-func:FUNC-080
+    to: req-vd-ad:REQ-AD-027
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 手動運転中の LKA（人間操舵優先）を充足。未実装
+  - from: req-vd-ad:REQ-AD-026
+    to: openx:Domain#FollowRoadUser
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 手動運転中 ACC の先行車追従が対象とする ODD 軸。REQ-AD-002（AD 文脈）と同じ openx 概念を運転主体違いで共有
+  - from: req-vd-ad:REQ-AD-027
+    to: openx:Domain#KeepLane
+    type: concerns
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 手動運転中 LKA の車線維持補正が対象とする ODD 軸
+
   # --- 要求 -> concerns/depends-on ---
   - from: req-vd-ad:REQ-AD-002
     to: openx:Domain#FollowRoadUser

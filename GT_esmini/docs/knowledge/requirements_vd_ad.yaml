@@ -821,3 +821,158 @@ requirements:
       区別できず、§9-1 がこの観測量を作った目的そのものを壊していた。幾何判定を
       無条件評価に変え、cleared_lead はそこからのみ立て、戻った理由は blocked_reason へ
       分離した。**検知器の両極性は2本の刺激が逆極性を主張することで実証してある。**
+
+  # ===== ManualDrive 中 ADAS 並行稼働ファミリ（vd-func:FUNC-075/079/080）: 2026-08-04 新設 =====
+  # 方式決定（ユーザー判断 2026-08-04）: (1) AEB と人間指令の境界 = 実車型（運転者の明確な
+  # 加速意思で介入を抑制する。UN R152 の運転者上書き規定に相当 — 二次資料経由・原文未確認）、
+  # (2) ACC 操作系 = 実車標準（ブレーキ=解除 / アクセル=一時上書き / set・resume・cancel）、
+  # (3) 面3の観測面 = HVD 直読（signal=OSI canonical の3面契約に整合。VDテレメトリ型ゲート
+  # 緩和は面3→面2結合負債の再生産になるため不採用）、(4) FUNC-079/080 を凍結例外で新設。
+  # アーキテクチャは案A（ManualDriveCoordinator の cmd 確定後・StepPedalSteer 前に
+  # AdasCoexistenceLayer を挿入。ポリシー本体はゼロ改修＝TrafficPolicyContext{ego,entities,
+  # sim_time} は upstream Controller 基底のメンバで ManualDrive も既に保持）。
+  # 検証は F7 の HeadlessFfbInput（frozen=無反応ドライバ等、決定論的合成入力）を正とし、
+  # G29 実機限定観点（FFB反力伝達）は駐車検証計画 §6 と同じ流儀で区分する。
+
+  - id: REQ-AD-025
+    title: 手動運転中も緊急ブレーキが監視・介入する（ADAS並行稼働）
+    tier: safety
+    agent: ADAS
+    kind: positive
+    statement: >-
+      WHILE 人間（ManualDrive）が運転しているとき、AEB は独立に衝突コースを監視し続け、
+      快適減速で回避不能な TTC/必要減速度に達したら人間のペダル指令に介入して
+      緊急制動を発生させ、接触を回避（不能域では衝突速度を低減）すること。
+    scenario: >-
+      未整備。VD 版 AEB ファミリ（REQ-AD-001/010-013）の刺激幾何を流用し、運転主体を
+      ManualDrive ＋合成入力（HeadlessFfbInput frozen=無反応ドライバ / follower=定常操舵）に
+      置き換えて構成する。人間入力プロファイル（無反応・定常アクセル・AEB以上の強ブレーキ・
+      全踏み加速）が新しい刺激軸になる。
+    acceptance_ladder:
+      - { step: a, claim: 無反応ドライバ＋衝突コースで AEB が介入し接触を回避/緩和する（VD版 REQ-AD-001/010 相当の手動版）, met: false, verified_by: [] }
+      - { step: b, claim: 衝突コース不在では人間のペダル指令に一切介入しない（VD版 REQ-AD-013 相当の誤介入抑止・負系）,       met: false, verified_by: [] }
+      - { step: c, claim: 人間が AEB 要求以上のブレーキを既に踏んでいる場合は介入を上乗せしない（ブレーキは max 合成）,      met: false, verified_by: [] }
+      - { step: d, claim: 運転者の明確な加速意思（アクセル全踏み相当・閾値は要校正）で介入を抑制し、抑制事象が観測できる,    met: false, verified_by: [] }
+    acceptance: >-
+      段 a/b は VD 版 AEB と同じ幾何判定（OBB分離・衝突速度）を OSI scene 経由で流用できる
+      （運転主体非依存）。段 c/d は人間入力と介入出力の関係の主張であり、HVD の
+      ADAS 状態＋ペダル指令の時系列で判定する（判定面は REQ-AD-028 が先行整備する）。
+      段 d の抑制閾値・ヒステリシスは設計書で確定（要校正）。
+    source: "UN R152 運転者上書き規定 相当（二次資料経由・原文未確認。翻案であり準拠主張はしない）"
+    realized_by: [vd-func:FUNC-075]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-001, req-vd-ad:REQ-AD-013, req-vd-ad:REQ-AD-028, feature:F7]
+    status: future
+    note: >-
+      AebSafety 本体はゼロ改修で流用できる（Evaluate は TrafficPolicyContext のみを消費、
+      VD 専属なのは所有関係と constraint 消費側だけ — 調査 2026-08-04）。新設は
+      「constraint→ペダルクランプ」の envelope モジュール（AdSteeringEnvelope と同型・
+      経路追従3層 ManeuverAwareSpeedPlanner/ShortPlanner/PIDPurePursuit は持ち込まない）。
+      介入点は ManualDriveCoordinator の cmd 確定後・StepPedalSteer 前の一点。
+      縦=VD の既存 split 構成はドメインの全面譲渡であり本要求の代用にならない
+      （重ね合わせではない）。split で縦を VD が持つ場合の二重装備は
+      DomainOwnershipLedger::OwnerOf(LONGITUDINAL) で条件分岐する。
+
+  - id: REQ-AD-026
+    title: 手動運転中の ACC（on/off・解除・一時上書きを含む実車標準の操作系）
+    tier: comfort
+    agent: ADAS
+    kind: positive
+    statement: >-
+      WHILE 人間がステアを握り ACC が ON のとき、システムは設定速度を上限として
+      先行車との車間（THW）を維持する縦制御を行い、ブレーキ踏下で解除、
+      アクセル踏下で一時上書き（離すと追従へ復帰）すること。
+    scenario: >-
+      未整備。SCN-003（先行車追従）系の刺激に合成ステア入力（follower）を重ね、
+      set/cancel/resume 操作と先行車の速度変化を組み合わせて構成する。
+    acceptance_ladder:
+      - { step: a, claim: ACC ON で先行車追従（設定速度上限＋THW維持）。先行車不在では設定速度で巡航する,            met: false, verified_by: [] }
+      - { step: b, claim: ブレーキ踏下で解除し、resume まで再介入しない。アクセル踏下は一時上書きで離すと追従へ復帰, met: false, verified_by: [] }
+      - { step: c, claim: OFF→STANDBY→ACTIVE の状態遷移が操作と整合して HVD に出る,                                met: false, verified_by: [] }
+      - { step: d, claim: ACC 作動中も AEB は独立監視し、safety が勝つ（tier 調停の手動運転版）,                    met: false, verified_by: [] }
+    acceptance: >-
+      段 a は VD 版 REQ-AD-002 の THW レンジ判定を流用（自車状態は OSI scene の is_host から
+      読む＝面1化済みの経路）。段 b は操作イベントと状態遷移・ペダル実効値の時系列判定。
+      段 c/d の状態は HVD vehicle_automated_driving_function の State 3値規律
+      （ACTIVE/STANDBY/UNAVAILABLE）に従う。THW・応答の定量閾値は要校正。
+    realized_by: [vd-func:FUNC-079]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-002, req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-028]
+    status: future
+    note: >-
+      土台は VD の LeadVehicleAware（ITrafficPolicy、IDM 系）＋ envelope の速度制御版。
+      upstream ControllerACC は Object の速度/位置を直接書き換える別アーキテクチャ
+      （PedalSteerCommand も RealVehicleBackend も経由しない）のため土台にしない。
+      快適層の意味論が VD と変わる点に注意: comfort_decel は「VD 自身の減速の滑らかさ」で
+      あり、人間が主運転者の場面へそのまま適用する根拠がない（設計書で再定義する）。
+      状態遷移イベントはタイムスタンプ付きで出し、下流の TOR 実験（proposal:P17/P18）が
+      切替基準点として使える形にする。
+
+  - id: REQ-AD-027
+    title: 手動運転中の LKA（on/off・逸脱補正・人間操舵優先）
+    tier: safety
+    agent: ADAS
+    kind: positive
+    statement: >-
+      WHILE 人間が運転し LKA が ON のとき、システムは車線逸脱傾向を検知したら
+      補正操舵を加えて車線内に留め、人間の明確な操舵入力または方向指示器の作動中は
+      介入しない/中断すること。
+    scenario: >-
+      未整備。直線・緩カーブ路＋弱ドリフト合成ステア入力（逸脱傾向の再現）。
+      負系は明確な操舵入力・指示器作動つきの車線変更（介入してはならない）。
+    acceptance_ladder:
+      - { step: a, claim: 弱ドリフト入力で車線逸脱傾向のとき補正操舵が入り車線内に留まる,                met: false, verified_by: [] }
+      - { step: b, claim: 人間の明確な操舵入力・方向指示器作動中は介入しない/即時中断する（人間操舵優先）, met: false, verified_by: [] }
+      - { step: c, claim: on/off と状態遷移が HVD に出る,                                                met: false, verified_by: [] }
+      - { step: d, claim: 補正が FFB 反力として実ハンドルに伝わる（G29 実機限定観点・自動ゲート対象外）,  met: false, verified_by: [] }
+    acceptance: >-
+      段 a はレーン相対横位置（OSI assigned_lane / lane_map 面1化済み経路）で判定。
+      段 b は操舵入力・指示器状態と補正出力の排他の時系列判定。段 d は駐車検証計画 §6 と
+      同じ「G29 実機限定」区分に置き、自動回帰ゲートの対象にしない。閾値（逸脱判定の
+      横位置/横速度、人間操舵優先のトルク/角度閾値）は要校正。
+    realized_by: [vd-func:FUNC-080]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-028, feature:F7]
+    status: future
+    note: >-
+      既存部品に「レーン中心偏差→補正操舵」のコンポーネントは無い（PIDPurePursuit は
+      トラジェクトリ preview 点列への追従でレーン中心そのものを追わない — 調査 2026-08-04）
+      ＝レーン中心偏差モジュールが新設の本体。補正の出力は AdSteeringEnvelope と同型の
+      介入 envelope で cmd.steering に加算/クランプする。人間操舵優先の検出は
+      OverrideManager の意味論（人間が AD から奪う）と逆向きのため流用せず、
+      対の概念として新設する（f7 検出器の設計パターンは参考にする）。
+
+  - id: REQ-AD-028
+    title: ADAS の作動状態と運転者上書きが外部（面3）から観測できる
+    tier: '-'
+    agent: ADAS
+    kind: positive
+    statement: >-
+      WHILE ManualDrive 中に ADAS（AEB/ACC/LKA）が稼働しているとき、各機能の状態
+      （OFF/STANDBY/ACTIVE）と運転者による上書き事象が OSI HostVehicleData に出力され、
+      検証環境（面3）がそれを HVD 経由で読めること。
+    scenario: >-
+      未整備。REQ-AD-025/026/027 の刺激と同一バッチで判定面として使う
+      （観測性は専用刺激を持たず、全 ADAS シナリオに横断適用する）。
+    acceptance_ladder:
+      - { step: a, claim: "3機能の状態が vehicle_automated_driving_function[] に正規 Name 列挙で出る（NAME_OTHER でなく実列挙。custom_detail に gt.* 規約の内部量）", met: false, verified_by: [] }
+      - { step: b, claim: "運転者上書き事象が DriverOverride{active, reason} に出る（Reason はブレーキ/ステアの2値＝規格制約。アクセル起因は custom_state で補完）",   met: false, verified_by: [] }
+      - { step: c, claim: 検証ハーネス（gt_sim_test）が HVD を読んで matcher 判定に使える（ManualDrive 実行対応を含む）,                                              met: false, verified_by: [] }
+    acceptance: >-
+      段 a は kAdasSlots 24枠経路でなく VD と同じ AddADASFunctionEx 経路
+      （custom_detail 可・状態3値規律共有）で判定する。段 b は上書き注入シナリオでの
+      populate 実測。段 c はハーネス側の受入（ManualDrive 走行で frames=0 に
+      ならないこと＋HVD 由来 signal が matcher から読めること）。
+    realized_by: [vd-func:FUNC-075]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-027]
+    status: future
+    note: >-
+      capability_model の「OSI-GT 正当性を①主張として先行要求化」と同型の観測性要求で、
+      signal:manualdrive_adas_states の (a) を正式に塞ぐ宛先。現状の欠落（調査 2026-08-04）:
+      GT_esminiLib の ADAS 報告ディスパッチは dynamic_cast<ControllerVirtualDriver*> 限定で
+      ManualDrive は別分岐に入り一切到達しない／集計行 "gt.virtual_driver" は手動文脈で
+      意味的に誤り（非依存化が要る）／DriverOverride は populate 機構ごと未実装／
+      gt_sim_test は VD テレメトリ必須で ManualDrive 走行は即エラー・HVD(48199) は
+      面3から未読・policy 注入も VirtualDriverController 固定。判定手法は
+      -NoTouchParity の「自己決定論性コントロール→決定フィールド厳密一致」を踏襲する。

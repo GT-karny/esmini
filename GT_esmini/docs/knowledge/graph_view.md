@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:cdb8d24563399b2c -->
+<!-- generated-from: sha256:bcea6fbdae30ed7c -->
 
-ノード 206・辺 218（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 212・辺 224（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -158,8 +158,10 @@ flowchart LR
     n_vd_func_FUNC_076["FUNC-076"]
     n_vd_func_FUNC_077["FUNC-077"]
     n_vd_func_FUNC_078["FUNC-078"]
-    n_vd_func_FUNC_002["FUNC-002"]
     n_vd_func_FUNC_075["FUNC-075"]
+    n_vd_func_FUNC_079["FUNC-079"]
+    n_vd_func_FUNC_080["FUNC-080"]
+    n_vd_func_FUNC_002["FUNC-002"]
     n_vd_func_FUNC_056["FUNC-056"]
   end
   subgraph sg_req_vd_ad["req-vd-ad｜VirtualDriver 自動運転/ADAS 対応シーン要求（機能軸 安全/快適/法規遵守/譲り合い）"]
@@ -177,6 +179,10 @@ flowchart LR
     n_req_vd_ad_REQ_AD_019["REQ-AD-019"]
     n_req_vd_ad_REQ_AD_020["REQ-AD-020"]
     n_req_vd_ad_REQ_AD_022["REQ-AD-022"]
+    n_req_vd_ad_REQ_AD_025["REQ-AD-025"]
+    n_req_vd_ad_REQ_AD_028["REQ-AD-028"]
+    n_req_vd_ad_REQ_AD_026["REQ-AD-026"]
+    n_req_vd_ad_REQ_AD_027["REQ-AD-027"]
     n_req_vd_ad_REQ_AD_010["REQ-AD-010"]
     n_req_vd_ad_REQ_AD_011["REQ-AD-011"]
     n_req_vd_ad_REQ_AD_012["REQ-AD-012"]
@@ -371,6 +377,12 @@ flowchart LR
   n_vd_func_FUNC_078 -->|realizes| n_req_vd_ad_REQ_AD_022
   n_req_vd_ad_REQ_AD_022 -. concerns .-> n_openx_Domain_Parking
   n_req_vd_ad_REQ_AD_022 -. concerns .-> n_openx_Domain_MoveBackward
+  n_vd_func_FUNC_075 -->|realizes| n_req_vd_ad_REQ_AD_025
+  n_vd_func_FUNC_075 -->|realizes| n_req_vd_ad_REQ_AD_028
+  n_vd_func_FUNC_079 -->|realizes| n_req_vd_ad_REQ_AD_026
+  n_vd_func_FUNC_080 -->|realizes| n_req_vd_ad_REQ_AD_027
+  n_req_vd_ad_REQ_AD_026 -. concerns .-> n_openx_Domain_FollowRoadUser
+  n_req_vd_ad_REQ_AD_027 -. concerns .-> n_openx_Domain_KeepLane
   n_req_vd_ad_REQ_AD_002 -. concerns .-> n_openx_Domain_FollowRoadUser
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P12
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P11
@@ -477,7 +489,7 @@ flowchart LR
 | `gate:fork-sync` | `gate:fork-census` | INBOUND（上流未取込）と OUTBOUND（フォーク会計）の対。どちらもLHTの*正しさ*は見ない |
 | `feature:F7` | `vd-func:FUNC-075` | 運転主体遷移の隣接スコープ・非重複（F7=切替そのもの、FUNC-075=手動運転中のADAS並行稼働）。混同防止で明記 |
 
-### concerns (66)
+### concerns (68)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -546,6 +558,8 @@ flowchart LR
 | `req-vd-ad:REQ-AD-020` | `openx:Domain#MoveBackward` | バック駐車（後退を含むマヌーバ）が対象とするODD軸 |
 | `req-vd-ad:REQ-AD-022` | `openx:Domain#Parking` | 出庫マヌーバの実行が対象とするODD軸。scene:SCN-014・REQ-AD-019/020 と同じ openx 概念を共有 |
 | `req-vd-ad:REQ-AD-022` | `openx:Domain#MoveBackward` | 前進入庫状態からの後退出庫（段b）が対象とするODD軸 |
+| `req-vd-ad:REQ-AD-026` | `openx:Domain#FollowRoadUser` | 手動運転中 ACC の先行車追従が対象とする ODD 軸。REQ-AD-002（AD 文脈）と同じ openx 概念を運転主体違いで共有 |
+| `req-vd-ad:REQ-AD-027` | `openx:Domain#KeepLane` | 手動運転中 LKA の車線維持補正が対象とする ODD 軸 |
 | `req-vd-ad:REQ-AD-002` | `openx:Domain#FollowRoadUser` | 先行車追従のODD軸 |
 
 ### depends-on (26)
@@ -616,7 +630,7 @@ flowchart LR
 | `matcher:indicator_leads_junction_turn` | `signal:junction_turn_signal_distance` | vd_metrics.py:1838- の indicator_leads_junction_turn 分岐が、frames[i]["junction_turn"] の dir/dist_to_entry_m/on_connector と frames[i]["indicator"] の left/right を**両方**読む。 **on_connector が無いと成立しない**: テレメトリ単体では road id から junction 所属を 判定できず、検証ハーネスは xodr を読めないため、「交差点に進入したフレーム」を 機械判定する手段が他に無い（junction_turn_signal.md §3-4）。 距離は ego.x/y のフレーム間ユークリッド距離の積算で測る（domain_split_holds と同型。 speed×dt の積分より頑健で、バッチ末尾の同一 sim_time 重複フレームにも耐える）。 どちらのブロックも欠けていれば skip（「何も評価しないものを pass にしない」規律）。 |
 | `matcher:overtake_decision_holds` | `signal:overtake_decision` | vd_metrics.py の overtake_decision_holds 分岐が frames[i]["overtake"] を読む。 must で指定されたキー（expect_considered / expect_blocked_reason / expect_phases / forbid_phases / expect_cleared_lead）だけを評価し、**何も指定しない must は skip** （route_lane_plan_holds / indicator_leads_lane_change と同じ「何も評価しないものを pass にしない」規律）。overtake ブロックを持つフレームが窓に1つも無ければ skip＝ 古い DLL の検出。 |
 
-### realizes (40)
+### realizes (44)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -650,6 +664,10 @@ flowchart LR
 | `vd-func:FUNC-076` | `req-vd-ad:REQ-AD-019` | 駐車枠探索・選定が駐車枠の探索・選定要求を充足。未実装 |
 | `vd-func:FUNC-077` | `req-vd-ad:REQ-AD-020` | 駐車マヌーバ実行が駐車マヌーバの実行要求を充足。未実装 |
 | `vd-func:FUNC-078` | `req-vd-ad:REQ-AD-022` | 出庫マヌーバ実行が出庫マヌーバの実行要求を充足。未実装 |
+| `vd-func:FUNC-075` | `req-vd-ad:REQ-AD-025` | 手動運転中の AEB 並行監視・介入（実車型上書きを含む）を充足。未実装 |
+| `vd-func:FUNC-075` | `req-vd-ad:REQ-AD-028` | ADAS 状態・DriverOverride の HVD 報告基盤（横断基盤側）が観測性要求を充足。signal:manualdrive_adas_states の (a) を塞ぐ宛先。未実装 |
+| `vd-func:FUNC-079` | `req-vd-ad:REQ-AD-026` | 手動運転中の ACC（実車標準操作系）を充足。未実装 |
+| `vd-func:FUNC-080` | `req-vd-ad:REQ-AD-027` | 手動運転中の LKA（人間操舵優先）を充足。未実装 |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-010` | 前方AEB→停止先行車回避(CCRs) |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-011` | 前方AEB→等速/制動先行車回避(CCRm/CCRb) |
 | `vd-func:FUNC-002` | `req-vd-ad:REQ-AD-012` | VRU-AEB→横断歩行者/自転車回避(CPNA/CPFA/CBNA) |
@@ -791,12 +809,12 @@ curated辺のみ。Issue/コミット言及まで含めた逆引きは `--query 
 | `Domain#DynamicTrafficSign` | 動的交通標識（可変標識。信号機の最近縁クラス — TrafficLightクラスはv1.0に無い） | `policy:traffic_light`, `scene:SCN-004` |
 | `Domain#EmergencyVehicle` | 緊急車両（NonVRU） | `scene:SCN-013` |
 | `Domain#EnvironmentalCondition` | 環境条件（天候・照明・時刻・粒子状物質等の親クラス） | `proposal:P13` |
-| `Domain#FollowRoadUser` | 先行者追従 | `policy:lead`, `req-vd-ad:REQ-AD-002`, `scene:SCN-003` |
+| `Domain#FollowRoadUser` | 先行者追従 | `policy:lead`, `req-vd-ad:REQ-AD-002`, `req-vd-ad:REQ-AD-026`, `scene:SCN-003` |
 | `Domain#FollowTargetSpeed` | 目標速度追従（ManeuverLevelActivity） | `scene:SCN-001` |
 | `Domain#IlluminationCondition` | 照明条件（昼光・夜間・人工照明の親クラス） | `feature:F6` |
 | `Domain#IntersectionAtGrade` | 平面交差点 | `policy:conflict`, `scene:SCN-005` |
 | `Domain#Junction` | 交差点（2つ以上の道路が交わる） | `policy:junction_priority`, `scene:SCN-006` |
-| `Domain#KeepLane` | 車線維持 | `scene:SCN-001` |
+| `Domain#KeepLane` | 車線維持 | `req-vd-ad:REQ-AD-027`, `scene:SCN-001` |
 | `Domain#MakeATurn` | 右左折（交差点通過） | `scene:SCN-004`, `scene:SCN-005`, `scene:SCN-006` |
 | `Domain#Motorcycle` | 二輪車（PrivateVehicle配下） | `scene:SCN-010` |
 | `Domain#Motorway` | 高速道路 | `scene:SCN-008` |
