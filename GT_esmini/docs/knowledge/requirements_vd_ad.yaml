@@ -893,16 +893,21 @@ requirements:
       - { step: e, claim: 走行中にハンコン等の操作（ボタン）で設定速度を増減でき、変更が即座に追従目標へ反映される,  met: false, verified_by: [] }
       - { step: f, claim: 利用可能速度域（作動下限/上限）が設定可能で、域外では ACTIVE にならず STANDBY へ遷移する（域内復帰で resume 可）, met: false, verified_by: [] }
       - { step: g, claim: 制限速度制御（設定速度を道路の制限速度でキャップ）の有無が設定可能で、有効時は制限速度超の設定が実効値でキャップされる, met: false, verified_by: [] }
+      - { step: h, claim: 車間距離設定（段階式 THW）が走行中にハンコン等の操作で変更でき、変更が追従車間へ反映される, met: false, verified_by: [] }
     acceptance: >-
       段 a は VD 版 REQ-AD-002 の THW レンジ判定を流用（自車状態は OSI scene の is_host から
       読む＝面1化済みの経路）。段 b は操作イベントと状態遷移・ペダル実効値の時系列判定。
       段 c/d の状態は HVD vehicle_automated_driving_function の State 3値規律
-      （ACTIVE/STANDBY/UNAVAILABLE）に従う。段 e/g は設定速度と実効上限を
-      custom_detail（gt.acc.set_speed_mps / gt.acc.effective_cap_mps 等、gt.* 命名規約）に
+      （ACTIVE/STANDBY/UNAVAILABLE）に従う。段 e/g/h は設定値と実効値を
+      custom_detail（gt.acc.set_speed_mps / gt.acc.effective_cap_mps /
+      gt.acc.thw_setting_s / gt.acc.thw_actual_s 等、gt.* 命名規約）に
       出して判定する＝「設定した」と「効いた」を別の観測量で示す。段 f は域外進入で
       ACTIVE→STANDBY の遷移が起き、かつ介入出力が止むことの両極性判定（負系を兼ねる）。
-      段 g は有効/無効の2構成で同一刺激を走らせ、実効値の差で示す。
-      THW・応答・速度域の定量閾値は要校正。
+      段 g は有効/無効の2構成で同一刺激を走らせ、実効値の差で示す。段 h は定常追従中に
+      設定を切り替え、収束後の実測 THW が段階に応じて変わることで示す（1本の刺激で
+      2段階以上を跨ぐ＝定数フィールドでは判別しない）。
+      THW 段階の水準（例 短/中/長の3段階、実車は 1.0-2.2 s 程度）・応答・速度域の
+      定量閾値は要校正。
     realized_by: [vd-func:FUNC-079]
     verified_by: []
     related: [req-vd-ad:REQ-AD-002, req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-028]
