@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:bcea6fbdae30ed7c -->
+<!-- generated-from: sha256:0a9fd98a55a36924 -->
 
-ノード 212・辺 224（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 215・辺 226（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -161,6 +161,7 @@ flowchart LR
     n_vd_func_FUNC_075["FUNC-075"]
     n_vd_func_FUNC_079["FUNC-079"]
     n_vd_func_FUNC_080["FUNC-080"]
+    n_vd_func_FUNC_081["FUNC-081"]
     n_vd_func_FUNC_002["FUNC-002"]
     n_vd_func_FUNC_056["FUNC-056"]
   end
@@ -183,6 +184,8 @@ flowchart LR
     n_req_vd_ad_REQ_AD_028["REQ-AD-028"]
     n_req_vd_ad_REQ_AD_026["REQ-AD-026"]
     n_req_vd_ad_REQ_AD_027["REQ-AD-027"]
+    n_req_vd_ad_REQ_AD_029["REQ-AD-029"]
+    n_req_vd_ad_REQ_AD_030["REQ-AD-030"]
     n_req_vd_ad_REQ_AD_010["REQ-AD-010"]
     n_req_vd_ad_REQ_AD_011["REQ-AD-011"]
     n_req_vd_ad_REQ_AD_012["REQ-AD-012"]
@@ -383,6 +386,8 @@ flowchart LR
   n_vd_func_FUNC_080 -->|realizes| n_req_vd_ad_REQ_AD_027
   n_req_vd_ad_REQ_AD_026 -. concerns .-> n_openx_Domain_FollowRoadUser
   n_req_vd_ad_REQ_AD_027 -. concerns .-> n_openx_Domain_KeepLane
+  n_vd_func_FUNC_075 -->|realizes| n_req_vd_ad_REQ_AD_029
+  n_vd_func_FUNC_081 -->|realizes| n_req_vd_ad_REQ_AD_030
   n_req_vd_ad_REQ_AD_002 -. concerns .-> n_openx_Domain_FollowRoadUser
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P12
   n_req_vd_ad_REQ_AD_001 -->|depends-on| n_proposal_P11
@@ -630,7 +635,7 @@ flowchart LR
 | `matcher:indicator_leads_junction_turn` | `signal:junction_turn_signal_distance` | vd_metrics.py:1838- の indicator_leads_junction_turn 分岐が、frames[i]["junction_turn"] の dir/dist_to_entry_m/on_connector と frames[i]["indicator"] の left/right を**両方**読む。 **on_connector が無いと成立しない**: テレメトリ単体では road id から junction 所属を 判定できず、検証ハーネスは xodr を読めないため、「交差点に進入したフレーム」を 機械判定する手段が他に無い（junction_turn_signal.md §3-4）。 距離は ego.x/y のフレーム間ユークリッド距離の積算で測る（domain_split_holds と同型。 speed×dt の積分より頑健で、バッチ末尾の同一 sim_time 重複フレームにも耐える）。 どちらのブロックも欠けていれば skip（「何も評価しないものを pass にしない」規律）。 |
 | `matcher:overtake_decision_holds` | `signal:overtake_decision` | vd_metrics.py の overtake_decision_holds 分岐が frames[i]["overtake"] を読む。 must で指定されたキー（expect_considered / expect_blocked_reason / expect_phases / forbid_phases / expect_cleared_lead）だけを評価し、**何も指定しない must は skip** （route_lane_plan_holds / indicator_leads_lane_change と同じ「何も評価しないものを pass にしない」規律）。overtake ブロックを持つフレームが窓に1つも無ければ skip＝ 古い DLL の検出。 |
 
-### realizes (44)
+### realizes (46)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -668,6 +673,8 @@ flowchart LR
 | `vd-func:FUNC-075` | `req-vd-ad:REQ-AD-028` | ADAS 状態・DriverOverride の HVD 報告基盤（横断基盤側）が観測性要求を充足。signal:manualdrive_adas_states の (a) を塞ぐ宛先。未実装 |
 | `vd-func:FUNC-079` | `req-vd-ad:REQ-AD-026` | 手動運転中の ACC（実車標準操作系）を充足。未実装 |
 | `vd-func:FUNC-080` | `req-vd-ad:REQ-AD-027` | 手動運転中の LKA（人間操舵優先）を充足。未実装 |
+| `vd-func:FUNC-075` | `req-vd-ad:REQ-AD-029` | HVD 報告基盤＋警報提示チャネル（横断基盤側）が運転者向け HMI 提示要求を充足。表示実体は web フロント（HvdGaugePanel 既存配線の描画拡張）。未実装 |
+| `vd-func:FUNC-081` | `req-vd-ad:REQ-AD-030` | 手動運転中の速度リミッター（AEB envelope の縮退実装）を充足。未実装 |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-010` | 前方AEB→停止先行車回避(CCRs) |
 | `vd-func:FUNC-001` | `req-vd-ad:REQ-AD-011` | 前方AEB→等速/制動先行車回避(CCRm/CCRb) |
 | `vd-func:FUNC-002` | `req-vd-ad:REQ-AD-012` | VRU-AEB→横断歩行者/自転車回避(CPNA/CPFA/CBNA) |

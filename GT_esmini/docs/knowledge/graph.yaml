@@ -822,6 +822,18 @@ edges:
     source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     note: 手動運転中 LKA の車線維持補正が対象とする ODD 軸
 
+  # ---- 同日精査追補（2026-08-04）: HMI提示（REQ-AD-029）・速度リミッター（REQ-AD-030、FUNC-081 凍結例外） ----
+  - from: vd-func:FUNC-075
+    to: req-vd-ad:REQ-AD-029
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: HVD 報告基盤＋警報提示チャネル（横断基盤側）が運転者向け HMI 提示要求を充足。表示実体は web フロント（HvdGaugePanel 既存配線の描画拡張）。未実装
+  - from: vd-func:FUNC-081
+    to: req-vd-ad:REQ-AD-030
+    type: realizes
+    source: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
+    note: 手動運転中の速度リミッター（AEB envelope の縮退実装）を充足。未実装
+
   # --- 要求 -> concerns/depends-on ---
   - from: req-vd-ad:REQ-AD-002
     to: openx:Domain#FollowRoadUser

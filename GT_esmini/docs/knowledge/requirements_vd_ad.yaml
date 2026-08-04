@@ -853,17 +853,25 @@ requirements:
       - { step: b, claim: 衝突コース不在では人間のペダル指令に一切介入しない（VD版 REQ-AD-013 相当の誤介入抑止・負系）,       met: false, verified_by: [] }
       - { step: c, claim: 人間が AEB 要求以上のブレーキを既に踏んでいる場合は介入を上乗せしない（ブレーキは max 合成）,      met: false, verified_by: [] }
       - { step: d, claim: 運転者の明確な加速意思（アクセル全踏み相当・閾値は要校正）で介入を抑制し、抑制事象が観測できる,    met: false, verified_by: [] }
+      - { step: e, claim: AEB 介入に先立ち警報フェーズ（FCW）を運転者へ提示し（目安 ≥0.8 s 前・R152 由来で要校正）、警報事象が HVD で観測できる, met: false, verified_by: [] }
     acceptance: >-
       段 a/b は VD 版 AEB と同じ幾何判定（OBB分離・衝突速度）を OSI scene 経由で流用できる
       （運転主体非依存）。段 c/d は人間入力と介入出力の関係の主張であり、HVD の
       ADAS 状態＋ペダル指令の時系列で判定する（判定面は REQ-AD-028 が先行整備する）。
-      段 d の抑制閾値・ヒステリシスは設計書で確定（要校正）。
+      段 d の抑制閾値・ヒステリシスは設計書で確定（要校正）。段 e は警報→介入の
+      時系列（警報 timestamp が介入に先行しリード ≥ 閾値）で判定し、警報だけで済んだ
+      場合（人間が反応して回避＝介入なし）も警報単独事象として観測できること。
+      運転者への提示先は REQ-AD-029（HMI）、emit は gt.aeb.warning 等の gt.* 規約。
     source: "UN R152 運転者上書き規定 相当（二次資料経由・原文未確認。翻案であり準拠主張はしない）"
     realized_by: [vd-func:FUNC-075]
     verified_by: []
-    related: [req-vd-ad:REQ-AD-001, req-vd-ad:REQ-AD-013, req-vd-ad:REQ-AD-028, feature:F7]
+    related: [req-vd-ad:REQ-AD-001, req-vd-ad:REQ-AD-013, req-vd-ad:REQ-AD-028, req-vd-ad:REQ-AD-029, vd-func:FUNC-005, feature:F7]
     status: future
     note: >-
+      段 e（FCW）は vd-func:FUNC-005 の oos 理由「no-human-driver」が ManualDrive 文脈で
+      反転することから採用（2026-08-04 精査）: G29 の前に人間がいるため警報が本来の意味を
+      持つ。FUNC-005 自体は VD（AD走行）文脈の判断として oos を維持し、手動文脈の FCW は
+      本要求の警報フェーズ（FUNC-075 の警報チャネル基盤）として扱う。
       AebSafety 本体はゼロ改修で流用できる（Evaluate は TrafficPolicyContext のみを消費、
       VD 専属なのは所有関係と constraint 消費側だけ — 調査 2026-08-04）。新設は
       「constraint→ペダルクランプ」の envelope モジュール（AdSteeringEnvelope と同型・
@@ -946,11 +954,15 @@ requirements:
       - { step: c, claim: on/off と状態遷移が HVD に出る,                                                met: false, verified_by: [] }
       - { step: d, claim: 補正が FFB 反力として実ハンドルに伝わる（G29 実機限定観点・自動ゲート対象外）,  met: false, verified_by: [] }
       - { step: e, claim: 利用可能速度域（作動下限/上限）が設定可能で、域外では介入せず STANDBY に留まる（域内復帰で再び作動可）, met: false, verified_by: [] }
+      - { step: f, claim: 逸脱傾向の警報（LDW）を補正介入に先行/独立して提示でき、警報のみモード（介入 off・警報 on）が構成可能, met: false, verified_by: [] }
     acceptance: >-
       段 a はレーン相対横位置（OSI assigned_lane / lane_map 面1化済み経路）で判定。
       段 b は操舵入力・指示器状態と補正出力の排他の時系列判定。段 d は駐車検証計画 §6 と
       同じ「G29 実機限定」区分に置き、自動回帰ゲートの対象にしない。段 e は域外速度での
       逸脱刺激（介入しないこと＝負系）と域内の同一刺激（介入すること）の両極性で判定する。
+      段 f は警報 emit（gt.lka.warning 等）と補正出力の分離観測＝警報のみモードで
+      「警報は出るが cmd.steering は不変」の両極性で判定する。提示先は REQ-AD-029、
+      警報チャネルは FCW（REQ-AD-025 段 e）と共有。
       閾値（逸脱判定の横位置/横速度、人間操舵優先のトルク/角度閾値、速度域の既定値）は要校正。
     realized_by: [vd-func:FUNC-080]
     verified_by: []
@@ -1001,3 +1013,68 @@ requirements:
       gt_sim_test は VD テレメトリ必須で ManualDrive 走行は即エラー・HVD(48199) は
       面3から未読・policy 注入も VirtualDriverController 固定。判定手法は
       -NoTouchParity の「自己決定論性コントロール→決定フィールド厳密一致」を踏襲する。
+
+  - id: REQ-AD-029
+    title: ADAS の状態・設定・警報が運転者に提示される（HMI）
+    tier: '-'
+    agent: ADAS
+    kind: positive
+    statement: >-
+      WHILE ManualDrive 中に ADAS が稼働しているとき、各機能の状態（on/off・STANDBY/ACTIVE）、
+      設定値（ACC 設定速度・車間段階・リミッター設定速度）、および警報（FCW/LDW）が
+      運転者へ提示されること。
+    scenario: >-
+      専用刺激は持たず、REQ-AD-025/026/027/030 の刺激で HMI 側の提示を確認する
+      （観測性 REQ-AD-028 と同じ横断適用）。
+    acceptance_ladder:
+      - { step: a, claim: 状態・設定値が運転席 UI（ManualDrivePanel / HvdGaugePanel）に表示される,            met: false, verified_by: [] }
+      - { step: b, claim: 警報（FCW/LDW）が運転者に提示される（UI 必須。FFB パルス・音は拡張オプション）,     met: false, verified_by: [] }
+      - { step: c, claim: 提示は HVD（48199）の既存配線（osi_bridge）由来＝表示専用の面2直結経路を新設しない, met: false, verified_by: [] }
+    acceptance: >-
+      表示そのものはフロントエンドの領分で自動 matcher の対象外（目視確認＋フロント側
+      テスト流儀）。自動判定するのは emit 側＝状態・設定値・警報が HVD
+      （vehicle_automated_driving_function の custom_detail / custom_state）に出ていること
+      （REQ-AD-028 段 a の判定と共有）。段 c は実装レビュー基準（新規 UDP/API を掘らない）。
+    realized_by: [vd-func:FUNC-075]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-028, req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-027, req-vd-ad:REQ-AD-030]
+    status: future
+    note: >-
+      REQ-AD-028（面3=検証環境向け観測性）と対を成す運転者向け提示（2026-08-04 精査で採用）。
+      運転者が設定速度・車間段階を見られないと REQ-AD-026 段 e/h の走行中操作は実用に
+      ならない＝操作系要求の前提。HvdGaugePanel には HVD ライブ表示の既存配線があり、
+      vehicle_automated_driving_function[] の描画拡張が実体（現状の描画範囲は未調査）。
+      警報提示チャネル（UI/FFB パルス/音）は FUNC-075 横断基盤に置き、
+      FCW（REQ-AD-025 段 e）と LDW（REQ-AD-027 段 f）で共有する。
+
+  - id: REQ-AD-030
+    title: 手動運転中の速度リミッター（MSL・制限速度連動オプション）
+    tier: compliance
+    agent: ADAS
+    kind: positive
+    statement: >-
+      WHILE 人間が運転しリミッターが ON のとき、システムは設定速度を超えないよう
+      スロットルをキャップし（追従・ブレーキ介入はしない）、運転者の明確な
+      全踏み操作（キックダウン相当）で一時解除できること。
+    scenario: >-
+      未整備。平坦直線路＋全開スロットル合成入力（キャップが効くこと）、全踏み解除→復帰、
+      下り坂（スロットルキャップの限界＝ブレーキ介入しないことの負系）。
+    acceptance_ladder:
+      - { step: a, claim: 設定速度を超えないようスロットルがキャップされる（追従なし・ブレーキ介入なし）,        met: false, verified_by: [] }
+      - { step: b, claim: アクセル全踏み（キックダウン相当・閾値要校正）で一時解除し、離すと復帰する,            met: false, verified_by: [] }
+      - { step: c, claim: 制限速度連動モード（設定値でなく道路の制限速度をキャップ値に使う）の有無が設定可能,    met: false, verified_by: [] }
+      - { step: d, claim: 状態と実効キャップが HVD に出る（gt.msl.* 規約）,                                      met: false, verified_by: [] }
+    acceptance: >-
+      段 a はスロットルのみのキャップであること＝下り坂で設定速度を超えてもブレーキが
+      出ない（リミッターの定義、負系）を含む。段 b は解除→復帰の時系列。段 c は
+      有効/無効の2構成比較（REQ-AD-026 段 g と同じ両極性判定）。設定速度の走行中変更・
+      利用可能速度域は ACC（REQ-AD-026 段 e/f）と同じ操作基盤・語彙に乗せる。
+    realized_by: [vd-func:FUNC-081]
+    verified_by: []
+    related: [req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-029]
+    status: future
+    note: >-
+      2026-08-04 精査で採用。実装は AEB envelope（constraint→ペダルクランプ）と同一機構の
+      縮退＝スロットル片側クランプのみ＝追加コストが最小。制限速度参照は REQ-AD-026 段 g と
+      同じ GetSpeedLimit() 経路。段 b の全踏み解除は REQ-AD-025 段 d（AEB 抑制）と同じ
+      キックダウン検出を共有する。ACC と同時 ON の調停（実車では通常排他）は設計書で確定する。
