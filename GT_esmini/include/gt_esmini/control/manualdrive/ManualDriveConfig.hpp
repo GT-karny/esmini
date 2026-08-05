@@ -439,7 +439,8 @@ struct ManualDriveConfig
             // reached 1.0.
             //
             // Re-measuring needs the physical wheel, so it is on
-            // test_results/f7_realmachine_checklist.md (R-1), not fixable
+            // GT_esmini/docs/virtualdriver/field-test/realmachine_open_items.md
+            // (R-1), not fixable
             // here. Until then, treat any conclusion that leans on these
             // constants as resting on one session's data.
             double override_shadow_v_max                = 1.0;   // axis-frac / s
@@ -682,8 +683,8 @@ struct ManualDriveConfig
         // throttle axis ([0,1]). A real G29 pedal may never reach 0.95 after
         // deadzone/axis calibration, even though synthetic input
         // (ScriptedInputSource) can always emit exactly 1.0 -- see
-        // test_results/f7_realmachine_checklist.md R-4 for the real-pedal
-        // measurement that resolves this (2026-08-05).
+        // GT_esmini/docs/virtualdriver/field-test/realmachine_open_items.md
+        // R-4 for the real-pedal measurement that resolves this (2026-08-05).
         double kickdown_threshold         = 0.95;  // engage, accelerator fraction [0,1]
         double kickdown_release_threshold = 0.80;  // release (hysteresis band), [0,1]
 
@@ -842,7 +843,7 @@ struct ManualDriveConfig
 
             // Human steering priority (design §5-3). REQUIRES CALIBRATION;
             // the real-wheel figure is a G29 item
-            // (test_results/f7_realmachine_checklist.md).
+            // (GT_esmini/docs/virtualdriver/field-test/realmachine_open_items.md).
             double steer_override_rate   = 0.03;
             double steer_override_hold_s = 2.0;
         } lka;

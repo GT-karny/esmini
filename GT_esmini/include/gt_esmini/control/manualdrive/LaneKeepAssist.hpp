@@ -245,7 +245,7 @@ struct LaneKeepAssistConfig
     // wheel this detector would therefore fire on a driver sitting still, and the
     // fix (a higher threshold, or filtering the input before differencing it)
     // cannot be chosen from synthetic data. Logged as a real-machine item
-    // (test_results/f7_realmachine_checklist.md).
+    // (GT_esmini/docs/virtualdriver/field-test/realmachine_open_items.md).
     double steer_override_rate = 0.06;  // [steer-norm / s]
 
     // How long the steering-input suppression is HELD after the rate falls back
@@ -263,7 +263,7 @@ struct LaneKeepAssistConfig
     // the middle of it, which is what a 1.0 s hold did (the assist came back
     // and fought a hand that had not moved). REQUIRES CALIBRATION, and the
     // calibration that would actually settle it is a real-wheel torque
-    // measurement (test_results/f7_realmachine_checklist.md).
+    // measurement (GT_esmini/docs/virtualdriver/field-test/realmachine_open_items.md).
     double steer_override_hold_s = 2.0;
 };
 

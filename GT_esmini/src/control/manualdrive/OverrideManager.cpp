@@ -266,7 +266,7 @@ void OverrideManager::Update(const InputFrame& input, double dt)
             // the run starts and holds it PERFECTLY still has to move it once
             // to take control. Whether a real hand is ever that still is a
             // question about hardware, not about this code — see
-            // test_results/f7_realmachine_checklist.md.
+            // GT_esmini/docs/virtualdriver/field-test/realmachine_open_items.md.
             axis_baseline_active_ = std::abs(axis) > steering_threshold_;
         }
         else if (axis_baseline_active_ && std::abs(axis) <= steering_threshold_)

@@ -18,7 +18,7 @@
 > **f=0.58 の 0.954 /s で頭打ち**（サーボの力上限が 0.6 のため）であり、
 > **1.0 に到達したサンプルは 1 つも無い**。1.0 はその飽和漸近線の当てはめ値である。
 >
-> 再測定には実機が要るので `test_results/f7_realmachine_checklist.md` R-1 に載せてある。
+> 再測定には実機が要るので `GT_esmini/docs/virtualdriver/field-test/realmachine_open_items.md` R-1 に載せてある。
 > それまでは、**本書の定数に依存する結論は「1 セッション分の証拠」**として扱うこと。
 
 ---

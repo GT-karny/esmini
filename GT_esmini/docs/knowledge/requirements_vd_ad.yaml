@@ -1021,7 +1021,7 @@ requirements:
       **段 d を met にしない理由**: FFB 反力として実ハンドルに伝わるかは headless の plant
       モデルでは代替できない（検証計画 §6 の G29 実機限定区分）。補正が cmd.steering に
       乗ることは自動で示せるが、それが実デバイスのトルクとして手に届くかは別の主張である。
-      test_results/f7_realmachine_checklist.md に項目として起票済み。
+      GT_esmini/docs/virtualdriver/field-test/realmachine_open_items.md に項目として起票済み。
 
       **新設したのは LaneKeepAssist で、既存部品の流用はゼロだった**（設計時の調査どおり:
       PIDPurePursuit はトラジェクトリ preview 点列への追従でレーン中心を追わない）。
