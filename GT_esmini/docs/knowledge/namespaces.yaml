@@ -420,7 +420,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/gate_catalog.yaml
     status: active
-    count: 14
+    count: 17  # 2026-08-06: 実体は 16 だったが count は 14 のまま（scenario-handoff / stop-line-pairing 追加時に未更新）。実数に合わせ直したうえで manualdrive-adas-regression を足した
     notes: >-
       検証スパイン⑥常設（capability_model.md §4）。カタログの真実源は実行系
       （root CLAUDE.md §5 ＋ scripts/ ＋ .github/workflows/ci.yml）で、本ノードは

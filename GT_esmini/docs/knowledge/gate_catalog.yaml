@@ -176,6 +176,67 @@ gates:
       （ローカルは既定を -FailOnBehavioral 相当へ）。
 
   # ---- ODR 適合（面1を測る系＝§0.3 の「手本」） ----
+  - id: manualdrive-adas-regression
+    title: 手動運転中ADAS 挙動回帰（manualdrive_adas バッチ vs committed baseline）
+    command: >-
+      gt_sim_test.py batch resources/xosc/verification/manualdrive_adas_batch.yaml →
+      scripts/check_regression_baseline.py --baseline GT_esmini/test/regression_baseline/manualdrive_adas_expected.yaml
+    context: both  # local（regression-gate Step 2.10）＋ ci.yml vd-behavioral-regression job（非ブロッキング）
+    blocking: false  # 既定 WARN。ローカルは -FailOnBehavioral でハード化／CI は continue-on-error
+    requires: [release-build, venv]  # GT_esminiLib.dll を in-process ロード。osi:true＋HVD直読が必須
+    covers: >-
+      **人間が運転している最中に並行稼働する ADAS**を 30 シナリオ・82 matcher で常設判定
+      （2026-08-06 時点 30/30・**known-red を持たないベースライン**）。列は
+      REQ-AD-025（AEB＋FCW、vd-func:FUNC-075）／REQ-AD-026（ACC、FUNC-079）／
+      REQ-AD-027（LKA＋LDW、FUNC-080）／REQ-AD-030（MSL、FUNC-081）／
+      REQ-AD-031 段a/b（Stop&Go）／REQ-AD-028（面3観測性＝State 3値規律と
+      DriverOverride の accel/brake/steering 3経路）。
+      正負が同一マニフェスト・同一ベースラインに同居し、さらに**同一 xosc を2構成で回す
+      `variant` 対**（adas_off／左右／warning_only／速度域の域内外／制限速度キャップ有無）が
+      「切ってあった」と「見張っていて撃たなかった」の区別そのものを判定している。
+      本ゲート以前、**ManualDrive 文脈の ADAS を判定する matcher は常設ゲートに1件も無かった**
+      （C++ ユニットは gate:unit-ctest で常設だが、それは部品の単体であって
+      ManualDriveCoordinator 経由の統合挙動ではない）。
+    not_covers: >-
+      **G29 実機限定の観点は原理的に入らない**（検証計画 §6 の区分）: LKA 補正が実ハンドルの
+      反力として手に届くか（REQ-AD-027 段d）、AEB 介入中の触感、実ホイールのコラムジッタに
+      対する人間操舵優先の誤発火（field-test/realmachine_open_items.md R-5〜R-8）。
+      合成入力（ScriptedInputSource）はノイズがゼロなので、**ジッタ由来の誤発火は
+      このゲートが緑のまま実機で機能が死ぬ**形になりうる — 名前が「手動運転中ADAS」で
+      あることが実機での動作を含意しない、という意味でここは特に注意が要る。
+      REQ-AD-029（HMI 提示）も入らない: 描画はフロントの領分で、供給側（HVD への emit と
+      その web バックエンド射影）だけが自動判定の対象（射影のテストは pytest
+      GT_esmini/web/backend/tests/test_osi_stream_adas_functions.py が担い、本ゲートの外）。
+      REQ-AD-031 段c/d（時限・自動再発進）は実装スコープ外。
+    note: >-
+      **本ゲートの新設(2026-08-06)は gate:aeb-safety-regression の前例をそのままなぞっている**
+      — Step 2 に合流させず独立ゲートにしたのは (1)赤が出た時「どの主張が壊れたか」が
+      レポートを開かずに分かる (2)Step 2 の baseline が抱える known-red が退行を覆い隠さない、の2点。
+      正負を同一 baseline に置いたのは、片方だけを守ると「閾値を下げて正例を通し負例を壊す」
+      取引がゲートを素通りするため。
+      **ベースライン凍結の前提を先に測った**: 同一ビルドで3回連続実行し、30/30・error=0・
+      access violation なし、かつ決定フィールド（調停後の実効ペダル/操舵＋機能別 State＋
+      DriverOverride＋custom_state）が 20,400 フレーム全てで完全一致することを確認してから
+      凍結した（GT_esmini/docs/virtualdriver/measurements/manualdrive_adas_determinism_2026-08-06.md。
+      比較器自体は 1e-6 の単一フィールド差で発火することを負の対照で実証済み）。
+      断続的なネイティブクラッシュ（既知欠陥 measurements/gt_sim_test_intermittent_crash_2026-08-05.md）
+      が混ざった凍結は、以後の赤が退行か揺れか永久に弁別できなくなるため。
+      **赤を読む順序**: `error` が 1 以上なら **deviations より先に access violation を疑う**
+      — 測定されていないシナリオについて deviations は何も言っていない。
+      **本バッチの全機能は既定 OFF** で、バッチが注入 config で個別に有効化する。
+      したがってここが赤い＝ManualDrive ADAS スタックが変わった、であって既定挙動が
+      変わったではない。
+      **CI 配線（2026-08-06）**: 独立 job ではなく既存の `vd-behavioral-regression` job に
+      相乗り（AEB 前例と同じ＝Release ビルドの二重化回避）。赤の切り分けはステップ名と
+      artifact 分離（`manualdrive-adas-regression-report`）で担保。
+      **CI 上での初回実走はまだ観測していない**（同 job は PR / dev_v* / master /
+      手動 dispatch でしか起動しない）。非ブロッキングで開始したのはこれが理由で、
+      本バッチは ManualDriveController 配下で OSI scene ＋ in-process HVD からフレームを
+      取る唯一のバッチであり、その経路が CI ランナーで同じに振る舞うかが未確認である。
+      初回から hard にすると赤が「退行」か「CI 環境差」か弁別できなくなる。
+      **昇格手順**: compare ステップの `continue-on-error` を外す（ローカル側は既定を
+      -FailOnBehavioral 相当へ）。
+
   - id: odr-conformance-quick
     title: ODR適合 quick プロファイル（schema + rm + motion）
     command: scripts/run_odr_conformance.py --profile quick

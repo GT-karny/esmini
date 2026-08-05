@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:c6f9bafc4ea4b173 -->
+<!-- generated-from: sha256:c63873f27ea6565a -->
 
-ノード 236・辺 266（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 237・辺 291（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -212,23 +212,23 @@ flowchart LR
     n_matcher_lane_change_count["lane_change_count"]
     n_matcher_min_speed_above["min_speed_above"]
     n_matcher_speed_reduction_before_landmark["speed_reduction_before_landmark"]
-    n_matcher_steer_not_saturated["steer_not_saturated"]
-    n_matcher_no_constraint_kind["no_constraint_kind"]
-    n_matcher_overtake_decision_holds["overtake_decision_holds"]
     n_matcher_manual_aeb_fires["manual_aeb_fires"]
-    n_matcher_no_intervention_in_window["no_intervention_in_window"]
     n_matcher_brake_not_stacked["brake_not_stacked"]
     n_matcher_fcw_leads_intervention["fcw_leads_intervention"]
     n_matcher_adas_state_matches["adas_state_matches"]
+    n_matcher_no_intervention_in_window["no_intervention_in_window"]
     n_matcher_driver_override_reported["driver_override_reported"]
-    n_matcher_setting_reflected["setting_reflected"]
     n_matcher_adas_state_sequence["adas_state_sequence"]
+    n_matcher_setting_reflected["setting_reflected"]
     n_matcher_speed_capped_at["speed_capped_at"]
     n_matcher_no_brake_output["no_brake_output"]
     n_matcher_stop_hold_stationary["stop_hold_stationary"]
     n_matcher_restart_after_trigger["restart_after_trigger"]
     n_matcher_lane_kept_within["lane_kept_within"]
     n_matcher_steer_output_absent["steer_output_absent"]
+    n_matcher_steer_not_saturated["steer_not_saturated"]
+    n_matcher_no_constraint_kind["no_constraint_kind"]
+    n_matcher_overtake_decision_holds["overtake_decision_holds"]
   end
   subgraph sg_vd_component["vd-component｜VirtualDriver 実装ユニット（ITrafficPolicy 以外の層）"]
     n_vd_component_route_lane_plan["route-lane-plan"]
@@ -265,6 +265,7 @@ flowchart LR
   subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
     n_gate_vd_behavior_regression["vd-behavior-regression"]
     n_gate_aeb_safety_regression["aeb-safety-regression"]
+    n_gate_manualdrive_adas_regression["manualdrive-adas-regression"]
     n_gate_anticipation_driving_regression["anticipation-driving-regression"]
     n_gate_integration_ctest["integration-ctest"]
     n_gate_regression_gate["regression-gate"]
@@ -472,6 +473,30 @@ flowchart LR
   n_matcher_no_emergency_without_conflict -->|sustained-by| n_gate_aeb_safety_regression
   n_req_vd_ad_REQ_AD_001 -->|sustained-by| n_gate_aeb_safety_regression
   n_req_vd_ad_REQ_AD_013 -->|sustained-by| n_gate_aeb_safety_regression
+  n_matcher_manual_aeb_fires -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_brake_not_stacked -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_fcw_leads_intervention -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_adas_state_matches -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_no_intervention_in_window -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_driver_override_reported -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_adas_state_sequence -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_setting_reflected -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_speed_capped_at -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_no_brake_output -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_stop_hold_stationary -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_restart_after_trigger -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_lane_kept_within -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_steer_output_absent -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_req_vd_ad_REQ_AD_025 -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_req_vd_ad_REQ_AD_026 -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_req_vd_ad_REQ_AD_027 -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_req_vd_ad_REQ_AD_028 -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_req_vd_ad_REQ_AD_030 -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_req_vd_ad_REQ_AD_031 -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_vd_func_FUNC_075 -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_vd_func_FUNC_079 -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_vd_func_FUNC_080 -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_vd_func_FUNC_081 -->|sustained-by| n_gate_manualdrive_adas_regression
   n_matcher_deceleration_profile_smooth -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_speed_reduction_before_landmark -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_indicator_leads_junction_turn -->|sustained-by| n_gate_anticipation_driving_regression
@@ -484,6 +509,7 @@ flowchart LR
   n_gate_regression_gate -->|depends-on| n_gate_vd_behavior_regression
   n_gate_regression_gate -->|depends-on| n_gate_aeb_safety_regression
   n_gate_regression_gate -->|depends-on| n_gate_anticipation_driving_regression
+  n_gate_regression_gate -->|depends-on| n_gate_manualdrive_adas_regression
   n_gate_odr_conformance_quick -->|depends-on| n_gate_fork_census
   n_gate_odr_conformance_quick -->|depends-on| n_gate_fork_drift
   n_gate_odr_conformance_quick -->|depends-on| n_gate_resync_guards
@@ -628,7 +654,7 @@ flowchart LR
 | `req-vd-ad:REQ-AD-027` | `openx:Domain#KeepLane` | 手動運転中 LKA の車線維持補正が対象とする ODD 軸 |
 | `req-vd-ad:REQ-AD-002` | `openx:Domain#FollowRoadUser` | 先行車追従のODD軸 |
 
-### depends-on (26)
+### depends-on (27)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -650,6 +676,7 @@ flowchart LR
 | `gate:regression-gate` | `gate:vd-behavior-regression` | Step 2（既定 WARN、-FailOnBehavioral でハード化） |
 | `gate:regression-gate` | `gate:aeb-safety-regression` | Step 2.6（既定 WARN、-FailOnBehavioral でハード化、-SkipAeb で単独スキップ）。 Step 2 と同じ recipe（共有関数 Invoke-BehavioralBatch）を別マニフェスト・別ベースラインで回す。 |
 | `gate:regression-gate` | `gate:anticipation-driving-regression` | Step 2.7（既定 WARN、-FailOnBehavioral でハード化、-SkipAnticipation で単独スキップ）。 Step 2/2.6 と同じ共有関数 Invoke-BehavioralBatch を別マニフェスト・別ベースラインで回す。 |
+| `gate:regression-gate` | `gate:manualdrive-adas-regression` | Step 2.10（既定 WARN、-FailOnBehavioral でハード化、-SkipManualAdas で単独スキップ）。 Step 2/2.6/2.7 と同じ共有関数 Invoke-BehavioralBatch を別マニフェスト・別ベースラインで回す。 番号は連番ラベルであって小数ではない（2.9 の次が 2.10）。 |
 | `gate:odr-conformance-quick` | `gate:fork-census` | :1556-1558 はプロファイル分岐より前で無条件＝CI の schema-only 起動でも走る。 census/drift/resync-guards が「独立スクリプト」ではなく適合ハーネスに内包された 常設ゲートであることは、名前からは読めない事実。 |
 | `gate:odr-conformance-quick` | `gate:fork-drift` |  |
 | `gate:odr-conformance-quick` | `gate:resync-guards` |  |
@@ -794,7 +821,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (23)
+### sustained-by (47)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -809,6 +836,30 @@ flowchart LR
 | `matcher:no_emergency_without_conflict` | `gate:aeb-safety-regression` | 負例3件（normal_following / benign_cutin / parallel_overtake）の主判定 |
 | `req-vd-ad:REQ-AD-001` | `gate:aeb-safety-regression` | 正例2シナリオ（直進=緩和 / カーブ=完全回避） |
 | `req-vd-ad:REQ-AD-013` | `gate:aeb-safety-regression` | 負例3シナリオ（SOTIF ミラー）。正負を同一ゲート・同一ベースラインに置くのは、 片方だけを守ると「閾値を下げて正例を通し負例を壊す」取引が素通りするため。 |
+| `matcher:manual_aeb_fires` | `gate:manualdrive-adas-regression` | 手動運転中の AEB 実介入（REQ-AD-025 段a）。md_aeb_unresponsive ほか4シナリオ |
+| `matcher:brake_not_stacked` | `gate:manualdrive-adas-regression` | 人間のブレーキに AEB を上乗せしない＝max合成（REQ-AD-025 段c）。 **E2E 側の識別力には限界がある**（この幾何ではブレーキが 1.0 に飽和し、max合成と 「合算してクランプ」が同じ観測値になる）。合成規則そのものの赤実証は test_PedalArbitrator.cpp が gate:unit-ctest 側で担う。 |
+| `matcher:fcw_leads_intervention` | `gate:manualdrive-adas-regression` | FCW が AEB 介入に先行する（REQ-AD-025 段e）。常設で守られるのは **候補が徐々に閾値へ近づく遭遇**（md_aeb_stationary_lead、実測リード 1.450 s）だけで、 cut-in 類型ではリードが構造的に消える（design §3-2）。 |
+| `matcher:adas_state_matches` | `gate:manualdrive-adas-regression` | 機能別 State の 3値規律（REQ-AD-028 段a）。本バッチ最多の 25 用法で、 UNAVAILABLE（切ってあった）と STANDBY（見張っていて撃たなかった）の区別を 同一 xosc の `variant` 2構成で判定している。 |
+| `matcher:no_intervention_in_window` | `gate:manualdrive-adas-regression` | 誤介入しないこと（REQ-AD-025 段b／REQ-AD-026 段b・f）。負側の主判定 |
+| `matcher:driver_override_reported` | `gate:manualdrive-adas-regression` | DriverOverride の面3報告（REQ-AD-028 段b）。3経路 accel（custom_state）/ brake（REASON_BRAKE_PEDAL）/ steering（REASON_STEERING_INPUT）が **すべて常設で発火する**のは本ゲートが初めて。負方向は `driver_override.present` を要求する（書かれていなければ pass ではなく skip）。 |
+| `matcher:adas_state_sequence` | `gate:manualdrive-adas-regression` | ACC の状態遷移が操作と整合すること（REQ-AD-026 段b/c/f） |
+| `matcher:setting_reflected` | `gate:manualdrive-adas-regression` | 走行中の設定変更が実効値へ反映されること（REQ-AD-026 段e/h）。 「設定した」と「効いた」を別の観測量で見るのが要点。 |
+| `matcher:speed_capped_at` | `gate:manualdrive-adas-regression` | 設定速度・制限速度キャップ・MSL の実効上限（REQ-AD-026 段a/g／REQ-AD-030） |
+| `matcher:no_brake_output` | `gate:manualdrive-adas-regression` | MSL はスロットルを絞るだけでブレーキを出さない（REQ-AD-030 の負側） |
+| `matcher:stop_hold_stationary` | `gate:manualdrive-adas-regression` | 停止保持が実際に車両を止め続けること（REQ-AD-031 段a）。 この判定は停止判定しきい値がクリープ床より上にあって初めて到達可能である （design §12 の恒久ルール）。 |
+| `matcher:restart_after_trigger` | `gate:manualdrive-adas-regression` | 人間の再発進操作で追従が復帰すること（REQ-AD-031 段b） |
+| `matcher:lane_kept_within` | `gate:manualdrive-adas-regression` | LKA 補正で車線内に留まること（REQ-AD-027 段a）。**両極性を1つの matcher で持つ** ——速度域外の構成では逸脱が起きることを期待する側で判定する。 |
+| `matcher:steer_output_absent` | `gate:manualdrive-adas-regression` | 抑制時に補正が出ないこと（REQ-AD-027 段b/c）。指示器・人間操舵・速度域外の 3つの抑制経路それぞれで発火する。 |
+| `req-vd-ad:REQ-AD-025` | `gate:manualdrive-adas-regression` | 手動運転中 AEB＋FCW。正例（介入する）と負例（介入しない）が同一ベースラインに同居 |
+| `req-vd-ad:REQ-AD-026` | `gate:manualdrive-adas-regression` | 手動運転中 ACC（追従・解除と復帰・設定変更・速度域・制限速度キャップ・AEB独立性） |
+| `req-vd-ad:REQ-AD-027` | `gate:manualdrive-adas-regression` | 手動運転中 LKA＋LDW。**段d（FFB 反力として手に届くか）はこのゲートの射程外**で、 G29 実機限定として field-test/realmachine_open_items.md R-7 に残る。 |
+| `req-vd-ad:REQ-AD-028` | `gate:manualdrive-adas-regression` | 面3観測性（State 3値規律・DriverOverride 3経路・ハーネスの HVD 直読） |
+| `req-vd-ad:REQ-AD-030` | `gate:manualdrive-adas-regression` | MSL（スロットル片側クランプ・制限速度連動・キックダウン一時解除・ACC排他） |
+| `req-vd-ad:REQ-AD-031` | `gate:manualdrive-adas-regression` | Stop&Go 段a/b のみ（段c/d＝時限・自動再発進は実装スコープ外） |
+| `vd-func:FUNC-075` | `gate:manualdrive-adas-regression` | AEB 並行監視と横断基盤（ペダル envelope・HVD 報告経路・DriverOverride・警報チャネル）。 gate:unit-ctest が部品の単体を守るのに対し、本ゲートは **ManualDriveCoordinator 経由の統合挙動**を守る（両方要る）。 |
+| `vd-func:FUNC-079` | `gate:manualdrive-adas-regression` | AccLonController の統合挙動（gate:unit-ctest は同機能の単体側） |
+| `vd-func:FUNC-080` | `gate:manualdrive-adas-regression` | LaneKeepAssist の統合挙動（gate:unit-ctest は同機能の単体側） |
+| `vd-func:FUNC-081` | `gate:manualdrive-adas-regression` | SpeedLimiter の統合挙動（gate:unit-ctest は同機能の単体側） |
 | `matcher:deceleration_profile_smooth` | `gate:anticipation-driving-regression` | decelerate_for_curve / decelerate_for_left_turn / speed_limit_change の3シナリオ。 osi:true で **a=osi の面1直読加速度**（ego_accel_long ●）から bounded decel/jerk を判定。 |
 | `matcher:speed_reduction_before_landmark` | `gate:anticipation-driving-regression` | 4シナリオ（curve/left_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。 |
 | `matcher:indicator_leads_junction_turn` | `gate:anticipation-driving-regression` | 3シナリオ（decelerate_for_left_turn / junction_turn_signal_long_connector / cross_straight_junction）。このバッチは run_regression_gate.ps1 Step 2.7 と CI の vd-behavioral-regression ジョブの**両方**で走るため、新しい gate を起こさずに ⑥常設を満たせる（junction_turn_signal.md §4-3）。 **req-vd-ad:REQ-AD-018 が sustained-by 未結線のまま放置されている状態を再生産しない** ために、matcher の新設と同じサイクルで結線した（あちらの route_lane_batch.yaml は baseline すら無く、ゲートにも CI にも載っていない孤立 matcher になっている）。 |

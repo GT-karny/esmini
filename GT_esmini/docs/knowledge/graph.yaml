@@ -1265,6 +1265,166 @@ edges:
       負例3シナリオ（SOTIF ミラー）。正負を同一ゲート・同一ベースラインに置くのは、
       片方だけを守ると「閾値を下げて正例を通し負例を壊す」取引が素通りするため。
 
+  # ---- ⑥常設: 手動運転中ADASを常設ゲートへ（2026-08-06・フェーズE） ----
+  # フェーズA〜Dで①〜⑤は縫えていたが⑥が空で、--brief vd-func:FUNC-075 が
+  # REQ-AD-025/028 について「判定 matcher はあるが常設ゲートに乗っていない
+  # （一度検証したきり）」を出し続けていた。gate:manualdrive-adas-regression を
+  # 新設し（run_regression_gate.ps1 Step 2.10 + manualdrive_adas_batch.yaml +
+  # committed baseline）、要求6件・matcher 14件・機能4件を結線して閉じる。
+  #
+  # 二重結線しない: 本バッチは min_speed_above / speed_below / impact_speed_below
+  # でも発火するが、この3件の常設保証は既に gate:vd-behavior-regression /
+  # gate:aeb-safety-regression 側で済んでいる（gate:anticipation-driving-regression が
+  # 速度系について立てたのと同じ判断）。
+  - from: matcher:manual_aeb_fires
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: 手動運転中の AEB 実介入（REQ-AD-025 段a）。md_aeb_unresponsive ほか4シナリオ
+  - from: matcher:brake_not_stacked
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      人間のブレーキに AEB を上乗せしない＝max合成（REQ-AD-025 段c）。
+      **E2E 側の識別力には限界がある**（この幾何ではブレーキが 1.0 に飽和し、max合成と
+      「合算してクランプ」が同じ観測値になる）。合成規則そのものの赤実証は
+      test_PedalArbitrator.cpp が gate:unit-ctest 側で担う。
+  - from: matcher:fcw_leads_intervention
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      FCW が AEB 介入に先行する（REQ-AD-025 段e）。常設で守られるのは
+      **候補が徐々に閾値へ近づく遭遇**（md_aeb_stationary_lead、実測リード 1.450 s）だけで、
+      cut-in 類型ではリードが構造的に消える（design §3-2）。
+  - from: matcher:adas_state_matches
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      機能別 State の 3値規律（REQ-AD-028 段a）。本バッチ最多の 25 用法で、
+      UNAVAILABLE（切ってあった）と STANDBY（見張っていて撃たなかった）の区別を
+      同一 xosc の `variant` 2構成で判定している。
+  - from: matcher:no_intervention_in_window
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: 誤介入しないこと（REQ-AD-025 段b／REQ-AD-026 段b・f）。負側の主判定
+  - from: matcher:driver_override_reported
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      DriverOverride の面3報告（REQ-AD-028 段b）。3経路 accel（custom_state）/
+      brake（REASON_BRAKE_PEDAL）/ steering（REASON_STEERING_INPUT）が
+      **すべて常設で発火する**のは本ゲートが初めて。負方向は
+      `driver_override.present` を要求する（書かれていなければ pass ではなく skip）。
+  - from: matcher:adas_state_sequence
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: ACC の状態遷移が操作と整合すること（REQ-AD-026 段b/c/f）
+  - from: matcher:setting_reflected
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      走行中の設定変更が実効値へ反映されること（REQ-AD-026 段e/h）。
+      「設定した」と「効いた」を別の観測量で見るのが要点。
+  - from: matcher:speed_capped_at
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: 設定速度・制限速度キャップ・MSL の実効上限（REQ-AD-026 段a/g／REQ-AD-030）
+  - from: matcher:no_brake_output
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: MSL はスロットルを絞るだけでブレーキを出さない（REQ-AD-030 の負側）
+  - from: matcher:stop_hold_stationary
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      停止保持が実際に車両を止め続けること（REQ-AD-031 段a）。
+      この判定は停止判定しきい値がクリープ床より上にあって初めて到達可能である
+      （design §12 の恒久ルール）。
+  - from: matcher:restart_after_trigger
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: 人間の再発進操作で追従が復帰すること（REQ-AD-031 段b）
+  - from: matcher:lane_kept_within
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      LKA 補正で車線内に留まること（REQ-AD-027 段a）。**両極性を1つの matcher で持つ**
+      ——速度域外の構成では逸脱が起きることを期待する側で判定する。
+  - from: matcher:steer_output_absent
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      抑制時に補正が出ないこと（REQ-AD-027 段b/c）。指示器・人間操舵・速度域外の
+      3つの抑制経路それぞれで発火する。
+  - from: req-vd-ad:REQ-AD-025
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: 手動運転中 AEB＋FCW。正例（介入する）と負例（介入しない）が同一ベースラインに同居
+  - from: req-vd-ad:REQ-AD-026
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: 手動運転中 ACC（追従・解除と復帰・設定変更・速度域・制限速度キャップ・AEB独立性）
+  - from: req-vd-ad:REQ-AD-027
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      手動運転中 LKA＋LDW。**段d（FFB 反力として手に届くか）はこのゲートの射程外**で、
+      G29 実機限定として field-test/realmachine_open_items.md R-7 に残る。
+  - from: req-vd-ad:REQ-AD-028
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: 面3観測性（State 3値規律・DriverOverride 3経路・ハーネスの HVD 直読）
+  - from: req-vd-ad:REQ-AD-030
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: MSL（スロットル片側クランプ・制限速度連動・キックダウン一時解除・ACC排他）
+  - from: req-vd-ad:REQ-AD-031
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: Stop&Go 段a/b のみ（段c/d＝時限・自動再発進は実装スコープ外）
+  - from: vd-func:FUNC-075
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: scripts/run_regression_gate.ps1
+    note: >-
+      AEB 並行監視と横断基盤（ペダル envelope・HVD 報告経路・DriverOverride・警報チャネル）。
+      gate:unit-ctest が部品の単体を守るのに対し、本ゲートは
+      **ManualDriveCoordinator 経由の統合挙動**を守る（両方要る）。
+  - from: vd-func:FUNC-079
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: scripts/run_regression_gate.ps1
+    note: AccLonController の統合挙動（gate:unit-ctest は同機能の単体側）
+  - from: vd-func:FUNC-080
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: scripts/run_regression_gate.ps1
+    note: LaneKeepAssist の統合挙動（gate:unit-ctest は同機能の単体側）
+  - from: vd-func:FUNC-081
+    to: gate:manualdrive-adas-regression
+    type: sustained-by
+    source: scripts/run_regression_gate.ps1
+    note: SpeedLimiter の統合挙動（gate:unit-ctest は同機能の単体側）
+
   # ---- ⑥常設: 先読み運転 matcher を常設ゲートへ（2026-07-21・§5.1 の穴を塞ぐ） ----
   # sustained-by 欠6件（全て 05_anticipation 系）のうち5件を gate:anticipation-driving-regression
   # で閉じる（run_regression_gate.ps1 Step 2.7）。lane_change_count は本バッチに車線変更シナリオが
@@ -1361,6 +1521,14 @@ edges:
     note: >-
       Step 2.7（既定 WARN、-FailOnBehavioral でハード化、-SkipAnticipation で単独スキップ）。
       Step 2/2.6 と同じ共有関数 Invoke-BehavioralBatch を別マニフェスト・別ベースラインで回す。
+  - from: gate:regression-gate
+    to: gate:manualdrive-adas-regression
+    type: depends-on
+    source: scripts/run_regression_gate.ps1
+    note: >-
+      Step 2.10（既定 WARN、-FailOnBehavioral でハード化、-SkipManualAdas で単独スキップ）。
+      Step 2/2.6/2.7 と同じ共有関数 Invoke-BehavioralBatch を別マニフェスト・別ベースラインで回す。
+      番号は連番ラベルであって小数ではない（2.9 の次が 2.10）。
   - from: gate:odr-conformance-quick
     to: gate:fork-census
     type: depends-on

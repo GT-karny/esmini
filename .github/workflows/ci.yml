@@ -711,6 +711,60 @@ jobs:
             test_results/ci/stop_line_pairing/batch_summary.md
           if-no-files-found: warn
 
+      # gate:manualdrive-adas-regression -- the local regression gate's Step 2.10,
+      # wired to CI (2026-08-06). Rides in this job for the same reason as
+      # AEB/anticipation/handoff/stop-line: the Release GT_esminiLib build above
+      # dominates the runtime, so a separate job would pay it twice. Separate step
+      # names + a separate artifact keep failure attribution.
+      #
+      # ADAS running ALONGSIDE a human driver: AEB+FCW, ACC (incl. Stop&Go a/b),
+      # LKA+LDW, MSL and the face-3 observability those are read through
+      # (req-vd-ad:REQ-AD-025/026/027/028/030/031 -> vd-func:FUNC-075/079/080/081;
+      # design docs/virtualdriver/design/manualdrive_adas_design.md). Own manifest
+      # + own baseline; touches none of the other five.
+      #
+      # NOT YET OBSERVED RUNNING IN CI. This job only fires on PRs / dev_v* /
+      # master / manual dispatch, so the wiring below is committed ahead of its
+      # first real execution -- deliberately, and deliberately non-blocking, for
+      # the same reason gate:aeb-safety-regression started that way: these
+      # scenarios run under ManualDriveController and read frames from the OSI
+      # scene + in-process HostVehicleData rather than VD telemetry, and whether
+      # that path behaves the same on a CI runner as on the dev box is exactly
+      # what has not been shown yet. Making it blocking now would mean a first red
+      # that cannot be told apart from "CI environment differs".
+      #
+      # The baseline is 30/30 green with no known-red and was frozen only after a
+      # three-run self-determinism control (GT_esmini/docs/virtualdriver/
+      # measurements/manualdrive_adas_determinism_2026-08-06.md). If the first CI
+      # run is red, read the batch summary's `error` count BEFORE the deviations:
+      # an access violation means the scenario was never measured (known
+      # intermittent defect, measurements/gt_sim_test_intermittent_crash_2026-08-05.md).
+      # Promote by dropping continue-on-error from the compare step once CI has
+      # shown the baseline stable across a few runs.
+      - name: Run ManualDrive ADAS batch
+        continue-on-error: true
+        shell: bash
+        run: python GT_esmini/scripts/verification/gt_sim_test.py batch resources/xosc/verification/manualdrive_adas_batch.yaml --out test_results/ci/manualdrive_adas
+
+      # --baseline is mandatory: check_regression_baseline.py defaults to the
+      # car_following baseline, so omitting it would silently compare the wrong one.
+      - name: Compare ManualDrive ADAS vs committed baseline (per-scenario)
+        id: manualdrive-adas-regression
+        continue-on-error: true
+        shell: bash
+        run: python scripts/check_regression_baseline.py --batch-out test_results/ci/manualdrive_adas --baseline GT_esmini/test/regression_baseline/manualdrive_adas_expected.yaml --max-age-seconds 1800
+
+      - name: Upload ManualDrive ADAS regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manualdrive-adas-regression-report
+          path: |
+            test_results/ci/manualdrive_adas/regression_report.md
+            test_results/ci/manualdrive_adas/batch_verdict.json
+            test_results/ci/manualdrive_adas/batch_summary.md
+          if-no-files-found: warn
+
   release:
     needs: [test, test-no-external-modules, embedded-python-option]
     if: github.ref_type == 'tag'
