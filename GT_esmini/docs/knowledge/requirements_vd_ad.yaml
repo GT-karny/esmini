@@ -1108,10 +1108,11 @@ requirements:
       440フレームにわたり skip でなく PASS/FAIL の判定を返したことで実証する
       （skip でなく判定が出ること自体が「HVDを読めている」ことの必要条件）。
     realized_by: [vd-func:FUNC-075]
-    verified_by: []                       # 段a/cはladder側のverified_byが担保。要求そのもの
-                                          # にverifiesを張るのは段bが未達のためoverclaim
+    verified_by: []                       # 段ごとの器具はladder側のverified_byが真実源。
+                                          # （旧註「段b未達のためoverclaim」は2026-08-05のD着地で解消）
     related: [req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-027]
-    status: partial
+    status: done                          # 全段met（段bはaccel=B/brake=C/steering=Dの3経路で実証）。
+                                          # 2026-08-06 PM記帳整合: 段b昇格時にstatusの昇格が漏れていた
     note: >-
       **2026-08-05 フェーズB（観測列）実装: 段b の機構は完成、実証はアクセル経路のみ**。
       populate 機構は `AdasFunctionState` に `driver_override{reported,active,reasons}` と
@@ -1248,7 +1249,8 @@ requirements:
     realized_by: [vd-func:FUNC-081]
     verified_by: [matcher:speed_capped_at, matcher:no_brake_output]
     related: [req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-029]
-    status: partial
+    status: done                          # 全段met（段cは2026-08-05のvariant 2構成比較で閉じた）。
+                                          # 2026-08-06 PM記帳整合: 段c昇格時にstatusの昇格が漏れていた
     note: >-
       2026-08-04 精査で採用。実装は AEB envelope（constraint→ペダルクランプ）と同一機構の
       縮退＝スロットル片側クランプのみ＝追加コストが最小。制限速度参照は REQ-AD-026 段 g と
@@ -1289,7 +1291,8 @@ requirements:
     realized_by: [vd-func:FUNC-079]
     verified_by: [matcher:stop_hold_stationary, matcher:restart_after_trigger]
     related: [req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-003, req-vd-ad:REQ-AD-004, vd-func:FUNC-014, vd-func:FUNC-058]
-    status: partial
+    status: done                          # 受入対象の段a/bがmet（段c/dは将来段・本要求の受入対象外＝
+                                          # REQ-AD-020 段d と同じ扱い）。2026-08-06 PM記帳整合
     note: >-
       3パターン分解はユーザー整理（2026-08-04）: (1) 先行車のみ・人間再発進 (2) 信号/一時
       停止込み・人間再発進 (3) AD 相当・自動再発進。段 c は 1 と 3 の実用的中間
