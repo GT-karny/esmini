@@ -1846,11 +1846,16 @@ edges:
     source: resources/xosc/verification/10_manualdrive_adas/md_aeb_kickdown_suppress.expectations.yaml
     note: >-
       段b（運転者上書き事象が DriverOverride{active,reason} に出る／アクセル起因は
-      custom_state で補完）の主判定。**この辺は「matcher が段bを判定できる」ことを主張し、
-      「段bが全経路で達成されている」ことは主張しない**——段b の claim はブレーキ/ステア/
-      アクセルの3経路を含むが、実証できたのはアクセル経路のみ（brake理由の producer は
-      ACC＝フェーズC、steering理由は LKA＝フェーズD にしか無い）。要求側の
-      acceptance_ladder は段b を met: false のまま保持しており、この辺はそれを覆さない。
+      custom_state で補完）の主判定。
+      ~~この辺は「matcher が段bを判定できる」ことを主張し、「段bが全経路で達成されている」
+      ことは主張しない~~ → **2026-08-05 フェーズDで3経路すべてがそろい、段bは met へ昇格した**。
+      経緯を残すのは、この辺が長く「器具はあるが producer が無い」状態だったことが記帳の
+      形として重要だからである: フェーズBが機構とアクセル経路（custom_state=
+      DRIVER_OVERRIDE_ACCEL、md_aeb_kickdown_suppress）、フェーズCがブレーキ経路
+      （REASON_BRAKE_PEDAL、ACC の解除＝md_acc_cancel_resume）、フェーズDがステア経路
+      （REASON_STEERING_INPUT、LKA の中断＝md_lka_human_steer）を順に足した。3経路を1つの段で
+      主張している以上、1経路の達成で met を上げるのは overclaim であり、実際に上げたのは
+      3つ目が緑になった時点である。
       赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py（populate停止・
       入力プロファイル時刻ずらしの2赤）。
 
@@ -2043,3 +2048,96 @@ edges:
       matcher実装自体の赤実証（Python側）は
       GT_esmini/scripts/verification/test_manualdrive_matchers.py（50テスト）が別途担うが、
       これは gt_sim_test 検証ハーネス側であり ctest 傘バイナリの外＝この辺には含めない。
+
+  # ---- フェーズD（req-vd-ad:REQ-AD-027、2026-08-05）: LKA / LDW ----
+  # 新設 signal を1つ起こした（signal:manualdrive_lka_lateral）。手動運転中ADASで初めての
+  # 横ドメイン観測量で、既存の縦系と読み方の注意が2つ違う（レーン相対偏差は境界で参照が
+  # 張り替わる／補正量は機能自身の寄与であって車両の操舵ではない）。詳細は catalog の note。
+  - from: matcher:lane_kept_within
+    to: signal:manualdrive_lka_lateral
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      `gt.lka.offset_m` と `gt.lka.lane_id` を**対で**読む。偏差だけを読まないのが設計の肝で、
+      この偏差はレーン相対であり roadmanager の Position::GetOffset() はレーン境界で参照を
+      張り替える（本プロジェクト実測 -1.7482 → +1.9425 が1フレーム）。つまり逸脱した run ほど
+      |offset| は小さく戻り、偏差だけの matcher は**車線を出た run にこそ最もきれいな pass を
+      返す**。レーンID不変を併せて要求することでこの穴を塞ぎ、同時に `expect_kept: false`
+      （両極性ペアの逸脱側）に観測できる中身を与えている。
+  - from: matcher:steer_output_absent
+    to: signal:manualdrive_lka_lateral
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      `gt.lka.correction`（**機能自身の寄与**）を読み、窓内で恒等的に 0 であることを見る。
+      車両の実効操舵ではないのが肝で、この matcher が使われる場面——明確な操舵入力・指示器つき
+      車線変更・速度域外——はいずれも**人間が意図的にハンドルを切っている**。実効操舵を見る
+      matcher は、それを証明したい当の run で必ず赤くなる（no_brake_output が実効ブレーキでなく
+      gt.msl.brake_out を読むのと同型）。チャネルが一度も書かれていなければ skip。
+
+  # ---- ⑤判定: フェーズD matcher -> verifies -> req-vd-ad ----
+  - from: matcher:lane_kept_within
+    to: req-vd-ad:REQ-AD-027
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.expectations.yaml
+    note: >-
+      段a（弱ドリフトで補正が入り車線内に留まる）の主判定。**左右対で回すことが判定の一部**
+      ——補正則の符号誤りは機能を弱めるのではなく車を車線の外へ押すので、片側だけでは
+      「弱すぎる実装」と区別できない。実測は完全な鏡像（t=5.0 で offset +0.317/補正 +0.004
+      対 -0.317/-0.004、両極ともピーク |offset| 0.363m でレーン-1不変）。
+      `expect_kept: false` 方向は同一 xosc の warning_only / below_band 構成で使い、同じ刺激が
+      補正なしでは |offset| 4.330m・レーン-1→-2 の逸脱になることを示す——これが無いと正例の
+      「留まった」は刺激が弱かっただけの可能性を排除できない。
+  - from: matcher:steer_output_absent
+    to: req-vd-ad:REQ-AD-027
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_lka_human_steer.expectations.yaml
+    note: >-
+      段b（人間の明確な操舵入力・指示器作動中は介入しない/即時中断）と段f（警報のみモードで
+      cmd.steering 不変）と段e（速度域外で介入しない）の負系判定。3段が同一 matcher なのは、
+      いずれも「機能自身の操舵寄与がゼロ」という同じ観測だからで、違うのは**理由**の方
+      （gt.lka.suppressed_* / in_speed_band に別々に出る）。
+  # matcher:driver_override_reported -> req-vd-ad:REQ-AD-028 の辺はフェーズBで既に張って
+  # あるので重ねない（curated 辺は1本）。フェーズDが足したのは辺ではなく **producer** で、
+  # 経緯はその辺の note に追記した。ここに残しておくべき恒久事実は producer の**条件**の方:
+  #
+  #   producer 条件は「抑制が立っている間」であって「このフレームで補正を握り潰したか」では
+  #   ない。狭い条件を最初に実装して実走で壊れた——md_lka_human_steer で運転者が道路を横切って
+  #   操舵している最中、車両がたまたま通過中の車線の中心に来た1フレーム（t=7.30、offset
+  #   0.115m）だけ逸脱判定が false に落ち、上書き欄が 50ms だけ消えた。運転者の手は前後で
+  #   何一つ変わっていない。フェーズBがアクセル経路で退けたのと同じ失敗様式を実データが
+  #   再現した形で、OSI の DriverOverride が問うのは「その機能が運転者に上書きされたか」＝
+  #   運転者の**入力**の性質であって、そのフレームの幾何ではない。
+
+  # ---- ②刺激: req -> stimulated-by（フェーズD） ----
+  # LKA は ITrafficPolicy を一つも使わない純粋な横ロジックなので、MSL（REQ-AD-030）と同じく
+  # policy 名前空間に張る先が無い。刺激資産は md_lka_drift（5構成）/ md_lka_human_steer /
+  # md_lka_lane_change_with_indicator として実在し緑だが、②刺激欠として台帳に残す方が正しい
+  # （名前空間設計の穴であって、資産が無いのではない）。
+
+  # ---- ③実装: vd-component -> realizes -> vd-func（フェーズD） ----
+  - from: vd-component:lane-keep-assist
+    to: vd-func:FUNC-080
+    type: realizes
+    source: GT_esmini/docs/virtualdriver/design/manualdrive_adas_design.md
+    note: >-
+      レーン中心偏差→補正操舵の本体。**FUNC-080 は既存部品からの流用がゼロだった唯一の
+      手動運転中ADAS機能**で（設計 §5-1 の調査どおり、PIDPurePursuit はトラジェクトリ
+      preview 点列への追従でレーン中心を追わない）、AEB/ACC/Stop&Go が ITrafficPolicy 実装を
+      無改修で載せ替えるだけだったのに対し、こちらは判定も出力も新規に書いた。
+      実現範囲は補正と警報の判定・出力まで。FFB 反力として実ハンドルに伝わるか（段d）は
+      このユニットの外＝IFFBSink 側であり、headless では代替できない G29 実機限定観点。
+
+  # ---- ⑥常設: フェーズD の新規C++ユニットも同じ傘バイナリに乗る ----
+  - from: vd-func:FUNC-080
+    to: gate:unit-ctest
+    type: sustained-by
+    source: GT_esmini/test/CMakeLists.txt
+    note: >-
+      test_LaneKeepAssist.cpp が傘バイナリ常設（**771/771緑**、2026-08-05 フェーズD実測。
+      フェーズC時点は731件）。matcher 側の赤実証は
+      GT_esmini/scripts/verification/test_manualdrive_matchers.py（フェーズDで
+      lane_kept_within / steer_output_absent の13テストを追加、計90緑）。
+      ユニットが実装欠陥を2件捕まえている: envelope の振幅上限が rate 段で押し戻される
+      （AdSteeringEnvelope のジャーク段が shipped-disabled のままである当の非対称）と、
+      抑制時のランプダウンが要求の「即時中断」に反していたこと。

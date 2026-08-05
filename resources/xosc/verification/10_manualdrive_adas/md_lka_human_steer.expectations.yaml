@@ -1,0 +1,59 @@
+scenario: md_lka_human_steer
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-027 step b + req-vd-ad:REQ-AD-028 step b (vd-func:FUNC-080),
+# slugs md-lka-human-steer-priority and md-driver-override-steering-reason.
+#
+# THIS IS THE ROW THAT CLOSES REQ-AD-028 STEP B. That step claims driver
+# overrides reach face 3 through THREE paths: accelerator (phase B, via
+# custom_state because OSI has no accelerator Reason), brake (phase C,
+# REASON_BRAKE_PEDAL) and steering. The steering producer could not exist before
+# LaneKeepAssist did, so this is the first run in the project that can raise
+# REASON_STEERING_INPUT at all -- and with it the step's third path stops being
+# a mechanism with no producer.
+#
+# `expect_reason: steering_input` and NOT the proto spelling REASON_STEERING_INPUT:
+# the harness projects the OSI enum through _enum_name(), which strips the
+# REASON_ prefix and lower-cases the rest (vd_metrics.py's own note on this
+# matcher).
+#
+# THE LDW ROW IS THE ASYMMETRY, AND IT IS WHY THIS SCENARIO AND
+# md_lka_lane_change_with_indicator BOTH EXIST. A steering input suppresses the
+# CORRECTION but not the WARNING; the indicator suppresses both. Same road, same
+# steering magnitude, opposite verdict on gt.ldw -- which makes the distinction a
+# measurement instead of a claim in a comment.
+#
+# MEASURED (test_results/mdadas_lka, 2026-08-05, 480 frames): the driver's
+# turn-in at t=6.0-6.3 raises gt.lka.suppressed_steer from t=6.30, and the
+# suppression stands unbroken until t~10.3 (the turn-back at t=8.0-8.3 re-arms
+# adas_lka_steer_override_hold_s). gt.lka's DriverOverride is active with
+# reasons=[steering_input] on all 61 frames of the judged window, the correction
+# is 0.000 throughout, and the ego crosses from lane -1 to lane -2 -- an
+# unsignalled lane change, which is what the LDW row going ACTIVE is about. The
+# 7.0-10.0 window sits strictly inside the measured 6.30-10.3 suppression.
+must:
+  - event: driver_override_reported
+    function: gt.lka
+    expect_reason: steering_input
+    mode: all
+    after: { sim_time: 7.0 }
+    before: { sim_time: 10.0 }
+    reason: "人間の明確な操舵入力で LKA が引っ込む事象が DriverOverride の REASON_STEERING_INPUT として面3から読めること（REQ-AD-028段b・ステア経路。この行が段bの3経路目）"
+  - event: steer_output_absent
+    function: gt.lka
+    after: { sim_time: 7.0 }
+    before: { sim_time: 10.0 }
+    reason: "操舵入力中は補正を出さない/即時中断すること（REQ-AD-027段b）。「即時」なので窓は入力開始直後から取る"
+  - event: adas_state_matches
+    function: gt.ldw
+    expect: active
+    mode: any
+    after: { sim_time: 7.0 }
+    before: { sim_time: 10.0 }
+    reason: "操舵入力は補正を止めるが警報は止めないこと。合図せず車線を跨ぐ運転者こそ警報の対象であり、指示器シナリオ（警報も止まる）との差がこの非対称の実体"
+  - event: driver_override_reported
+    function: gt.ldw
+    expect_active: false
+    mode: all
+    after: { sim_time: 7.0 }
+    before: { sim_time: 10.0 }
+    reason: "同一フレーム・同一実行内の負の対照（LDW 行は評価済みで上書き無し）。上書き欄が行ごとに正しく分かれていることを別シナリオを増やさずに見る"

@@ -984,15 +984,21 @@ requirements:
       補正操舵を加えて車線内に留め、人間の明確な操舵入力または方向指示器の作動中は
       介入しない/中断すること。
     scenario: >-
-      未整備。直線・緩カーブ路＋弱ドリフト合成ステア入力（逸脱傾向の再現）。
-      負系は明確な操舵入力・指示器作動つきの車線変更（介入してはならない）。
+      md_lka_drift（straight_500m_2lane、弱ドリフト合成ステア入力を左右対で。同一 xosc を
+      variant で 5 構成＝left / right / warning_only / below_band / in_band）、
+      md_lka_human_steer（明確な操舵入力・指示器なし）、
+      md_lka_lane_change_with_indicator（指示器つき車線変更、負系）。
+      いずれも controller: manualdrive + adas_lka_enabled、入力プロファイルが「運転者」を、
+      xosc が「世界」を決める（検証計画 §1）。
     acceptance_ladder:
-      - { step: a, claim: 弱ドリフト入力で車線逸脱傾向のとき補正操舵が入り車線内に留まる,                met: false, verified_by: [] }
-      - { step: b, claim: 人間の明確な操舵入力・方向指示器作動中は介入しない/即時中断する（人間操舵優先）, met: false, verified_by: [] }
-      - { step: c, claim: on/off と状態遷移が HVD に出る,                                                met: false, verified_by: [] }
+      # 段 a/b/c/e/f 達成（2026-08-05 フェーズD、test_results/mdadas_phaseD、30/30 シナリオ緑）。
+      # 段 d のみ G29 実機限定として met: false のまま残す（下の note を参照）。
+      - { step: a, claim: 弱ドリフト入力で車線逸脱傾向のとき補正操舵が入り車線内に留まる,                met: true,  verified_by: [matcher:lane_kept_within, matcher:adas_state_matches] }
+      - { step: b, claim: 人間の明確な操舵入力・方向指示器作動中は介入しない/即時中断する（人間操舵優先）, met: true,  verified_by: [matcher:steer_output_absent, matcher:driver_override_reported] }
+      - { step: c, claim: on/off と状態遷移が HVD に出る,                                                met: true,  verified_by: [matcher:adas_state_matches] }
       - { step: d, claim: 補正が FFB 反力として実ハンドルに伝わる（G29 実機限定観点・自動ゲート対象外）,  met: false, verified_by: [] }
-      - { step: e, claim: 利用可能速度域（作動下限/上限）が設定可能で、域外では介入せず STANDBY に留まる（域内復帰で再び作動可）, met: false, verified_by: [] }
-      - { step: f, claim: 逸脱傾向の警報（LDW）を補正介入に先行/独立して提示でき、警報のみモード（介入 off・警報 on）が構成可能, met: false, verified_by: [] }
+      - { step: e, claim: 利用可能速度域（作動下限/上限）が設定可能で、域外では介入せず STANDBY に留まる（域内復帰で再び作動可）, met: true,  verified_by: [matcher:steer_output_absent, matcher:adas_state_matches] }
+      - { step: f, claim: 逸脱傾向の警報（LDW）を補正介入に先行/独立して提示でき、警報のみモード（介入 off・警報 on）が構成可能, met: true,  verified_by: [matcher:steer_output_absent, matcher:adas_state_matches] }
     acceptance: >-
       段 a はレーン相対横位置（OSI assigned_lane / lane_map 面1化済み経路）で判定。
       段 b は操舵入力・指示器状態と補正出力の排他の時系列判定。段 d は駐車検証計画 §6 と
@@ -1003,19 +1009,53 @@ requirements:
       警報チャネルは FCW（REQ-AD-025 段 e）と共有。
       閾値（逸脱判定の横位置/横速度、人間操舵優先のトルク/角度閾値、速度域の既定値）は要校正。
     realized_by: [vd-func:FUNC-080]
-    verified_by: []
+    verified_by: [matcher:lane_kept_within, matcher:steer_output_absent]
     related: [req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-028, feature:F7]
-    status: future
+    status: partial
     note: >-
-      既存部品に「レーン中心偏差→補正操舵」のコンポーネントは無い（PIDPurePursuit は
-      トラジェクトリ preview 点列への追従でレーン中心そのものを追わない — 調査 2026-08-04）
-      ＝レーン中心偏差モジュールが新設の本体。補正の出力は AdSteeringEnvelope と同型の
-      介入 envelope で cmd.steering に加算/クランプする。人間操舵優先の検出は
-      OverrideManager の意味論（人間が AD から奪う）と逆向きのため流用せず、
-      対の概念として新設する（f7 検出器の設計パターンは参考にする）。
-      利用可能速度域（段 e）は ACC（REQ-AD-026 段 f）と共通の設計・語彙
-      （機能ごとの min/max キー）。実車の LKA 作動下限（例 60 km/h 前後）は参考値であり、
-      既定値は設計書で確定する。
+      **2026-08-05 フェーズD（LKA/LDW列）実装。段 a/b/c/e/f 達成、段 d は G29 実機限定として
+      未達のまま**。実測は test_results/mdadas_phaseD（manualdrive_adas_batch.yaml、
+      30/30 シナリオ・82 matcher が pass、既定 OFF）、C++ ユニット 771/771 緑
+      （フェーズD新規 40）、matcher 単体 90 緑。
+
+      **段 d を met にしない理由**: FFB 反力として実ハンドルに伝わるかは headless の plant
+      モデルでは代替できない（検証計画 §6 の G29 実機限定区分）。補正が cmd.steering に
+      乗ることは自動で示せるが、それが実デバイスのトルクとして手に届くかは別の主張である。
+      test_results/f7_realmachine_checklist.md に項目として起票済み。
+
+      **新設したのは LaneKeepAssist で、既存部品の流用はゼロだった**（設計時の調査どおり:
+      PIDPurePursuit はトラジェクトリ preview 点列への追従でレーン中心を追わない）。
+      判定は TLC 主・margin 従で、margin = レーン半幅 − |偏差| − 車半幅。設計書 §5-1 の
+      スケッチは「オフセットの直接閾値」だったが、実装は同じ量を **margin の次元**で持つ
+      ——要求が問うているのは線までの距離であり、道路や車両が変わっても意味が保つのは
+      こちらだから（同じ規律で TLC も margin から作られ、2つの条件が1つの幾何量に乗る）。
+
+      **要校正の閾値のうち3つは「実測ではなく算術」で決め直した。3つとも当初値が到達不能
+      だった**——これが本フェーズで最も再利用価値のある事実である:
+      (1) margin/release 0.30/0.50 → **0.15/0.30**。車線幅3.07m・車幅2.00m では中心での
+      余裕が 0.535m しかなく、解除条件 0.50 は「中心±3.5cm でしか解除できない」＝
+      ヒステリシスが黙ってラッチに化けていた。
+      (2) 補正ゲイン 0.06/0.25・上限0.08 → **0.012/0.020・上限0.03**。steer_gain 0.61 の
+      この車では 25m/s で 0.3m/s の横流れを消すのに必要な正規化操舵は 0.0024。補正は
+      0.01 の桁であって 0.1 ではなく、当初値は1桁以上大きく、実際に走らせると
+      スナップして振動した。
+      (3) 人間操舵優先の入力レート閾値 0.35/s → **0.03/s**。通常の車線変更の入力レートは
+      約 0.01/s（3m を 3s で移るのに必要な正規化操舵が約0.010）なので、0.35/s は 35 倍
+      ——通常運転で到達不能＝検出器として死んでいた。
+      **共通するのは「妥当そうな丸い数字を、それが載る物理量を見ずに置いた」こと**で、
+      症状はどれも「閾値を振っても何も起きない」型（REQ-AD-028 のフェーズA残債と同型）。
+
+      **人間操舵優先は OverrideManager を流用していない**（要求 note の決定どおり）。
+      指示器と操舵入力は別々の抑制として持つ: 指示器は補正**と警報の両方**を止め、操舵入力は
+      補正だけを止めて警報は残す（合図せず車線を跨ぐ運転者こそ警報の対象）。この非対称が
+      md_lka_human_steer と md_lka_lane_change_with_indicator の2本を分けている理由で、
+      同じ操舵量に対して gt.ldw の verdict が割れることが実体。
+
+      段 f（警報のみモード）は**判定と出力の分離を実装構造で**保証している: 判定側は
+      cfg.warning_only を一切参照せず、出力ブロックだけが1箇所で囲われている。
+      加えて warning_only 構成でも gt.lka 行を UNAVAILABLE へ落とさず **STANDBY に留める**
+      ——落とすと detail ごと消えて `gt.lka.correction` が欠落し、「補正を出さなかった」と
+      「誰も見ていなかった」が同じ観測になって負の matcher が空振りする。
 
   - id: REQ-AD-028
     title: ADAS の作動状態と運転者上書きが外部（面3）から観測できる
@@ -1038,7 +1078,15 @@ requirements:
       # まま据え置く: 段b の claim は3経路を1文で括っており、2/3 を「達成」と記すのは
       # 誇張だから。段で割れば正直に進捗を示せる粒度だが、要求の再分割はフェーズD着手時に
       # まとめて判断する（今ここで割ると、割り方がDの実装形に引きずられる）。
-      - { step: b, claim: "運転者上書き事象が DriverOverride{active, reason} に出る（Reason はブレーキ/ステアの2値＝規格制約。アクセル起因は custom_state で補完）",   met: false, verified_by: [] }
+      # 段b 達成（2026-08-05 フェーズD）。claim が挙げる3経路がここで全部そろった:
+      #   accel    : フェーズB。custom_state=DRIVER_OVERRIDE_ACCEL（キックダウン、md_aeb_kickdown_suppress）
+      #   brake    : フェーズC。REASON_BRAKE_PEDAL（ACC のブレーキ解除、md_acc_cancel_resume）
+      #   steering : フェーズD。REASON_STEERING_INPUT（LKA の中断、md_lka_human_steer）
+      # 3経路を1つの段で主張している以上、1経路や2経路の達成では met を上げなかった
+      # （フェーズB/C の note がその判断を明記している）。上げるのは3つ目が緑になった今である。
+      # 実測: md_lka_human_steer の判定窓61フレーム全てで active + reasons=[steering_input]、
+      # 同一実行内の対照として gt.ldw 行は present かつ active=false。
+      - { step: b, claim: "運転者上書き事象が DriverOverride{active, reason} に出る（Reason はブレーキ/ステアの2値＝規格制約。アクセル起因は custom_state で補完）",   met: true,  verified_by: [matcher:driver_override_reported] }
       - { step: c, claim: 検証ハーネス（gt_sim_test）が HVD を読んで matcher 判定に使える（ManualDrive 実行対応を含む）,                                              met: true, verified_by: [matcher:manual_aeb_fires, matcher:adas_state_matches] }
     acceptance: >-
       段 a は kAdasSlots 24枠経路でなく VD と同じ AddADASFunctionEx 経路

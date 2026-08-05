@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:354e49f6b0c152d7 -->
+<!-- generated-from: sha256:c6f9bafc4ea4b173 -->
 
-ノード 232・辺 260（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 236・辺 266（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -227,11 +227,14 @@ flowchart LR
     n_matcher_no_brake_output["no_brake_output"]
     n_matcher_stop_hold_stationary["stop_hold_stationary"]
     n_matcher_restart_after_trigger["restart_after_trigger"]
+    n_matcher_lane_kept_within["lane_kept_within"]
+    n_matcher_steer_output_absent["steer_output_absent"]
   end
   subgraph sg_vd_component["vd-component｜VirtualDriver 実装ユニット（ITrafficPolicy 以外の層）"]
     n_vd_component_route_lane_plan["route-lane-plan"]
     n_vd_component_lane_change_initiation["lane-change-initiation"]
     n_vd_component_overtake_maneuver["overtake-maneuver"]
+    n_vd_component_lane_keep_assist["lane-keep-assist"]
   end
   subgraph sg_scenario_variant["scenario-variant｜生成シナリオ変体（NN_topic__pNNN）"]
     n_scenario_variant_09_crosswalk_pedestrian__p005["09_crosswalk_pedestrian__p005"]
@@ -257,6 +260,7 @@ flowchart LR
     n_signal_manualdrive_driver_override["manualdrive_driver_override"]
     n_signal_manualdrive_acc_settings["manualdrive_acc_settings"]
     n_signal_manualdrive_msl_cap["manualdrive_msl_cap"]
+    n_signal_manualdrive_lka_lateral["manualdrive_lka_lateral"]
   end
   subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
     n_gate_vd_behavior_regression["vd-behavior-regression"]
@@ -533,6 +537,12 @@ flowchart LR
   n_vd_func_FUNC_079 -->|sustained-by| n_gate_unit_ctest
   n_vd_func_FUNC_081 -->|sustained-by| n_gate_unit_ctest
   n_vd_func_FUNC_075 -->|sustained-by| n_gate_unit_ctest
+  n_matcher_lane_kept_within -->|observes| n_signal_manualdrive_lka_lateral
+  n_matcher_steer_output_absent -->|observes| n_signal_manualdrive_lka_lateral
+  n_matcher_lane_kept_within -->|verifies| n_req_vd_ad_REQ_AD_027
+  n_matcher_steer_output_absent -->|verifies| n_req_vd_ad_REQ_AD_027
+  n_vd_component_lane_keep_assist -->|realizes| n_vd_func_FUNC_080
+  n_vd_func_FUNC_080 -->|sustained-by| n_gate_unit_ctest
 ```
 
 ## 辺の一覧（type別）
@@ -657,7 +667,7 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### observes (35)
+### observes (37)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -696,8 +706,10 @@ flowchart LR
 | `matcher:speed_capped_at` | `signal:manualdrive_msl_cap` | cap_key（gt.msl.cap_mps）で毎フレームのキャップを読み、自車速がそれ＋許容差を超えない ことを見る。キャップをリテラルで書かず signal から読むのは、制限速度連動モードでは キャップ自体が道路に沿って動くため。未記録のキャップは 0 と読まず frame ごと skip する。 |
 | `matcher:no_brake_output` | `signal:manualdrive_msl_cap` | gt.msl.brake_out を読み、窓内で恒等的に 0 であることを見る。**車両の実効ブレーキでは なく機能自身の寄与を読む**のが肝で、人間が踏んだブレーキは主張と無関係に非零になりうる。 チャネルが一度も書かれていなければ skip（誰も書かなかったチャネルは「出さなかった」証拠に ならない）。 |
 | `matcher:stop_hold_stationary` | `signal:manualdrive_acc_settings` | gt.acc.stop_hold が真の**連続区間ごとに**変位を測る。区間で分けるのは、1回の run で 停止→再発進→再停止が起きうるため（区間をまたいで測ると再発進の移動をクリープとして 数える）。速度だけを見ないのは「動かなかった」が「誰も保持していない車」にも当てはまる ため——保持中であることを機能自身のフラグで固定して初めて保持の主張になる。 |
+| `matcher:lane_kept_within` | `signal:manualdrive_lka_lateral` | `gt.lka.offset_m` と `gt.lka.lane_id` を**対で**読む。偏差だけを読まないのが設計の肝で、 この偏差はレーン相対であり roadmanager の Position::GetOffset() はレーン境界で参照を 張り替える（本プロジェクト実測 -1.7482 → +1.9425 が1フレーム）。つまり逸脱した run ほど |offset| は小さく戻り、偏差だけの matcher は**車線を出た run にこそ最もきれいな pass を 返す**。レーンID不変を併せて要求することでこの穴を塞ぎ、同時に `expect_kept: false` （両極性ペアの逸脱側）に観測できる中身を与えている。 |
+| `matcher:steer_output_absent` | `signal:manualdrive_lka_lateral` | `gt.lka.correction`（**機能自身の寄与**）を読み、窓内で恒等的に 0 であることを見る。 車両の実効操舵ではないのが肝で、この matcher が使われる場面——明確な操舵入力・指示器つき 車線変更・速度域外——はいずれも**人間が意図的にハンドルを切っている**。実効操舵を見る matcher は、それを証明したい当の run で必ず赤くなる（no_brake_output が実効ブレーキでなく gt.msl.brake_out を読むのと同型）。チャネルが一度も書かれていなければ skip。 |
 
-### realizes (47)
+### realizes (48)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -748,6 +760,7 @@ flowchart LR
 | `vd-func:FUNC-056` | `req-vd-ad:REQ-AD-024` | 同じ実装が「追い越しによって経路上の分岐を逃さない」も担う。要求を2本に割ったのは 要素技術が別（先行車認識＋ギャップ受容 / 経路計画との突き合わせ）で片方だけ完成しうるため。 経路ガードは追い越しレーンから目標レーン帯までのホップ数 n_back を RequiredLaneChangeDistance へ渡す形で、**新しい距離の概念を持ち込んでいない**。 段 a-c は実測で達成、段 d（復路の隙間が空かない場合）は刺激が未整備で未観測。 |
 | `vd-component:overtake-maneuver` | `vd-func:FUNC-056` | 追い越しの純関数層（trigger / 経路ガード / 対向ギャップ / 追い越しレーン選択 / クリア判定 / 合図ドウェル）と、その上のフェーズ状態機械。 **vd-component:lane-change-initiation の1ホップ機構を無改造で2回まわす**構成で、 軌道生成（ResumeMergeProfile）にも指示器経路（lc_signal_dir_）にも新しい経路を作っていない。 DetectManeuverDir への変更は enable ゲート1行のみ。 |
 | `vd-component:overtake-maneuver` | `vd-func:FUNC-061` | 追い越しの往路・復路それぞれに方向指示器を同期させる（req-vd-ad:REQ-AD-018 段 d の **追い越しぶん**）。既存の lc_signal_dir_ に同じ契約で書き込むだけで、 DetectManeuverDir の段構造は変えていない。 **FUNC-055 の前進予測形は流用していない** — あれは dist_to_connection と n_remaining を 引数に取る締切専用の述語で、追い越しには対応する量が存在しない。 追い越しには締切が無いので「合図してから T 秒待って発起する」タイマ形で足り、 法定リードは近似ではなく設計上ちょうど T になる（実測 往路 2.95 s / 復路 3.00 s）。 |
+| `vd-component:lane-keep-assist` | `vd-func:FUNC-080` | レーン中心偏差→補正操舵の本体。**FUNC-080 は既存部品からの流用がゼロだった唯一の 手動運転中ADAS機能**で（設計 §5-1 の調査どおり、PIDPurePursuit はトラジェクトリ preview 点列への追従でレーン中心を追わない）、AEB/ACC/Stop&Go が ITrafficPolicy 実装を 無改修で載せ替えるだけだったのに対し、こちらは判定も出力も新規に書いた。 実現範囲は補正と警報の判定・出力まで。FFB 反力として実ハンドルに伝わるか（段d）は このユニットの外＝IFFBSink 側であり、headless では代替できない G29 実機限定観点。 |
 
 ### shares-design-with (2)
 
@@ -781,7 +794,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (22)
+### sustained-by (23)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -807,6 +820,7 @@ flowchart LR
 | `vd-func:FUNC-079` | `gate:unit-ctest` | test_AccLonController.cpp / test_ManualAdasPhaseC.cpp が傘バイナリ常設 （**731/731緑**、2026-08-05 フェーズC実測。フェーズB時点は673件）。 matcher 側の赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py （フェーズCで6 matcher分を追加、計77テスト緑）。 |
 | `vd-func:FUNC-081` | `gate:unit-ctest` | MSL（SpeedLimiter）の単体は test_ManualAdasPhaseC.cpp に同居する（ACC と段の順序を 共有し、順序こそが「リミッターが安全段を拒否できない」を決めるため、別ファイルに 分けると順序のテストが宙に浮く）。 |
 | `vd-func:FUNC-075` | `gate:unit-ctest` | test_ManualAdasFunctionReport.cpp / test_KickdownDetector.cpp / test_PedalArbitrator.cpp / test_ManualDriveAdasConfig.cpp / test_AdasCoexistenceStack.cpp / test_ScriptedInputSource.cpp が傘バイナリ常設（ManualDrive ADAS 関連 81ケース、**673/673緑**の内数、2026-08-05 フェーズB実測。フェーズA時点は69ケース/661件で、フェーズBが上書きチャネル5件・ accel producer 5件・FCWゲート config 2件を追加した）。 matcher実装自体の赤実証（Python側）は GT_esmini/scripts/verification/test_manualdrive_matchers.py（50テスト）が別途担うが、 これは gt_sim_test 検証ハーネス側であり ctest 傘バイナリの外＝この辺には含めない。 |
+| `vd-func:FUNC-080` | `gate:unit-ctest` | test_LaneKeepAssist.cpp が傘バイナリ常設（**771/771緑**、2026-08-05 フェーズD実測。 フェーズC時点は731件）。matcher 側の赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py（フェーズDで lane_kept_within / steer_output_absent の13テストを追加、計90緑）。 ユニットが実装欠陥を2件捕まえている: envelope の振幅上限が rate 段で押し戻される （AdSteeringEnvelope のジャーク段が shipped-disabled のままである当の非対称）と、 抑制時のランプダウンが要求の「即時中断」に反していたこと。 |
 
 ### upstream-candidate (6)
 
@@ -819,7 +833,7 @@ flowchart LR
 | `fork-patch:10` | `odr-upstream-pr:PR-4` |  |
 | `fork-patch:17` | `odr-upstream-pr:PR-5` |  |
 
-### verifies (33)
+### verifies (35)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -873,7 +887,7 @@ min_distance_m の 29.5 は法定 30.0 に対する**フレーム量子化の余
 | `matcher:fcw_leads_intervention` | `req-vd-ad:REQ-AD-025` | 段e（警報が介入に先行しリード≥0.8s）の判定。実測ではcut-inにつきリード0.000sでfail （gt.fcw/gt.aebが同一フレームt=1.75でACTIVE、test_results/mdadas_run1/ md_aeb_unresponsive/verdict.json）。design §3-2訂正・検証計画の対象。 **この辺は「matcherが正しく判定を出す」ことを主張するのであって「要求段eが 現状達成されている」ことは主張しない**（現に fail）。 |
 | `matcher:adas_state_matches` | `req-vd-ad:REQ-AD-025` | 段b（config OFFでなくSTANDBYで見張っていたことの確認、負系の意味を担保）と 段e（md_fcw_warning_only、gt.fcwが少なくとも一度activeになること）の補助判定。 |
 | `matcher:adas_state_matches` | `req-vd-ad:REQ-AD-028` | コード自身のコメント（vd_metrics.py:1853-1854）が「req-vd-ad:REQ-AD-026 step c / REQ-AD-028 step a」の主判定と明記。正規Name列挙のstate_nameが期待どおりに出ることの 確認そのものが観測性要求（3値規律のUNAVAILABLE/STANDBY/ACTIVE区別）の判定にあたる。 |
-| `matcher:driver_override_reported` | `req-vd-ad:REQ-AD-028` | 段b（運転者上書き事象が DriverOverride{active,reason} に出る／アクセル起因は custom_state で補完）の主判定。**この辺は「matcher が段bを判定できる」ことを主張し、 「段bが全経路で達成されている」ことは主張しない**——段b の claim はブレーキ/ステア/ アクセルの3経路を含むが、実証できたのはアクセル経路のみ（brake理由の producer は ACC＝フェーズC、steering理由は LKA＝フェーズD にしか無い）。要求側の acceptance_ladder は段b を met: false のまま保持しており、この辺はそれを覆さない。 赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py（populate停止・ 入力プロファイル時刻ずらしの2赤）。 |
+| `matcher:driver_override_reported` | `req-vd-ad:REQ-AD-028` | 段b（運転者上書き事象が DriverOverride{active,reason} に出る／アクセル起因は custom_state で補完）の主判定。 ~~この辺は「matcher が段bを判定できる」ことを主張し、「段bが全経路で達成されている」 ことは主張しない~~ → **2026-08-05 フェーズDで3経路すべてがそろい、段bは met へ昇格した**。 経緯を残すのは、この辺が長く「器具はあるが producer が無い」状態だったことが記帳の 形として重要だからである: フェーズBが機構とアクセル経路（custom_state= DRIVER_OVERRIDE_ACCEL、md_aeb_kickdown_suppress）、フェーズCがブレーキ経路 （REASON_BRAKE_PEDAL、ACC の解除＝md_acc_cancel_resume）、フェーズDがステア経路 （REASON_STEERING_INPUT、LKA の中断＝md_lka_human_steer）を順に足した。3経路を1つの段で 主張している以上、1経路の達成で met を上げるのは overclaim であり、実際に上げたのは 3つ目が緑になった時点である。 赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py（populate停止・ 入力プロファイル時刻ずらしの2赤）。 |
 | `matcher:setting_reflected` | `req-vd-ad:REQ-AD-026` | 段e（走行中の設定速度増減が追従目標に反映される）と段h（車間段階の切替が実測THWに 反映される）の主判定。段h は md_acc_follow_lead 側で、1本の刺激が2段階以上を跨ぐ （mid→long→short）ことで判定する。実測 20/20 緑。 |
 | `matcher:adas_state_sequence` | `req-vd-ad:REQ-AD-026` | 段c（操作列に対応する状態遷移列がHVDに出る）の主判定。段f（速度域の域外で ACTIVE→STANDBY）にも md_acc_speed_range_gate で使う。設計§6 の ACC/MSL 排他も 同じ matcher で判定する（md_acc_msl_exclusion、gt.acc と gt.msl の2行）。 |
 | `matcher:speed_capped_at` | `req-vd-ad:REQ-AD-026` | 段g（制限速度制御の有無で実効上限が変わる）の主判定。**この判定は2構成の対で初めて 主張になる**——respect_limit 側だけでは「常に制限を守る実装」も通り、ignore_limit 側だけ では「道路を一度も読まない実装」も通る。バッチは同一 xosc を variant で2行持つ。 |
@@ -882,6 +896,8 @@ min_distance_m の 29.5 は法定 30.0 に対する**フレーム量子化の余
 | `matcher:stop_hold_stationary` | `req-vd-ad:REQ-AD-031` | 段a（v=0 到達後の停止保持でクリープが抑止される）の主判定。段b（信号・一時停止標識を 停止対象に構成した場合）にも md_sng_stop_sign で使う。実測: 保持 11.6 秒で変位 0.032 m（GT_esmini/docs/virtualdriver/measurements/manualdrive_creep_stop_hold_2026-08-05.md）。 |
 | `matcher:restart_after_trigger` | `req-vd-ad:REQ-AD-031` | 段a の後半（人間のアクセル操作を唯一の再発進トリガとする）の主判定。先行車は停止した まま run が終わるので、発進の説明はパルス以外に存在しない——「先行車が動いたから 追従した」で通ってしまう構成では、段a が禁じている自動再発進と区別できない。 |
 | `matcher:driver_override_reported` | `req-vd-ad:REQ-AD-026` | 段b（ブレーキ踏下で解除、アクセル踏下は一時上書き）の上書きチャネル側の判定。 フェーズBで作った matcher が、フェーズCで初めて **REASON_BRAKE_PEDAL を実際に生む producer** を得た（ACC の解除）。同一 run でアクセル起因の一時上書きも custom_state=DRIVER_OVERRIDE_ACCEL として出るため、規格の2値制約とその補完が 1本の刺激の中で並んで観測できる。 |
+| `matcher:lane_kept_within` | `req-vd-ad:REQ-AD-027` | 段a（弱ドリフトで補正が入り車線内に留まる）の主判定。**左右対で回すことが判定の一部** ——補正則の符号誤りは機能を弱めるのではなく車を車線の外へ押すので、片側だけでは 「弱すぎる実装」と区別できない。実測は完全な鏡像（t=5.0 で offset +0.317/補正 +0.004 対 -0.317/-0.004、両極ともピーク |offset| 0.363m でレーン-1不変）。 `expect_kept: false` 方向は同一 xosc の warning_only / below_band 構成で使い、同じ刺激が 補正なしでは |offset| 4.330m・レーン-1→-2 の逸脱になることを示す——これが無いと正例の 「留まった」は刺激が弱かっただけの可能性を排除できない。 |
+| `matcher:steer_output_absent` | `req-vd-ad:REQ-AD-027` | 段b（人間の明確な操舵入力・指示器作動中は介入しない/即時中断）と段f（警報のみモードで cmd.steering 不変）と段e（速度域外で介入しない）の負系判定。3段が同一 matcher なのは、 いずれも「機能自身の操舵寄与がゼロ」という同じ観測だからで、違うのは**理由**の方 （gt.lka.suppressed_* / in_speed_band に別々に出る）。 |
 
 ## OpenX概念 逆引き
 

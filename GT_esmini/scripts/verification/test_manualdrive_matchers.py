@@ -1316,3 +1316,183 @@ def test_restart_after_trigger_skip_when_the_run_ends_before_the_window():
 def test_restart_after_trigger_skip_without_a_trigger_time():
     r = eval_must({"event": "restart_after_trigger"}, [_ego_frame(0.0, speed=5.0)])
     assert r["status"] == "skip", r["detail"]
+
+
+# ---------------------------------------------------------------------------
+# lane_kept_within (phase D, req-vd-ad:REQ-AD-027 step a)
+# ---------------------------------------------------------------------------
+
+
+def _lka_detail(offset: str, lane: str = "-1", correction: str = "0.000") -> dict:
+    return {
+        "gt.lka.offset_m": offset,
+        "gt.lka.lane_id": lane,
+        "gt.lka.margin_m": "0.750",
+        "gt.lka.tlc_s": "-1.000",
+        "gt.lka.warning": "false",
+        "gt.lka.departure": "false",
+        "gt.lka.in_speed_band": "true",
+        "gt.lka.correction": correction,
+        "gt.lka.driver_steering": "0.000",
+        "gt.lka.steer_out": "0.000",
+        "gt.lka.suppressed_indicator": "false",
+        "gt.lka.suppressed_steer": "false",
+    }
+
+
+def _lka_frames(rows, *, lane="-1"):
+    """rows: list of (t, offset_str) or (t, offset_str, lane_str)."""
+    out = []
+    for row in rows:
+        t, offset = row[0], row[1]
+        ln = row[2] if len(row) > 2 else lane
+        out.append(_frame(t, {"gt.lka": _adas_rec("standby", _lka_detail(offset, ln))}))
+    return out
+
+
+def test_lane_kept_within_green_when_the_offset_stays_small_in_one_lane():
+    frames = _lka_frames([(0.0, "0.100"), (0.5, "0.320"), (1.0, "0.180")])
+    r = eval_must({"event": "lane_kept_within", "max_offset_m": 0.5}, frames)
+    assert r["status"] == "pass", r["detail"]
+    assert "max |offset| 0.320" in r["detail"]
+
+
+def test_lane_kept_within_red_when_the_offset_exceeds_the_limit():
+    frames = _lka_frames([(0.0, "0.100"), (0.5, "0.720"), (1.0, "0.180")])
+    r = eval_must({"event": "lane_kept_within", "max_offset_m": 0.5}, frames)
+    assert r["status"] == "fail", r["detail"]
+    assert "0.720" in r["detail"]
+
+
+def test_lane_kept_within_red_when_the_lane_changes_even_with_a_small_offset():
+    """THE structural red for this matcher.
+
+    A real departure does NOT show up as a growing |offset|: roadmanager
+    re-references the lane-relative offset at the boundary, so the frame after
+    the crossing reports a SMALL offset again -- measured against the lane the
+    vehicle has just left its own for. Every offset below is inside the limit,
+    and the run still departed. Without the lane-id requirement this case is
+    the matcher's cleanest pass."""
+    frames = _lka_frames(
+        [(0.0, "0.100", "-1"), (0.5, "0.400", "-1"), (1.0, "0.150", "-2")]
+    )
+    r = eval_must({"event": "lane_kept_within", "max_offset_m": 0.5}, frames)
+    assert r["status"] == "fail", r["detail"]
+    assert "lane changed" in r["detail"]
+    assert "[-2, -1]" in r["detail"]
+
+
+def test_lane_kept_within_negative_direction_green_on_a_real_departure():
+    frames = _lka_frames(
+        [(0.0, "0.100", "-1"), (0.5, "0.400", "-1"), (1.0, "0.150", "-2")]
+    )
+    r = eval_must(
+        {"event": "lane_kept_within", "max_offset_m": 0.5, "expect_kept": False}, frames
+    )
+    assert r["status"] == "pass", r["detail"]
+    assert "departure observed" in r["detail"]
+
+
+def test_lane_kept_within_negative_direction_red_when_the_lane_was_actually_held():
+    """The polarity pair's other half must be able to fail. A warning-only /
+    LKA-off pole that quietly kept its lane anyway is not evidence about the
+    assist -- it means the drift stimulus was too weak, and reporting it green
+    would certify a run that demonstrated nothing."""
+    frames = _lka_frames([(0.0, "0.100"), (0.5, "0.320"), (1.0, "0.180")])
+    r = eval_must(
+        {"event": "lane_kept_within", "max_offset_m": 0.5, "expect_kept": False}, frames
+    )
+    assert r["status"] == "fail", r["detail"]
+    assert "cannot evidence a departure" in r["detail"]
+
+
+def test_lane_kept_within_skip_when_the_lane_id_is_never_reported():
+    """A pre-phase-D stream carries no gt.lka.lane_id. Judging on |offset|
+    alone would be exactly the re-referencing trap above, so this skips."""
+    frames = []
+    for t, offset in [(0.0, "0.100"), (0.5, "0.320")]:
+        detail = _lka_detail(offset)
+        del detail["gt.lka.lane_id"]
+        frames.append(_frame(t, {"gt.lka": _adas_rec("standby", detail)}))
+    r = eval_must({"event": "lane_kept_within", "max_offset_m": 0.5}, frames)
+    assert r["status"] == "skip", r["detail"]
+    assert "unwritten channel" in r["detail"]
+
+
+def test_lane_kept_within_skip_when_the_function_never_reported():
+    frames = [_frame(0.0, {}), _frame(0.5, {})]
+    r = eval_must({"event": "lane_kept_within", "max_offset_m": 0.5}, frames)
+    assert r["status"] == "skip", r["detail"]
+
+
+def test_lane_kept_within_skip_without_a_limit():
+    frames = _lka_frames([(0.0, "0.100"), (0.5, "0.320")])
+    r = eval_must({"event": "lane_kept_within"}, frames)
+    assert r["status"] == "skip", r["detail"]
+    assert "checks nothing" in r["detail"]
+
+
+# ---------------------------------------------------------------------------
+# steer_output_absent (phase D, req-vd-ad:REQ-AD-027 steps b/e/f)
+# ---------------------------------------------------------------------------
+
+
+def test_steer_output_absent_green_when_the_function_never_steered():
+    frames = _lka_frames([(0.0, "0.100"), (0.5, "0.600"), (1.0, "0.800")])
+    r = eval_must({"event": "steer_output_absent", "function": "gt.lka"}, frames)
+    assert r["status"] == "pass", r["detail"]
+
+
+def test_steer_output_absent_red_when_a_correction_leaks_through():
+    """The red that makes REQ-AD-027 step f a real claim: warning_only (or a
+    suppression) that still emits a correction. The magnitude does not have to
+    be large -- a mode that leaks anything is not the mode it says it is."""
+    frames = []
+    for t, offset, corr in [(0.0, "0.100", "0.000"), (0.5, "0.600", "0.021")]:
+        frames.append(
+            _frame(
+                t,
+                {"gt.lka": _adas_rec("standby", _lka_detail(offset, correction=corr))},
+            )
+        )
+    r = eval_must({"event": "steer_output_absent", "function": "gt.lka"}, frames)
+    assert r["status"] == "fail", r["detail"]
+    assert "+0.0210" in r["detail"]
+    assert "the function steered" in r["detail"]
+
+
+def test_steer_output_absent_red_on_a_negative_correction_too():
+    """Sign-blind by design: an assist steering the WRONG way is still an
+    assist that steered."""
+    frames = []
+    for t, corr in [(0.0, "0.000"), (0.5, "-0.030")]:
+        frames.append(
+            _frame(
+                t,
+                {"gt.lka": _adas_rec("standby", _lka_detail("0.400", correction=corr))},
+            )
+        )
+    r = eval_must({"event": "steer_output_absent", "function": "gt.lka"}, frames)
+    assert r["status"] == "fail", r["detail"]
+    assert "-0.0300" in r["detail"]
+
+
+def test_steer_output_absent_skip_when_the_channel_was_never_written():
+    """A row whose detail carries no correction key -- e.g. a build where the
+    LKA row went UNAVAILABLE instead of STANDBY under warning_only. "The assist
+    produced nothing" cannot be evidenced by a channel nobody populated."""
+    frames = []
+    for t in (0.0, 0.5):
+        detail = _lka_detail("0.400")
+        del detail["gt.lka.correction"]
+        frames.append(_frame(t, {"gt.lka": _adas_rec("standby", detail)}))
+    r = eval_must({"event": "steer_output_absent", "function": "gt.lka"}, frames)
+    assert r["status"] == "skip", r["detail"]
+    assert "unwritten channel" in r["detail"]
+
+
+def test_steer_output_absent_skip_without_a_function():
+    frames = _lka_frames([(0.0, "0.100")])
+    r = eval_must({"event": "steer_output_absent"}, frames)
+    assert r["status"] == "skip", r["detail"]
+    assert "checks nothing" in r["detail"]

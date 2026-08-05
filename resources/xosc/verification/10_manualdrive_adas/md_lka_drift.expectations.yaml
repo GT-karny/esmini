@@ -1,0 +1,50 @@
+scenario: md_lka_drift
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-027 step a (vd-func:FUNC-080), slug md-lka-drift-correction.
+# THE `variant: left` / `variant: right` MIRROR PAIR. Both poles use this same
+# expectations file: the claim is identical on both sides and so is the
+# threshold, which is exactly what makes the pair a symmetry test. If one side
+# ever needs a different number, the correction law has an asymmetry and that is
+# a finding, not a reason to fork this file.
+#
+# WHY BOTH SIDES ARE NEEDED. A sign error in the correction law does not make
+# the assist weaker, it makes it push the vehicle OUT of the lane. On one side
+# that is indistinguishable from an assist that is merely too weak; on the
+# mirror it shows up as one side held and the other thrown out.
+#
+# lane_kept_within reads |gt.lka.offset_m| AND gt.lka.lane_id together, because
+# the offset is lane-relative and RE-REFERENCES at a lane boundary -- judging on
+# the offset alone would give its cleanest pass to the run that departed. See
+# the matcher's own note.
+#
+# MEASURED (test_results/mdadas_lka, 2026-08-05, 480 frames each pole): both
+# poles hold lane -1 for the whole window with a peak |offset| of 0.363 m, and
+# gt.lka reaches ACTIVE at t=4.05. The two runs are EXACT MIRRORS in the signed
+# quantities -- at t=5.0 the left pole reports offset +0.317 / correction +0.004
+# and the right pole offset -0.317 / correction -0.004 -- which is the sign chain
+# (vehicle-left-positive in, steer-right-positive out) demonstrated in both
+# polarities on real data rather than argued in a comment. The 1.0 m limit sits
+# ~2.75x above the measured peak and ~4.2x below the 4.33 m the same stimulus
+# reaches with the assist suppressed (the warning_only pole), so it separates the
+# two outcomes with room on both sides.
+must:
+  - event: lane_kept_within
+    function: gt.lka
+    max_offset_m: 1.0
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "弱ドリフト入力に対して補正が入り、車線内（レーンID不変・中心からの偏差1.0m以内）に留まること（REQ-AD-027段a）"
+  - event: adas_state_matches
+    function: gt.lka
+    expect: active
+    mode: any
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "補正が実際に出ている（ACTIVE）フレームがあること。STANDBY のまま車線内に留まっただけなら刺激が効いていない＝主張が成立しない"
+  - event: driver_override_reported
+    function: gt.lka
+    expect_active: false
+    mode: all
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "弱ドリフトは運転者の上書きではないこと（負の対照。上書き欄が交通状況で点滅していないことも同時に見る）"

@@ -538,6 +538,44 @@ signals:
       消費者: matcher:speed_capped_at（`cap_key` で毎フレームのキャップを読む）、
       matcher:no_brake_output、matcher:adas_state_sequence。
 
+  - id: manualdrive_lka_lateral
+    title: 手動運転中 LKA のレーン相対幾何と補正操舵（偏差・余裕・TLC・補正量・抑制理由）
+    exposure: [hvd, frame]
+    state: "●"
+    emit: >-
+      ManualDriveCoordinator.cpp（Position::GetRoadLaneInfo から車線相対量を取り、road-t 符号を
+      車両左正へ変換）→ AdasCoexistenceStack.cpp の RunLateralSection（`gt.lka.offset_m` /
+      `gt.lka.margin_m` / `gt.lka.tlc_s` / `gt.lka.lateral_speed_mps` / `gt.lka.warning` /
+      `gt.lka.departure` / `gt.lka.in_speed_band` / `gt.lka.correction` /
+      `gt.lka.driver_steering` / `gt.lka.steer_out` / `gt.lka.suppressed_indicator` /
+      `gt.lka.suppressed_steer` / `gt.lka.lane_id` を PolicyDetail へ）
+      → AdasFunctionReport.cpp（`gt.lka.` 接頭辞で gt.lka 行へ）→ HVD custom_detail
+    note: >-
+      **2026-08-05 フェーズD（req-vd-ad:REQ-AD-027）で新設**。手動運転中 ADAS で初めての
+      **横（lat）ドメインの観測量**で、既存の縦系 signal とは読み方の注意点が2つ違う。
+
+      **(1) `lane_id` は装飾ではなく `offset_m` の意味を決める**。この偏差は**レーン相対**であり、
+      roadmanager の `Position::GetOffset()` はレーン境界で参照を張り替える（本プロジェクト
+      実測 -1.7482 → +1.9425 が1フレーム）。つまり**逸脱した run ほど |offset| は小さく戻る**。
+      偏差だけを読む観測は、車線を出た run にこそ最もきれいな数字を返す。両方を対で読むこと。
+
+      **(2) `correction` は機能自身の寄与であって車両の操舵ではない**。`driver_steering`
+      （人間の生入力）と `steer_out`（合成後）を並べて出しているのはそのためで、
+      `signal:manualdrive_msl_cap` の `gt.msl.brake_out` と同型の理由——人間は主張と無関係に
+      ハンドルを切るので、実効操舵を見る matcher は「補正を出さない」系の主張を測れない。
+      warning_only 構成でも `correction` は 0.000 として**報告される**（行を UNAVAILABLE へ
+      落とさず STANDBY に留める設計）。落とすと detail ごと消え、「出さなかった」と
+      「誰も見ていない」が同じ観測になる。
+
+      `suppressed_indicator` と `suppressed_steer` を別に持つのも同型で、どちらも「補正が
+      出ていない」を生むが意味が違う——意図した車線変更なのか、明確な操舵入力なのか。
+      前者は警報も止め、後者は警報を残す（合図せず跨ぐ運転者こそ警報の対象）。1つに畳むと
+      この非対称が外から見えなくなる。
+
+      消費者: matcher:lane_kept_within（`offset_m` + `lane_id`）、matcher:steer_output_absent
+      （`correction`）、matcher:adas_state_matches（状態列は manualdrive_adas_states 側）、
+      matcher:driver_override_reported（上書き欄は manualdrive_driver_override 側）。
+
   - id: override_domain_state
     title: 操作権限ドメイン（lat/lon が manual か scenario か）
     exposure: [debug]

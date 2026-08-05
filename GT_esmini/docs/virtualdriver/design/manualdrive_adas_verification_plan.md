@@ -31,7 +31,17 @@
 > 刺激だけだった。残るのは `md-acc-cruise-no-lead` と `md-kickdown-shared-consistency`
 > （後者は `md_msl_kickdown` で gt.aeb / gt.msl 両行を同一窓で見る形で**実質的に実証済み**
 > だが、専用 slug としては起こしていない）。
-> **§2-4（LKA・LDW・HMI、フェーズD）と§3-4の常設化（フェーズE）は未実装（計画のみ）**。方式は
+> **フェーズD（LKA・LDW列、2026-08-05）実行済み**: §2-4 の 10 slug のうち 6 を
+> `manualdrive_adas_batch.yaml` の 7 行（23 → 30 シナリオ）として実装し、新 matcher 2 件
+> （`lane_kept_within` / `steer_output_absent`）を新設して **30/30 シナリオ・82 matcher が
+> pass=82/fail=0/skip=0**。§2-2 の `md-driver-override-steering-reason` もフェーズDで
+> **実証可能になり、実証した**（LKA の中断が REASON_STEERING_INPUT の初の producer）——
+> これで REQ-AD-028 段b の3経路が全部そろい met へ昇格した。
+> 残る §2-4 の 4 slug は `md-lka-ffb-feedback`（**G29 実機限定**、§6 の区分どおり自動ゲート
+> 対象外）と HMI の3件（`md-hmi-state-display` / `md-hmi-warning-presentation` /
+> `md-hmi-no-new-channel`）で、後者はいずれもフロント側の領分＝フェーズE の目視確認と
+> 同じ作業なのでそちらへ寄せた（emit 側 = gt.lka / gt.ldw の HVD 行は本フェーズで揃っている）。
+> **§3-4の常設化（フェーズE）は未実装（計画のみ）**。方式は
 > [manualdrive_adas_design.md](manualdrive_adas_design.md) が真実源であり、本文書はその §10 の
 > フェーズ完了条件（対応する負 matcher が緑）を満たすために何を作るかを定める。
 > 知識グラフ: `req-vd-ad:REQ-AD-025`〜`REQ-AD-031`、`vd-func:FUNC-075`/`FUNC-079`/`FUNC-080`/`FUNC-081`。
@@ -238,8 +248,8 @@ E2E で赤実証を作りにくいものは C++ 単体テストで赤実証し�
 | `no_brake_output` | 実装済み（フェーズC・負） | 窓内で**その機能自身の**ブレーキ寄与が無い（車両の実効ブレーキではない——人間のブレーキは主張と無関係に非零になりうる） | **実績**: 計画どおり単体で赤実証（`gt.msl.brake_out` が非零＝AEB のブレーキ変換を誤結線した形／チャネル未記録で skip）。E2E は下り坂ではなく平坦路の `md_msl_throttle_cap`（§3-1 の決定を参照） |
 | `stop_hold_stationary` | 実装済み（フェーズC） | 保持中の変位が閾値以下。保持区間は**機能自身の `gt.acc.stop_hold`** でアンカーし、**連続区間ごとに**測る（1 run で停止→再発進→再停止が起きうるため） | **実績**: 単体赤2件（クリープ／保持が一度も起きない run は pass でなく skip）。E2E は `md_sng_lead_stop_restart` / `md_sng_stop_sign` で緑（実測変位 0.015-0.032 m、閾値 0.5 m） |
 | `restart_after_trigger` | 実装済み（フェーズC） | アクセルパルス後、`within_s` 以内に `min_speed` へ達する。**パルス前の「動かなかった」は担当しない**（`stop_hold_stationary` の領分）——分けておくと、停止しなかった run が正しい方の matcher で赤くなる | **実績**: 単体赤1件（保持が解除されない）＋ skip 2件。E2E は `md_sng_lead_stop_restart` で緑（パルス t=21.0、到達 2.43 m/s） |
-| `lane_kept_within` | 新規 | 窓内の \|offset\| が車線内閾値以下（LKA 正例） | LKA OFF の同一資産（ドリフトで逸脱し赤） |
-| `steer_output_absent` | 新規（負） | 窓内で補正操舵の出力が無い（LDW モード、人間優先、域外） | warning_only を外した同一資産 |
+| `lane_kept_within` | 実装済み（フェーズD） | 窓内の \|offset\| が車線内閾値以下**かつレーンIDが不変**（LKA 正例）。`expect_kept: false` で逸脱側も判定できる | **実績（2026-08-05）**: `test_manualdrive_matchers.py` の単体赤3件（偏差超過／**レーン変化のみで偏差は小さいまま**／逸脱側の期待に対し車線を保ってしまった run）＋ skip 3件。E2E は `md_lka_drift` の左右対（正）と warning_only / below_band（`expect_kept: false`、同一刺激が \|offset\| 4.330m・レーン-1→-2 の逸脱になる）で両極性 |
+| `steer_output_absent` | 実装済み（フェーズD・負） | 窓内で**機能自身の**補正操舵出力が無い（LDW モード、人間優先、域外） | **実績（2026-08-05）**: 単体赤3件（補正が漏れる／負方向の補正も赤／チャネル未記録で skip）。E2E は `md_lka_drift[warning_only]` / `[below_band]` / `md_lka_human_steer` / `md_lka_lane_change_with_indicator` の4行で緑 |
 | `stopped_at_stop_line` 系 | 既存流用 | 停止線手前停止（REQ-AD-003/004 の判定を Stop&Go 段b に転用） | （既存の赤実証を継承） |
 
 **★2026-08-05 訂正**: フェーズA実装時点で、新設5 matcher（`adas_state_matches` / `manual_aeb_fires` /
@@ -257,8 +267,15 @@ OSI scene 駆動のもの（OBB 分離、衝突速度）は主体非依存で流
 
 ### 4-3. 運用コスト
 
-フェーズCで 6 件を実装し、`namespaces.yaml` の matcher `id_pattern` は 27 → 33 件になった。
-残る新規 matcher は LKA/LDW 列（`lane_kept_within` / `steer_output_absent`）の 2 件である。
+フェーズCで 6 件、フェーズDで 2 件を実装し、`namespaces.yaml` の matcher `id_pattern` は
+27 → 33 → **35 件**になった。**計画が予定していた新規 matcher はこれで全て実装済み**である。
+
+フェーズDの 2 件のうち `lane_kept_within` は、計画時点の記述（「窓内の |offset| が車線内閾値
+以下」）のままでは**逸脱した run にこそ最もきれいな pass を返す** matcher になっていた。
+読む偏差はレーン相対で、roadmanager の `Position::GetOffset()` はレーン境界で参照を張り替える
+（本プロジェクト実測 -1.7482 → +1.9425 が1フレーム）——つまり車線を出た瞬間、偏差は新しい
+レーンの中心基準で小さく戻る。レーンIDの不変を併せて要求することで塞いだ。
+**判別のために作った観測量が短絡して定数に化ける**型の罠で、計画段階の1行の記述からは見えない。
 
 新規 matcher は約 14 件で、追加のたびに `namespaces.yaml` の matcher `id_pattern`（enum 形式、source_of_truth: vd_metrics.py）への追記が要る。
 駐車と同じく、フェーズごとに繰り返し発生する運用コストとして織り込む。

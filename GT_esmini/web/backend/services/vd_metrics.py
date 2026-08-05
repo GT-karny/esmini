@@ -2614,6 +2614,180 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         )
         return res("pass", detail, ego_source=src)
 
+    if kind == "lane_kept_within":
+        # req-vd-ad:REQ-AD-027 step a (vd-func:FUNC-080): the ego stayed inside
+        # its lane over the window.
+        #
+        #   function     str   : hvd.adas key, default "gt.lka"
+        #   max_offset_m float : allowed |lateral offset from the lane centre|
+        #                        (required)
+        #   offset_key   str   : custom_detail key, default "<function>.offset_m"
+        #   lane_key     str   : custom_detail key, default "<function>.lane_id"
+        #   expect_kept  bool   : default True. False asserts the OPPOSITE -- the
+        #                        run must show a departure -- which is how the
+        #                        LKA-off / warning-only pole of a two-configuration
+        #                        pair is judged from the same matcher.
+        #   min_frames   int   : default 2
+        #
+        # ============================================================
+        # WHY THE LANE ID IS REQUIRED AND NOT DECORATION
+        # ============================================================
+        # The offset this reads is LANE-RELATIVE, and roadmanager's
+        # Position::GetOffset() RE-REFERENCES at a lane boundary (measured
+        # elsewhere in this project: -1.7482 -> +1.9425 in a single frame). So a
+        # vehicle that drifts out of its lane does not produce a growing
+        # |offset| -- it produces a big one, then a SMALL one again, measured
+        # against the lane it has just moved into. A matcher looking only at
+        # |offset| would therefore report its cleanest pass on exactly the run
+        # that departed.
+        #
+        # Requiring the lane id to be constant closes that. It also means the
+        # negative direction (expect_kept: false) has something real to observe:
+        # a departure shows up as a lane change even when the offset never got
+        # large in the frame it was sampled.
+        if "max_offset_m" not in must:
+            return res(
+                "skip",
+                "must entry names no max_offset_m -- a matcher that checks nothing "
+                "must not report pass",
+            )
+        function = must.get("function", "gt.lka")
+        offset_key = must.get("offset_key", f"{function}.offset_m")
+        lane_key = must.get("lane_key", f"{function}.lane_id")
+        max_offset = float(must["max_offset_m"])
+        expect_kept = bool(must.get("expect_kept", True))
+        min_frames = int(must.get("min_frames", 2))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        measured = []  # (idx, offset, lane)
+        for i in gated:
+            rec = _hvd_adas_record(frames[i], function)
+            off = _adas_detail_float(rec, offset_key)
+            lane = _adas_detail_float(rec, lane_key)
+            if off is None or lane is None:
+                continue  # a missing detail key is never fabricated as 0.0
+            measured.append((i, off, lane))
+        if len(measured) < min_frames:
+            return res(
+                "skip",
+                f"{offset_key!r} + {lane_key!r} reported together on only "
+                f"{len(measured)} of {len(gated)} gated frame(s) -- an unwritten "
+                "channel cannot evidence anything about lane keeping",
+            )
+
+        lanes = {round(lane) for (_, _, lane) in measured}
+        over = [(i, off) for (i, off, _) in measured if abs(off) > max_offset]
+        kept = not over and len(lanes) == 1
+
+        offsets = [abs(off) for (_, off, _) in measured]
+        summary = (
+            f"max |offset| {max(offsets):.3f} m (limit {max_offset}) over "
+            f"{len(measured)} frame(s); lane(s) {sorted(int(v) for v in lanes)}"
+        )
+
+        if expect_kept:
+            if len(lanes) > 1:
+                i0 = next(
+                    i
+                    for (i, _, lane) in measured
+                    if round(lane) != round(measured[0][2])
+                )
+                return res(
+                    "fail",
+                    f"lane changed {sorted(int(v) for v in lanes)} by "
+                    f"t={frames[i0]['sim_time']:.2f} (frame {i0}) -- the ego left the "
+                    f"lane it started in. {summary}",
+                    i0,
+                )
+            if over:
+                i0, off0 = max(over, key=lambda r: abs(r[1]))
+                return res(
+                    "fail",
+                    f"|offset| {abs(off0):.3f} m > {max_offset} at "
+                    f"t={frames[i0]['sim_time']:.2f} (frame {i0}). {summary}",
+                    i0,
+                )
+            return res("pass", summary)
+
+        # expect_kept: false -- the run must show a departure. `min_frames`
+        # already guards against a run too short to have gone anywhere.
+        if kept:
+            return res(
+                "fail",
+                f"the ego stayed in its lane, so this run cannot evidence a departure. "
+                f"{summary}",
+                measured[-1][0],
+            )
+        return res("pass", f"departure observed as expected. {summary}")
+
+    if kind == "steer_output_absent":
+        # req-vd-ad:REQ-AD-027 steps b/e/f (negative): the named function
+        # contributed NO corrective steering over the window.
+        #
+        #   function   str   : hvd.adas key (required)
+        #   steer_key  str   : custom_detail key, default "<function>.correction"
+        #   tolerance  float : magnitude treated as zero, default 0.001
+        #   min_frames int   : default 1
+        #
+        # Reads the FUNCTION'S OWN contribution, not the vehicle's steering --
+        # exactly the distinction no_brake_output makes for the limiter, and for
+        # the same reason: the human is free to steer, and in every scenario this
+        # matcher is written for (deliberate steering, an indicated lane change,
+        # an out-of-band speed) they are steering ON PURPOSE. A matcher that
+        # watched the effective command would be red in precisely the runs it
+        # exists to certify.
+        #
+        # A never-written channel SKIPs rather than passing: "the assist produced
+        # nothing" cannot be evidenced by a row nobody populated. That is what
+        # makes the warning-only pole a measurement -- the LKA row is deliberately
+        # kept alive (STANDBY, reporting a measured 0.000) rather than withdrawn
+        # to UNAVAILABLE, see AdasFunctionReport.hpp's ManualAdasEnableFlags note.
+        if "function" not in must:
+            return res(
+                "skip",
+                "must entry names no function -- a matcher that checks nothing must "
+                "not report pass",
+            )
+        function = must["function"]
+        steer_key = must.get("steer_key", f"{function}.correction")
+        tol = float(must.get("tolerance", 0.001))
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        measured = []  # (idx, correction)
+        for i in gated:
+            v = _adas_detail_float(_hvd_adas_record(frames[i], function), steer_key)
+            if v is None:
+                continue
+            measured.append((i, v))
+        if not measured:
+            return res(
+                "skip",
+                f"{steer_key!r} never reported over {len(gated)} gated frame(s) -- an "
+                "unwritten channel cannot evidence 'no correction was produced'",
+            )
+        offenders = [(i, v) for (i, v) in measured if abs(v) > tol]
+        if offenders:
+            i0, v0 = max(offenders, key=lambda r: abs(r[1]))
+            detail = (
+                f"{steer_key}={v0:+.4f} (|.| > tol {tol}) at t={frames[i0]['sim_time']:.2f} "
+                f"(frame {i0}) -- the function steered; {len(offenders)}/{len(measured)} "
+                "frame(s) non-zero"
+            )
+            return res("fail", detail, i0)
+        detail = (
+            f"|{steer_key}| stayed <= {tol} over all {len(measured)} reported frame(s)"
+        )
+        return res("pass", detail)
+
     if kind == "route_lane_plan_holds":
         # vd-func:FUNC-050 (レーンレベル経路計画) / RouteLanePlan.hpp conformance.
         # Reads telemetry.route_lane (VirtualDriverTelemetryJson.cpp's additive

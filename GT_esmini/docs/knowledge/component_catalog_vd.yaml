@@ -121,3 +121,19 @@ components:
       軌道は ResumeMergeProfile を無改造で流用し、往路・復路とも同じ1ホップ機構を
       目標レーンだけ差し替えて2回まわす。設計は
       GT_esmini/docs/virtualdriver/design/overtake_maneuver.md。
+
+  # 2026-08-05 フェーズD（req-vd-ad:REQ-AD-027）。名前空間の題は「VirtualDriver 実装ユニット」
+  # だが、この台帳は既に ad-steering-envelope / domain-ownership-ledger /
+  # adas-function-report のようなコントローラ横断のユニットを持っており、
+  # LaneKeepAssist も同じ性格（純ロジック・エンジン非依存・単体テスト可能）である。
+  # 置き場所を分けるより、cross-cutting として同居させる方が「実装側ノード」の語彙が
+  # 割れずに済む。
+  - id: lane-keep-assist
+    title: 手動運転中のレーンキープ補助（LKA / LDW）
+    layer: cross-cutting
+    interface: '-'
+    path: GT_esmini/src/control/manualdrive/LaneKeepAssist.cpp
+    note: >-
+      レーン中心からの偏差と横速度だけを入力に、TLC 主・margin 従で逸脱傾向を判定し、
+      振幅・レート制限つきの補正操舵を cmd.steering へ加算する。判定と出力を別経路に
+      分けてあり、警報のみモード（LDW）は判定を動かしたまま出力だけを止める。

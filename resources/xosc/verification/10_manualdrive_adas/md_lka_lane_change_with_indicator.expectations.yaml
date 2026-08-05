@@ -1,0 +1,40 @@
+scenario: md_lka_lane_change_with_indicator
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-027 step b (vd-func:FUNC-080), slug md-lka-indicator-suppression.
+# The NEGATIVE half of "human steering priority": a signalled, intentional lane
+# change must see neither a correction nor a warning.
+#
+# WHAT THIS ROW ADDS OVER md_lka_human_steer, WHICH ALSO SUPPRESSES THE
+# CORRECTION: the gt.ldw verdict. Both suppressions are live in this run (the
+# lane-change steering also clears the input-rate threshold), so reading only
+# steer_output_absent could not separate the two scenarios. The warning can:
+# here it must stay STANDBY throughout, and there it must go ACTIVE. Warning a
+# driver about a departure they signalled is the false alarm every production
+# LDW suppresses, and that asymmetry is the whole content of this pair.
+#
+# THE OVERRIDE ROW IS NOT DECORATION EITHER. The indicator deliberately does NOT
+# raise the steering-origin DriverOverride: OSI's Reason enum has exactly two
+# values and an indicator is not a steering input, so reporting it as
+# REASON_STEERING_INPUT would misreport which control the human used. Asserting
+# expect_active: false here is what stops a future edit from "simplifying" the
+# two suppressions into one.
+must:
+  - event: steer_output_absent
+    function: gt.lka
+    after: { sim_time: 5.0 }
+    before: { sim_time: 19.0 }
+    reason: "指示器作動中は補正を出さないこと（REQ-AD-027段b・負系）"
+  - event: adas_state_matches
+    function: gt.ldw
+    expect: standby
+    mode: all
+    after: { sim_time: 5.0 }
+    before: { sim_time: 19.0 }
+    reason: "意図した車線変更に対しては警報も出さないこと。md_lka_human_steer（同じ操舵量で警報は出る）との差が指示器抑制の実体"
+  - event: driver_override_reported
+    function: gt.lka
+    expect_active: false
+    mode: all
+    after: { sim_time: 5.0 }
+    before: { sim_time: 19.0 }
+    reason: "指示器はステア起因の上書きとして報告しないこと。OSI の Reason は2値しかなく、指示器を REASON_STEERING_INPUT に丸めるとどの操作系だったかを誤報する（gt.lka.suppressed_indicator として別に観測できる）"

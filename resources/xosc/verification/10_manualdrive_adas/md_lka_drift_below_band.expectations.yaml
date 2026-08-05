@@ -1,0 +1,37 @@
+scenario: md_lka_drift
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-027 step e (vd-func:FUNC-080), slug md-lka-speed-range-gate.
+# THE OUT-OF-BAND POLE. Same xosc, same input profile as
+# md_lka_drift.expectations.yaml -- the only difference is
+# adas_lka_min_speed_mps=30.0 against an ego holding ~25 m/s (manifest
+# `variant: below_band`). Its partner is
+# md_lka_drift_in_band.expectations.yaml, which moves the SAME bound below the
+# ego; neither row asserts anything alone, because "the assist did nothing" is
+# also what a broken assist produces.
+#
+# STANDBY, NOT UNAVAILABLE, IS THE POINT OF THE THIRD ROW. Step e's wording is
+# 域外では介入せず STANDBY に留まる: a function that is installed, configured on
+# and simply out of its operating range is a different fact from one that was
+# switched off, and REQ-AD-028 step a's three-value discipline is what keeps
+# them apart. Asserting only "no correction" would pass equally on a run with
+# LKA disabled entirely.
+must:
+  - event: steer_output_absent
+    function: gt.lka
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "利用可能速度域の外では同一の逸脱刺激でも補正を出さないこと（REQ-AD-027段e・負系）"
+  - event: adas_state_matches
+    function: gt.lka
+    expect: standby
+    mode: all
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "域外は「切ってある」(UNAVAILABLE)ではなく「居るが作動域外」(STANDBY)として出ること（REQ-AD-027段e / REQ-AD-028段a の3値規律）"
+  - event: lane_kept_within
+    function: gt.lka
+    max_offset_m: 1.0
+    expect_kept: false
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "域外では補正が無いので実際に逸脱すること＝域内側（介入して留まる）との差が両極性の中身"

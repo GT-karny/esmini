@@ -1,0 +1,16 @@
+{
+  "name": "indicator_lane_change",
+  "description": "req-vd-ad:REQ-AD-027 step b, the INDICATOR half (slug md-lka-indicator-suppression). A signalled, intentional lane change: the driver flicks the right indicator at t=4.0, steers in, then counter-steers back to straight one lane over.\n\nButton bit 4 = ButtonBits::INDICATOR_RIGHT (1 << 2, control/common/VehicleCommand.hpp). The press is a PAIR of keyframes -- bit set, then cleared -- because the indicator FSM is edge-triggered: a bit left set would be one press and would also block every later press of the same button from producing an edge (the convention every ADAS stalk profile in this directory follows).\n\nTHE STEERING IS +/-0.004 AND THE MANOEUVRE IS AN S, NOT A TURN. 0.004 normalized is a 0.0024 rad front-wheel angle, i.e. a yaw rate of 0.02 rad/s at 25 m/s: turn in for 2 s to acquire about 0.04 rad of heading, hold, then take the same amount back out so the vehicle ends up straight in the next lane. That is what a lane change is. It matters that this stays SMALL for a second reason too: at 0.004 over a 1 s ramp the input rate is 0.004 /s, an order of magnitude below adas_lka_steer_override_rate (0.03 /s), so the human-steering-priority detector does NOT fire here.\n\nTHAT SEPARATION IS THE POINT OF THIS ASSET. If the steering alone also suppressed the assist, this run and md_lka_human_steer would be the same measurement twice and the indicator would be doing nothing observable. Because only the indicator fires, gt.lka.suppressed_indicator=true / suppressed_steer=false is what the stream shows, and the LDW row staying STANDBY is attributable to the indicator specifically.",
+  "keyframes": [
+    { "t": 0.0,  "throttle": 0.30, "brake": 0.0, "steering":  0.000, "gear": 1, "buttons": 0 },
+    { "t": 4.00, "throttle": 0.30, "brake": 0.0, "steering":  0.000, "gear": 1, "buttons": 4 },
+    { "t": 4.15, "throttle": 0.30, "brake": 0.0, "steering":  0.000, "gear": 1, "buttons": 0 },
+    { "t": 5.0,  "throttle": 0.30, "brake": 0.0, "steering":  0.000, "gear": 1, "buttons": 0 },
+    { "t": 6.0,  "throttle": 0.30, "brake": 0.0, "steering":  0.004, "gear": 1, "buttons": 0 },
+    { "t": 8.0,  "throttle": 0.30, "brake": 0.0, "steering":  0.004, "gear": 1, "buttons": 0 },
+    { "t": 9.0,  "throttle": 0.30, "brake": 0.0, "steering": -0.004, "gear": 1, "buttons": 0 },
+    { "t": 11.0, "throttle": 0.30, "brake": 0.0, "steering": -0.004, "gear": 1, "buttons": 0 },
+    { "t": 12.0, "throttle": 0.30, "brake": 0.0, "steering":  0.000, "gear": 1, "buttons": 0 },
+    { "t": 30.0, "throttle": 0.30, "brake": 0.0, "steering":  0.000, "gear": 1, "buttons": 0 }
+  ]
+}

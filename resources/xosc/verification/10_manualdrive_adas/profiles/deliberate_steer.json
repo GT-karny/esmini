@@ -1,0 +1,15 @@
+{
+  "name": "deliberate_steer",
+  "description": "req-vd-ad:REQ-AD-027 step b and req-vd-ad:REQ-AD-028 step b (the STEERING-origin driver override, the third and last producer that requirement's step b names). A driver who steers deliberately out of their lane WITHOUT signalling.\n\nThe run opens like weak_drift_right.json (steady throttle, a small released input that starts a drift), so the assist is already engaged and there is something for the driver's input to hold OFF.\n\nWHY THE DELIBERATE INPUT IS ONLY 0.012, WHICH LOOKS TINY. This vehicle's steer_gain is 0.61 rad, so a NORMALIZED steering of 0.012 is a front-wheel angle of 0.0073 rad, which at 25 m/s is a yaw rate of 0.06 rad/s -- already a firm, unmistakable turn-in. An earlier version of this profile used 0.40 and produced a 22-degree swerve that put the ego 23 m off the road: the run was green and meant nothing, because nobody steers like that and the scenario stopped resembling the situation it names. The number to check a steering magnitude against here is the ~0.010 a normal lane change needs, not the [-1, 1] the axis allows.\n\nTHE SHAPE IS TURN-IN / HOLD / TURN-BACK, and both ramps clear the input-rate threshold (0.012 over 0.3 s = 0.04 /s, against adas_lka_steer_override_rate = 0.03 /s). The HOLD between them has a rate of zero by construction, and is covered by adas_lka_steer_override_hold_s instead -- which is the whole reason that hold exists (a driver whose hand has stopped moving still has their hand on the wheel). If a future edit shortens the hold below the 1.7 s plateau here, this scenario will show it as the assist coming back mid-manoeuvre.",
+  "keyframes": [
+    { "t": 0.0,  "throttle": 0.30, "brake": 0.0, "steering": 0.000, "gear": 1, "buttons": 0 },
+    { "t": 2.0,  "throttle": 0.30, "brake": 0.0, "steering": 0.000, "gear": 1, "buttons": 0 },
+    { "t": 3.0,  "throttle": 0.30, "brake": 0.0, "steering": 0.002, "gear": 1, "buttons": 0 },
+    { "t": 5.0,  "throttle": 0.30, "brake": 0.0, "steering": 0.002, "gear": 1, "buttons": 0 },
+    { "t": 6.0,  "throttle": 0.30, "brake": 0.0, "steering": 0.000, "gear": 1, "buttons": 0 },
+    { "t": 6.30, "throttle": 0.30, "brake": 0.0, "steering": 0.012, "gear": 1, "buttons": 0 },
+    { "t": 8.00, "throttle": 0.30, "brake": 0.0, "steering": 0.012, "gear": 1, "buttons": 0 },
+    { "t": 8.30, "throttle": 0.30, "brake": 0.0, "steering": 0.000, "gear": 1, "buttons": 0 },
+    { "t": 30.0, "throttle": 0.30, "brake": 0.0, "steering": 0.000, "gear": 1, "buttons": 0 }
+  ]
+}

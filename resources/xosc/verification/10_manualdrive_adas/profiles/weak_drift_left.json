@@ -1,0 +1,12 @@
+{
+  "name": "weak_drift_left",
+  "description": "req-vd-ad:REQ-AD-027 step a (vd-func:FUNC-080), the LKA positive stimulus. An inattentive driver: a steady 0.30 throttle for the whole run, and a SMALL, SLOW steering input that is released again -- leaving the vehicle with a standing heading error and no hand on the wheel to correct it.\n\nSTEERING IS NEGATIVE = LEFT. PedalSteerCommand::steering is +1 right / -1 left (RealVehicle::StepLateralAndAttitude negates it into the front-wheel angle, and IndicatorFSM's own doc states the same convention). weak_drift_right.json is the exact mirror, and the pair exists so a SIGN error in LaneKeepAssist -- which would invert the feature rather than degrade it -- shows up as one side being held and the other thrown out of the lane.\n\nWHY 0.002 AND WHY IT IS RELEASED. 0.002 normalized is 0.0012 rad of front wheel; held for 2 s at 25 m/s it accrues a heading error of roughly 0.008 rad, i.e. a lateral drift of about 0.19 m/s. That is slow enough that TLC alone does not fire immediately from the lane centre (0.535 m of margin / 0.19 = 2.8 s) and the departure is reached through the MARGIN arm a couple of seconds later -- which is the regime this stimulus is for. Releasing the input rather than holding it is what makes the job finite: the assist has a standing heading error to null, not a hand to fight.\n\nTHE RAMP RATE IS ALSO LOAD-BEARING. 0.002 over 1.0 s is 0.002 /s, far under the human-steering-priority threshold (adas_lka_steer_override_rate, 0.06 /s). If this ramp were steep enough to trip that detector the scenario would suppress the very assist it is trying to measure, and would still look plausible from outside (no correction, driver drifting) -- the same failure shape msl_ops_steady_throttle.json avoids by staying under the kickdown threshold.",
+  "keyframes": [
+    { "t": 0.0,  "throttle": 0.30, "brake": 0.0, "steering":  0.000, "gear": 1, "buttons": 0 },
+    { "t": 2.0,  "throttle": 0.30, "brake": 0.0, "steering":  0.000, "gear": 1, "buttons": 0 },
+    { "t": 3.0,  "throttle": 0.30, "brake": 0.0, "steering": -0.002, "gear": 1, "buttons": 0 },
+    { "t": 5.0,  "throttle": 0.30, "brake": 0.0, "steering": -0.002, "gear": 1, "buttons": 0 },
+    { "t": 6.0,  "throttle": 0.30, "brake": 0.0, "steering":  0.000, "gear": 1, "buttons": 0 },
+    { "t": 30.0, "throttle": 0.30, "brake": 0.0, "steering":  0.000, "gear": 1, "buttons": 0 }
+  ]
+}

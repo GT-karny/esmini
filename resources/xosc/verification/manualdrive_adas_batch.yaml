@@ -341,3 +341,109 @@ scenarios:
       adas_acc_enabled: true
       adas_msl_enabled: true
     osi: true
+
+  # ====================================================================
+  # フェーズD (2026-08-05): LKA / LDW列
+  # req-vd-ad:REQ-AD-027 / REQ-AD-028 段b(ステア経路)、vd-func:FUNC-080
+  #
+  # 【閾値はどこから来たか】LKA は既存 policy と閾値を1つも共有しない新設部品なので、
+  # 全パラメータが自前・全て要校正。うち2つは「実測ではなく算術」で決めた:
+  #   - margin/release (0.15/0.30): 車線幅3.07m・車幅2.00m → 中心での余裕は0.535m。
+  #     当初の 0.30/0.50 は解除条件が中心±3.5cm を意味し、ヒステリシスが黙って
+  #     ラッチに化けていた。
+  #   - 補正ゲインと上限 (0.012/0.020, max 0.03): steer_gain 0.61 のこの車では
+  #     25m/s で 0.3m/s の横流れを消すのに必要な正規化操舵は 0.0024。補正は 0.01
+  #     の桁であって 0.1 ではなく、当初値は1桁以上大きかった。
+  #   - steer_override_rate (0.03/s): 通常の車線変更の入力レートが約0.01/s なので
+  #     その3倍。当初の 0.35/s は通常運転で到達不能＝検出器として死んでいた。
+  # 窓と期待値は test_results/mdadas_lka の計測パス由来。matcher のパラメータを
+  # 緑になるまで動かしたものは無い。
+  #
+  # 【1本の xosc を5構成で回す】md_lka_drift.xosc は幾何が同一で、変わるのは
+  # 入力プロファイルの符号と LKA config だけ。左右対は符号誤りの検出、
+  # warning_only と below_band は「補正が無ければ同じ刺激で逸脱する」ことの対照で、
+  # これが無いと正例の「車線内に留まった」は刺激が弱いだけの可能性を排除できない。
+  # ====================================================================
+
+  # ---- 正例 / REQ-AD-027 段a: 弱ドリフトに補正が入り車線内に留まる(左右対) ----
+  # 実測: 両極とも |offset| ピーク 0.363m・レーン-1不変。符号量は完全な鏡像
+  # (t=5.0 で offset +0.317/補正 +0.004 対 -0.317/-0.004)。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.xosc
+    variant: left
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/weak_drift_left.json
+      adas_lka_enabled: true
+    osi: true
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.xosc
+    variant: right
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/weak_drift_right.json
+      adas_lka_enabled: true
+    osi: true
+  # ---- 両極性 / REQ-AD-027 段f: 警報のみモード(警報は出るが cmd.steering 不変) ----
+  # この行は段fと同時に段aの負極も担う。実測: 同一刺激で |offset| 4.330m・
+  # レーン -1→-2 の逸脱。上の正例が「刺激が弱かっただけ」でないことをこれが示す。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.xosc
+    variant: warning_only
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_drift_warning_only.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/weak_drift_right.json
+      adas_lka_enabled: true
+      adas_lka_warning_only: true   # ← right 行との唯一の差分
+    osi: true
+  # ---- 両極性ペア / REQ-AD-027 段e: 利用可能速度域(域外/域内) ----
+  # 差分は adas_lka_min_speed_mps の値だけ(自車速25m/sの上か下か)。
+  # 域外側だけでは「LKAが壊れている実装」でも通るので、域内側を必ず併走させる。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.xosc
+    variant: below_band
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_drift_below_band.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/weak_drift_right.json
+      adas_lka_enabled: true
+      adas_lka_min_speed_mps: 30.0
+    osi: true
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.xosc
+    variant: in_band
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_drift_in_band.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/weak_drift_right.json
+      adas_lka_enabled: true
+      adas_lka_min_speed_mps: 10.0   # ← below_band 行との唯一の差分
+    osi: true
+  # ---- 負例 / REQ-AD-027 段b + REQ-AD-028 段b(ステア経路): 明確な操舵入力 ----
+  # **この行が REQ-AD-028 段b の3経路目**。アクセル起因はフェーズB、ブレーキ起因は
+  # フェーズC、ステア起因の producer は LKA の中断にしか無く、ここで初めて存在する。
+  # 実測: 抑制は t=6.30-10.3 で途切れず、判定窓の61フレーム全てで
+  # DriverOverride active + reasons=[steering_input]。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_human_steer.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_human_steer.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/deliberate_steer.json
+      adas_lka_enabled: true
+    osi: true
+  # ---- 負例 / REQ-AD-027 段b: 指示器つき車線変更(補正も警報も出さない) ----
+  # 上の行との違いは警報側。操舵入力は補正だけを止め警報は残すが、指示器は両方止める。
+  # 実測でも指示器抑制のみが立ち(suppressed_indicator=true / suppressed_steer=false)、
+  # gt.ldw は全窓 STANDBY。同じ操舵量で verdict が割れることがこの非対称の実体。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_lane_change_with_indicator.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_lane_change_with_indicator.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/indicator_lane_change.json
+      adas_lka_enabled: true
+    osi: true
