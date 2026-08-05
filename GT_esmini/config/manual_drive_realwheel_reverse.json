@@ -43,6 +43,7 @@
         "adas_aeb_enabled": false,
         "adas_aeb_kickdown_suppress_enabled": true,
         "adas_aeb_warning_ttc_threshold_s": 3.5,
+        "adas_aeb_warning_min_a_req_mps2": 2.0,
         "adas_brake_full_decel_mps2": 8.0,
         "adas_brake_kp": 0.05,
         "adas_brake_ki": 0.6,

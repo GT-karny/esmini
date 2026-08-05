@@ -1,0 +1,53 @@
+scenario: md_aeb_no_conflict
+variant: adas_off
+category: 10_manualdrive_adas
+# REQ-AD-028 段a、slug md-state-three-value-discipline(フェーズB)。
+#
+# 【なぜ資産を増やさず variant で回すのか】
+# 主張は「切ってあった(UNAVAILABLE)」と「見張っていて撃たなかった(STANDBY)」が
+# 区別されて外から読めること。これは1本の実行では原理的に示せない — どちらの状態も
+# 「AEBが撃たなかった」という同じ振る舞いを生むからで、区別を示すには同じ刺激を
+# 2つの構成で走らせて観測量だけが変わることを見せるしかない。
+# 幾何は md_aeb_no_conflict.xosc と完全に同一（同じファイルを再利用）で、
+# 差分は manualdrive_config の adas_aeb_enabled だけ:
+#   - 既定の行 (variant なし): adas_aeb_enabled=true  -> gt.aeb/gt.fcw = STANDBY
+#   - この行   (variant: adas_off): adas_aeb_enabled=false -> 同 = UNAVAILABLE
+# xosc を複製しないのは、複製すると「絶対に食い違ってはいけない2ファイル」を
+# レビュー対象に増やすことになり、マニフェストのキー1つより悪い失敗様式だから
+# (検証計画§7-2、gt_sim_test.py の _batch_run_name 参照)。
+#
+# 【この行が単独では何も主張しないこと】
+# UNAVAILABLE が出ることだけを見ても「機能が壊れていて常に UNAVAILABLE」と区別
+# できない。区別は md_aeb_no_conflict.expectations.yaml の
+# adas_state_matches(expect: standby, mode: all) と対になって初めて成立する。
+# 片方を消すと主張も消える — どちらか一方だけを残す変更をしないこと。
+#
+# 【driver_override_reported をここに置かない理由】
+# ゲートが閉じている(config OFF)行は上書きチャネルを書かない契約
+# (AdasFunctionReport.hpp: 動いていなかった機能は上書きされようがない)なので、
+# ここで driver_override_reported を書くと必ず skip になる。skip する matcher を
+# 常設資産に置くと「常に灰色の行」が増えて、本当に灰色になった時に気づけない。
+# 閉じたゲートでチャネルが書かれないことの固定は C++ ユニットテスト
+# (test_ManualAdasFunctionReport.cpp の ClosedGateLeavesTheOverrideChannelUnreported)
+# が担う。
+must:
+  - event: adas_state_matches
+    function: gt.aeb
+    expect: unavailable
+    mode: all
+    after: { sim_time: 0.5 }
+    before: { sim_time: 13.0 }  # StopTrigger
+    min_frames: 1
+    reason: "AEBをconfigで切った構成では、同一刺激でもHVDのstateがUNAVAILABLEになること(md-state-three-value-discipline, REQ-AD-028段a)"
+  - event: adas_state_matches
+    function: gt.fcw
+    expect: unavailable
+    mode: all
+    after: { sim_time: 0.5 }
+    before: { sim_time: 13.0 }
+    min_frames: 1
+    reason: "警報(FCW)もAEBと同じconfigゲートに従ってUNAVAILABLEになること(md-state-three-value-discipline, REQ-AD-028段a)"
+# no_intervention_in_window をここに置かないのも同じ理由: あの matcher は
+# 「全フレームUNAVAILABLE」を意図的に skip として返す(切ってあった機能は
+# 『正しく撃たなかった』ことの証拠にならない、REQ-AD-025段bの規律)。
+# OFF構成では必ず skip になるので、常設資産に置けば恒久的な灰色行になる。

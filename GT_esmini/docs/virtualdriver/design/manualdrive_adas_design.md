@@ -8,7 +8,18 @@
 > 計25シナリオ）は deviations=0 で不動、全新設機能は既定 OFF。
 > **§2-1（sim_time の由来）・§2-3（ドメイン所有と評価タイミング）・§3-2（FCWリードの成因）の
 > 3点は実装・実測で当初の想定と食い違いが判明し、本改訂で訂正した**（各節参照）。
-> **フェーズB（観測性完成・DriverOverride）〜E（ACC/LKA/常設化）は未実装（設計のみ）**。
+> **フェーズB（観測列・DriverOverride、2026-08-05）実装済み**: §8-3 の populate 機構
+> （`AdasFunctionState` の `driver_override`/`custom_state` → `AddADASFunctionEx` の既定値付き
+> 第6引数 → `GT_HostVehicleReporter` → OSI）、アクセル起因 producer（キックダウン →
+> `custom_state=DRIVER_OVERRIDE_ACCEL`）、matcher `driver_override_reported`、および §9 に
+> 記録していた `warning_min_a_req_mps2` の config 化。**ブレーキ/ステア理由の producer は
+> ACC（フェーズC）/LKA（フェーズD）にしか無く、本フェーズで実証できたのは機構＋アクセル
+> 経路のみ**（req-vd-ad:REQ-AD-028 段b は `met: false` のまま）。
+> フェーズB実測: C++ ユニット **673/673 緑**（ManualDrive ADAS 関連 81 ケース、うちフェーズB
+> 新規 12）、`manualdrive_adas_batch` は 7 シナリオ・16 matcher が pass=16/fail=0/skip=0、
+> 既存回帰ベースライン5本（car_following_traffic_control / aeb_safety / anticipation_driving /
+> scenario_handoff / stop_line_pairing、計31シナリオ）は deviations=0 で不動。
+> **フェーズC（ACC/Stop&Go/MSL）〜E（LKA/常設化）は未実装（設計のみ）**。
 > 検証資産は別文書（manualdrive_adas_verification_plan.md）が扱う。
 > 知識グラフ: `req-vd-ad:REQ-AD-025`（手動AEB）/ `REQ-AD-026`（手動ACC）/ `REQ-AD-027`（手動LKA）/
 > `REQ-AD-028`（面3観測性）/ `REQ-AD-029`（HMI提示）/ `REQ-AD-030`（速度リミッター）/ `REQ-AD-031`（Stop&Go）、
@@ -288,6 +299,30 @@ State は既存 3 値規律を踏襲する: config OFF またはドメイン非�
 - 操舵起因（LKA 中断）→ `REASON_STEERING_INPUT`
 - アクセル起因（AEB 抑制、MSL 解除、ACC 一時上書き）→ Reason 列挙に該当値が**ない**（規格制約、2 値のみ）。`custom_state` に `DRIVER_OVERRIDE_ACCEL` を置いて補完する
 
+**★2026-08-05 フェーズB 実装（上記の方式は維持、以下は確定した細部）**
+
+「機能行単位のセッター」と「`AddADASFunctionEx` の拡張引数」は**同じ 1 つの機構**として実装した。
+`AddADASFunctionEx` は行を `custom_name` で識別して state/detail を書き換える既存の口であり、上書き欄も同じ行の同じ呼び出しで書ける。
+別に `SetADASFunctionDriverOverride(custom_name, ...)` を生やすと、同じスロットへの書き口が 2 つになり、しかも呼び出し元は片方しか持たない。
+拡張引数は**既定値付き**にしてある——これが「他コントローラの HVD 出力が不変」を型で保証する:
+既存の呼び出し（RealDriver 24 スロット、VirtualDriver 行）は引数を渡さず、既定値は「言うことが無い」を意味し、直列化時に submessage も `custom_state` も**書かれない**ので、直列化バイトが変わらない。
+
+**`reported` フラグ（3 値ではなく 2 値 + 有無）**。
+`AdasDriverOverride` は `active` の他に `reported` を持つ。
+`reported=false` なら submessage を書かない、`reported=true, active=false` なら**明示的に** `active=false` を書く（OSI の `optional bool` なので明示 false はワイヤ上に存在する）。
+これは「評価して上書き無しと測った」と「誰も見ていない」を面3が区別するためで、区別しないと **populate 機構ごと消した実行で負の matcher が緑になる**。
+書くのはゲートが開いている行（config 有効かつドメイン所有＝State が UNAVAILABLE でない行）だけ——動いていなかった機能は上書きされようがない。
+これは §8-2 の STANDBY / UNAVAILABLE 規律を上書きチャネルへそのまま持ち込んだもので、`detail` を bypass 時に空のままにする §2-3 の扱いとも同じ形である。
+
+**アクセル起因の producer 条件は `kickdown_effective`**（キックダウンがラッチしており、かつ抑制が config で有効）であって、「この フレームで実際に AEB 要求を握り潰した」（`PedalArbitrationSnapshot::aeb_suppressed`）**ではない**。
+OSI の DriverOverride が問うのは「その**機能**が運転者に上書きされたか」であり、AEB は前方に対象が居るかどうかにかかわらず、キックダウンが続く限り現に介入できない＝上書きされている。
+狭い方（このフレームで実際に握り潰した）を採ると、上書き欄が交通状況に合わせて点滅し、運転者の入力を追わなくなる。
+狭い事実は `gt.aeb.suppressed` の custom_detail として引き続き観測でき、どちらも失われない。
+
+**FCW 行には上書きを立てない**。
+キックダウンが抑制するのは介入であって警報ではない（危険へ向けて加速している最中にこそ警報は残る必要がある）。
+副次的な利点として、同一フレーム・同一実行の中に「上書き有りの行（gt.aeb）」と「上書き無しの行（gt.fcw）」が同時に存在するので、負の対照を別シナリオを増やさずに取れる。
+
 ### 8-4. custom_detail キー
 
 `gt.<機能>.<量>_<SI単位>` 規約（PolicyDetail.hpp）に従い、少なくとも次を出す。
@@ -319,11 +354,13 @@ State は既存 3 値規律を踏襲する: config OFF またはドメイン非�
     "enabled": false,                  // 既定 OFF（全機能共通の導入方針）
     "kickdown_suppress_enabled": true, // 実車型上書き（方式決定）
     // ttc_threshold 等は AebSafetyConfig を共有。警報閾値のみ追加
-    "warning_ttc_threshold_s": 0.0     // 要校正
-    // ★既知のギャップ（2026-08-05）: FCW ゲートは ttc_threshold と min_a_req の
-    // 2値のクランプで決まる（AdasCoexistenceStack.cpp:119-120）が、config で
-    // 露出しているのは前者だけ。後者（warning_min_a_req_mps2）は
-    // AdasCoexistenceStack.hpp の compile-in default のまま。詳細は本節末尾の note。
+    // FCW ゲートは次の2値**両方**のクランプで決まる（AdasCoexistenceStack.cpp
+    // DeriveFcwGateConfig）。片方だけ振っても、もう片方が支配的な遭遇では
+    // 警報点が動かない — 校正時は必ずペアで扱う。
+    "warning_ttc_threshold_s": 0.0,    // 要校正（AebSafetyConfig の 2.5 より緩い側＝大きい値）
+    "warning_min_a_req_mps2": 2.0      // 要校正（同 3.0 より緩い側＝小さい値）。
+                                       // ★2026-08-05 フェーズBで新設。それまで
+                                       // compile-in default のみだった（本節末尾の note）
   },
   "acc": {
     "enabled": false,
@@ -369,12 +406,13 @@ State は既存 3 値規律を踏襲する: config OFF またはドメイン非�
 全機能とも既定 OFF で入れる（F6 AutoLight、lane_change_initiation と同じ導入方針。既定挙動を変えず、回帰ベースラインを不動で通す）。
 利用可能速度域のキー語彙（min/max_speed_mps）は ACC と LKA で共通にする（REQ-AD-026/027 の共通語彙決定）。
 
-**★2026-08-05 追加（別ワーカーの指摘を出典確認のうえ記録）: `warning_min_a_req_mps2` は config に露出していない既知のギャップ**。
+**★2026-08-05 追加 → 同日フェーズBで解消（記録は残す）: `warning_min_a_req_mps2` が config に露出していなかった件**。
+フェーズBで on-disk キー `adas_aeb_warning_min_a_req_mps2` を新設し、`ManualDriveConfig` → `ManualAdasStackConfig` まで結線した（ユニットテスト `test_ManualDriveAdasConfig.cpp` の `BothFcwGateThresholdsAreIndependentlySettable` / `WarningMinAReqAloneDoesNotDisturbWarningTtc` で両方が独立に効くことを固定）。以下は当時の記録であり、なぜこれがただの「値の間違い」ではなく**校正の詰み**だったかの説明として残す。
 FCW の発火点は `DeriveFcwGateConfig` が `warning_ttc_threshold_s` と `warning_min_a_req_mps2` の**両方**をクランプして決める（`AdasCoexistenceStack.cpp:119-120`）。
 このうち `warning_ttc_threshold_s` は `config_.adas.aeb.warning_ttc_threshold_s`（`adas_aeb_warning_ttc_threshold_s`、`ManualDriveConfig.cpp:173`）として config から読めるが、対になる `warning_min_a_req_mps2`（既定 2.0 m/s²、`AdasCoexistenceStack.hpp:199`）は **`AdasCoexistenceStack.hpp` のコンパイル時デフォルトのみで、対応する config キー・パーサが無い**。
 FCW の発火点は2値のペアで決まる以上、片方だけが config から効くのは校正時に噛み合わない——`warning_ttc_threshold_s` をどう振っても `warning_min_a_req_mps2` が支配的な側では FCW の発火点が動かない、という校正の詰み方をする。
 本設計書は §9 に `warning_ttc_threshold_s` しか載せておらず、これも欠落を見落としていた。
-**対応は次フェーズの実装課題として記録するのみに留める**（本改訂ではデフォルト値もキーも追加しない。追加は実装変更でありユニットテストとセットで行うべきという判断のため）。§12 のリスク一覧にも同じ内容を追記した。
+~~**対応は次フェーズの実装課題として記録するのみに留める**~~（→ フェーズBで実施済み。上の追記を参照）。
 
 ## 10. 実装フェーズと完了条件
 
@@ -384,7 +422,7 @@ FCW の発火点は2値のペアで決まる以上、片方だけが config か�
 | フェーズ | 内容 | 完了条件 |
 | :--- | :--- | :--- |
 | **A** | AEB 列: AdasCoexistenceStack と PedalArbitrator の新設、AebSafety 配線、FCW 警報、HVD 報告経路（§8-1/8-2/8-5）、ハーネスの ManualDrive 対応 | AEB 正負バッチ緑（合成入力。無反応ドライバで介入、衝突コース不在で非介入、強ブレーキ非上乗せ、キックダウン抑制） |
-| **B** | 観測列: DriverOverride populate（§8-3）、custom_state、状態機械の 3 値規律、REQ-AD-028 の matcher | 上書き検出の正負 matcher 緑 |
+| **B**（済 2026-08-05） | 観測列: DriverOverride populate（§8-3）、custom_state、状態機械の 3 値規律、REQ-AD-028 の matcher、＋フェーズA残債の `warning_min_a_req_mps2` config 化（§9） | 上書き検出の正負 matcher 緑 → **達成**（正=`md_aeb_kickdown_suppress` のキックダウン窓、負=`md_aeb_unresponsive`、対照=同 run の `gt.fcw` 行）。3値規律は同一 xosc を `adas_aeb_enabled` の true/false 2構成で回す対（バッチの `variant` キー）で示す。**ただし段b claim のうち brake/steer 経路は producer が C/D にしか無いため未実証** |
 | **C** | ACC 列: AccLonController、操作系（ボタン、set/resume、速度と THW の走行中変更）、速度域ゲート、制限速度キャップ、Stop&Go 段a/b、MSL（§6。ACC と部品を共有するため同フェーズ） | 追従、解除と復帰、設定変更反映、停止と人間再発進、構成両極性のバッチ緑 |
 | **D** | LKA 列: LaneKeepAssist 新設、TLC 判定、人間操舵優先、LDW、警報チャネルの UI 配線（REQ-AD-029） | 補正と非介入の正負バッチ緑 |
 | **E** | 常設化: `manualdrive_adas_batch` の回帰ゲート組み込み（非ブロッキング開始 → 昇格は AEB 前例）、CI 相乗り、HvdGaugePanel の目視確認、docs | ゲート常設とベースライン commit |
@@ -403,13 +441,15 @@ FCW の発火点は2値のペアで決まる以上、片方だけが config か�
 
 ## 12. 既知のリスクと相互作用
 
-**★2026-08-05 追加: `warning_min_a_req_mps2` が config に露出していない**（§9 の追記を参照）。
-FCW の発火点は `warning_ttc_threshold_s`（config 済み）と `warning_min_a_req_mps2`（compile-in
-デフォルト 2.0 m/s²、`AdasCoexistenceStack.hpp:199`）の両方のクランプで決まるが、後者は config
-キーが無い。ペアの片方しか校正できないため、`warning_min_a_req_mps2` が支配的な条件では
-`warning_ttc_threshold_s` をいくら振っても FCW の発火点（延いては段eのリード）が動かない、という
-校正の詰みが起こりうる。対応は次フェーズの実装課題（config キー新設＋パーサ＋ユニットテスト）
-として記録するのみに留める（本改訂ではC++側は変更していない）。
+**★2026-08-05 追加 → 同日フェーズBで解消: `warning_min_a_req_mps2` が config に露出していなかった**（§9 の追記を参照）。
+FCW の発火点は `warning_ttc_threshold_s` と `warning_min_a_req_mps2` の両方のクランプで決まるが、
+フェーズA時点では後者に config キーが無かった。ペアの片方しか校正できないため、
+`warning_min_a_req_mps2` が支配的な条件では `warning_ttc_threshold_s` をいくら振っても FCW の
+発火点（延いては段eのリード）が動かない、という校正の詰みが起こる。
+フェーズBで `adas_aeb_warning_min_a_req_mps2` を新設して解消（ユニットテスト付き）。
+**教訓として残す**: 「2値の合議で決まる判定点の、片方だけを config に出す」は、値が間違って
+いるのではなく**校正という行為自体が不能になる**種類の欠陥で、閾値を振っても何も起きないという
+症状でしか気づけない。判定点がペアで決まるなら露出もペアで行う。
 
 **★2026-08-05 追加: FCW/AEB 候補選定の共有が cut-in でリードを潰す**（§3-2 訂正の要約）。
 FCW ゲートと AEB 介入ゲートは候補**選定**パラメータ（lookahead・lateral_tol・stop_margin）を共有しており、両者とも `AebSafety` の3フレーム侵入デバウンスが候補を認識するまで発火できない。

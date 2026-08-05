@@ -3,8 +3,17 @@
 > ステータス: **フェーズA（AEB列、§2-1・§4-2の該当5 matcher）は実装・実行済み**（2026-08-04〜05:
 > §7 のハーネス改修一式、`manualdrive_adas_batch.yaml` の5シナリオが実行可能・440フレームずつ
 > 生成、赤実証は当初計画のE2E設定極性反転ではなく Python 両極性ユニットテストへ差し替え済み
-> — 詳細は §4-2 の訂正注記）。**§2-2〜§2-4（観測性完成/ACC・Stop&Go・MSL/LKA・LDW・HMI、
-> フェーズB-D）と§3-4の常設化（フェーズE）は未実装（計画のみ）**。方式は
+> — 詳細は §4-2 の訂正注記）。
+> **フェーズB（観測列、2026-08-05）実行済み**: §2-2 の6 slug のうち
+> `md-driver-override-accel-custom-state` と `md-state-three-value-discipline` を
+> `manualdrive_adas_batch.yaml` に行として追加し、`driver_override_reported` を新設して
+> 正負とも緑（実測は §4-2 の該当行）。同バッチは 7 シナリオ・16 matcher が
+> pass=16/fail=0/skip=0。**残る4 slug のうち `md-driver-override-brake-reason` /
+> `md-driver-override-steering-reason` は producer が ACC（フェーズC）/LKA（フェーズD）に
+> しか無いため本フェーズでは実証不能**、`md-adas-native-name-enum` / `md-harness-hvd-readback`
+> はフェーズAで達成済み（REQ-AD-028 段a/段c）。
+> **§2-3〜§2-4（ACC・Stop&Go・MSL / LKA・LDW・HMI、フェーズC-D）と§3-4の常設化
+> （フェーズE）は未実装（計画のみ）**。方式は
 > [manualdrive_adas_design.md](manualdrive_adas_design.md) が真実源であり、本文書はその §10 の
 > フェーズ完了条件（対応する負 matcher が緑）を満たすために何を作るかを定める。
 > 知識グラフ: `req-vd-ad:REQ-AD-025`〜`REQ-AD-031`、`vd-func:FUNC-075`/`FUNC-079`/`FUNC-080`/`FUNC-081`。
@@ -47,11 +56,11 @@
 | slug | 内容 |
 | :--- | :--- |
 | `md-adas-native-name-enum` | 028a: 全機能が正規 Name 列挙（NAME_OTHER なし）で HVD に出る |
-| `md-driver-override-brake-reason` | 028b: ブレーキ起因の上書きが REASON_BRAKE_PEDAL で出る |
-| `md-driver-override-steering-reason` | 028b: 操舵起因の上書きが REASON_STEERING_INPUT で出る |
-| `md-driver-override-accel-custom-state` | 028b: アクセル起因が custom_state（DRIVER_OVERRIDE_ACCEL）で出る（Reason 列挙に該当値が無い規格制約の補完） |
+| `md-driver-override-brake-reason` | 028b: ブレーキ起因の上書きが REASON_BRAKE_PEDAL で出る。**フェーズB では実証不能**——機構（`expect_reason` を含む matcher と populate 経路）は完成しているが、ブレーキ起因の上書きを生む producer は ACC の解除（フェーズC）にしか無い。「無い Reason を要求したら赤になる」ことだけ単体で固定済み |
+| `md-driver-override-steering-reason` | 028b: 操舵起因の上書きが REASON_STEERING_INPUT で出る。**フェーズB では実証不能**——producer は LKA の中断（フェーズD）。同上 |
+| `md-driver-override-accel-custom-state` | 028b: アクセル起因が custom_state（DRIVER_OVERRIDE_ACCEL）で出る（Reason 列挙に該当値が無い規格制約の補完）。**フェーズB達成**（正=`md_aeb_kickdown_suppress` の 5.4-20.0 s 窓 293 フレーム全てで active＋トークン一致、負=`md_aeb_unresponsive` 391 フレームで非作動、同一実行内の対照=同 kickdown 行の `gt.fcw` 293 フレーム非作動） |
 | `md-harness-hvd-readback` | 028c: ハーネスが in-process API 経由で HVD を読み matcher 入力にできる |
-| `md-state-three-value-discipline` | 028a: 「切ってあった」（UNAVAILABLE）と「見張っていて撃たなかった」（STANDBY）が区別されて出る |
+| `md-state-three-value-discipline` | 028a: 「切ってあった」（UNAVAILABLE）と「見張っていて撃たなかった」（STANDBY）が区別されて出る。**フェーズB達成**（`md_aeb_no_conflict.xosc` を `adas_aeb_enabled` の true/false 2構成で回す対。既定行=STANDBY 251 フレーム、`variant: adas_off` 行=UNAVAILABLE 251 フレーム。片方だけでは主張が成立しないので、どちらか一方を消さないこと） |
 
 ### 2-3. ACC / Stop&Go / MSL 列（REQ-AD-026 / 031 / 030、フェーズC）
 
@@ -160,6 +169,12 @@
 aeb_safety_batch.yaml が確立した前例と同じ理由（片方だけ守ると、閾値を緩めて正例を通し負例を壊す取引がゲートを素通りする）による。
 フェーズ A の時点では AEB 列のみを載せ、フェーズ C / D で行を増やす（バッチは 1 本を育てる。機能別に分けない）。
 
+**★2026-08-05 フェーズB で追加した行**（6 → 7 シナリオ）。
+
+- 観測列の上書き（`md-driver-override-accel-custom-state`）は**新規シナリオを作らず**、既存の `md_aeb_kickdown_suppress`（正）と `md_aeb_unresponsive`（負）の expectations に `driver_override_reported` を足した。刺激は既にそこにある——キックダウン profile はまさに上書き入力そのもので、unresponsive はその対極。同じ実行から追加の観測量を読むだけの観点に、別の実行を作る理由がない。
+- 3値規律（`md-state-three-value-discipline`）だけは 1 行増やした。「切ってあった」と「見張っていて撃たなかった」は**同じ振る舞い**を生むので、同一刺激を 2 構成で走らせる以外に示しようがない。ここで xosc を複製すると「絶対に食い違ってはいけない 2 ファイル」がレビュー対象に増えるため、`md_aeb_no_conflict.xosc` を**そのまま再利用**し、マニフェスト側の新キー `variant:` で出力ディレクトリを分けた（差分は `adas_aeb_enabled` だけ）。この機構は §7-2 が「両極性判定はバッチマニフェスト側からパラメータ化できることに依存する」と書いていたものの実体で、フェーズC の `md-acc-speed-limit-cap` / `md-msl-speed-limit-linked` / `md-sng-target-config-polarity` もこれに乗る。
+- `variant` は同一 run ディレクトリへの衝突をマニフェスト読み込み時に拒否する（黙って上書きして両方 run 扱いになるのが最悪の失敗様式のため）。`check_regression_baseline.py` のキーも stem から run ディレクトリ名へ変えてあるので、フェーズE で常設化するときに 2 構成が 1 行へ潰れることはない。
+
 拡張セット（`manualdrive_adas_extended_batch.yaml`、手動運用）には、境界校正用の資産（キックダウン閾値近傍、速度域境界の両側、THW 段階の全組合せ）を置く。
 
 ## 4. matcher 拡充
@@ -182,7 +197,7 @@ E2E で赤実証を作りにくいものは C++ 単体テストで赤実証し�
 | `no_intervention_in_window` | 実装済み（フェーズA） | 窓内で指定機能の ACTIVE が無く、ペダル実効値が入力プロファイルと一致 | **実績（2026-08-05）**: `test_manualdrive_matchers.py` の単体テスト。当初計画の「誤介入を誘発する閾値へ緩めた config」でのE2E赤実証は未実施のまま置き換え |
 | `brake_not_stacked` | 実装済み（フェーズA） | 人間ブレーキ ≥ AEB 要求の窓で実効ブレーキ＝人間値 | E2E 赤実証は困難（計画時点の想定どおり）。**実績**: max 合成を `test_manualdrive_matchers.py` の単体テストで赤実証し、E2E（`md_aeb_strong_brake_driver.xosc`）は緑担保のみ——ただし当該 E2E 資産は閾値未校正で needs-review（実行はできるが判定が確定しない、`test_results/mdadas_run1/batch_summary.md`） |
 | `fcw_leads_intervention` | 実装済み（フェーズA） | 警報立ち上がりが介入立ち上がりに先行し、リード ≥ min_lead_s | **実績（2026-08-05）**: `test_manualdrive_matchers.py` の単体テスト。当初計画の「警報閾値を介入閾値と同値にした config」でのE2E赤実証は未実施のまま置き換え。**副産物として E2E 側（`md_aeb_unresponsive.xosc`、cut-in 幾何）が実際に fail した**（リード 0.000s、design §3-2 訂正参照）——想定していた「config を壊して赤」ではなく「現状の想定どおりの入力で赤」という、計画時点で想定していなかった種類の赤である |
-| `driver_override_reported` | 新規（未着手） | 上書き入力の窓と DriverOverride/custom_state の一致 | populate を止めた単体赤実証＋入力プロファイル時刻ずらし |
+| `driver_override_reported` | 実装済み（フェーズB） | 上書き入力の窓と DriverOverride/custom_state の一致。`function` 必須、`expect_active`（既定 true）/ `expect_reason` / `expect_custom_state` / `mode`（all/any） | **実績（2026-08-05）**: 計画どおり2つの赤を `test_manualdrive_matchers.py` に置いた —— ① populate を止めた（行は出るが submessage が書かれない）→ fail、② 入力プロファイル時刻ずらし（窓が上書き区間から外れる）→ fail。加えて custom_state トークン違い・存在しない Reason 要求・負方向への迷い込みも赤で固定。E2E は正負とも緑担保（正=`md_aeb_kickdown_suppress` 293フレーム、負=`md_aeb_unresponsive` 391フレーム） |
 | `setting_reflected` | 新規 | 設定値（set_speed / thw_setting）の変化が実効値（effective_cap / thw_actual）に段差として現れる。**切替が 1 回も起きなければ赤**（定数フィールドの偽 PASS 防止） | 設定変更を含まないプロファイルで回す（構造的に赤） |
 | `speed_capped_at` | 新規 | 窓内の最大速度がキャップ値＋許容差以下 | respect_speed_limit / MSL を OFF にした同一資産 |
 | `no_brake_output` | 新規（負） | 窓内でシステム由来のブレーキ出力が無い（MSL 下り坂） | AEB 用ブレーキ変換を MSL に誤結線した場合を単体で赤実証 |
@@ -253,6 +268,13 @@ OSI scene 駆動のもの（OBB 分離、衝突速度）は主体非依存で流
 設計書 §8-5 の in-process C API（シリアライズ済み HostVehicleData）を ctypes で受け、
 `vehicle_automated_driving_function[]` を機能名 → {state, custom_detail, driver_override} の辞書へ投影して matcher 入力に足す。
 自車の運動状態はこれまでどおり OSI scene の is_host から読む（面1化済みの経路を変えない）。
+
+**★2026-08-05 フェーズB: 投影に `driver_override.present` と `custom_state` を追加**。
+`present` は OSI の submessage 自体の有無で、`active` とは別の情報を運ぶ——「評価して上書き無しと測った」（present かつ active=false）と「誰もこのチャネルを書いていない」（present 無し）の区別である。
+この区別が無いと、**populate 機構ごと消した実行でも負の matcher が緑になる**（上書きが観測されないという同じ観測値になるため）。
+そこで `driver_override_reported` は方向によって前提を変えている: 正方向（`expect_active: true`）は present を要求しない——行そのものが出ている時点で計器は生きているので、submessage の欠如は真の負観測＝fail である。
+負方向（`expect_active: false`）だけが present を要求し、書かれていなければ pass ではなく skip を返す。
+これは既存の `no_intervention_in_window` が State について課している STANDBY / UNAVAILABLE の前提と同じ形で、「切ってあった機能は『正しく撃たなかった』ことの証拠にならない」を上書きチャネルへ移したものである。
 
 ### 7-4. ScriptedInputSource（C++ 側の小改修）
 

@@ -200,6 +200,24 @@ static_assert(
         static_cast<int>(osi3::HostVehicleData_VehicleAutomatedDrivingFunction_Name_NAME_SPEED_LIMIT_CONTROL),
     "OSI Name enum drift: NAME_SPEED_LIMIT_CONTROL");
 
+// Same pinning, for the DriverOverride Reason mirror phase B added
+// (req-vd-ad:REQ-AD-028 段b, design §8-3). File scope for the same reason as
+// the 4 Names above: they back the ManualDrive report path, not a single
+// dispatch branch. The COUNT matters as much as the values here — the whole
+// reason accelerator-origin overrides go through custom_state instead of a
+// Reason value is that OSI offers exactly these two and no third, so a future
+// OSI release adding one would be a design-relevant event, not a silent gain.
+static_assert(
+    gt_esmini::osi_adas::REASON_BRAKE_PEDAL ==
+        static_cast<int>(
+            osi3::HostVehicleData_VehicleAutomatedDrivingFunction_DriverOverride_Reason_REASON_BRAKE_PEDAL),
+    "OSI DriverOverride Reason enum drift: REASON_BRAKE_PEDAL");
+static_assert(
+    gt_esmini::osi_adas::REASON_STEERING_INPUT ==
+        static_cast<int>(
+            osi3::HostVehicleData_VehicleAutomatedDrivingFunction_DriverOverride_Reason_REASON_STEERING_INPUT),
+    "OSI DriverOverride Reason enum drift: REASON_STEERING_INPUT");
+
 // File-scope HVD estimator for non-GT-controller vehicles
 static gt_esmini::HVDEstimator s_hvdEstimator;
 
@@ -1633,11 +1651,33 @@ GT_ESMINI_API void GT_Step(double dt)
                         // pinned against the real OSI enum by the file-scope
                         // static_asserts above (another agent's region, left
                         // untouched here); this branch does not need its own.
+                        //
+                        // req-vd-ad:REQ-AD-028 段b (phase B): the per-row
+                        // DriverOverride/custom_state travels alongside the
+                        // state/detail through AddADASFunctionEx's defaulted
+                        // 6th argument. control's AdasDriverOverride and osi's
+                        // AdasFunctionOverride are two mirrors of the same
+                        // proto submessage kept in separate modules by
+                        // GT_esmini/CLAUDE.md §2 (control must not depend on
+                        // osi); this dispatch is the one place that sees both,
+                        // so the translation lives here. Only ManualDrive
+                        // passes a non-default value -- every other branch
+                        // omits the argument and is therefore byte-identical
+                        // on the wire (test_hvd_dispatch_invariance.py pins
+                        // that). The Reason enum mirror itself is pinned at
+                        // FILE SCOPE next to the 4 Name pins, for the same
+                        // reason those are: it backs the ManualDrive report
+                        // path rather than any one dispatch branch.
                         std::vector<gt_esmini::AdasFunctionState> manualAdasFunctions;
                         manualDrive->GetADASFunctions(manualAdasFunctions);
                         for (const auto& f : manualAdasFunctions)
                         {
-                            hvReporter.AddADASFunctionEx(vehicleId, f.name, f.custom_name, f.state, f.detail);
+                            gt_esmini::AdasFunctionOverride ovr;
+                            ovr.reported     = f.driver_override.reported;
+                            ovr.active       = f.driver_override.active;
+                            ovr.reasons      = f.driver_override.reasons;
+                            ovr.custom_state = f.custom_state;
+                            hvReporter.AddADASFunctionEx(vehicleId, f.name, f.custom_name, f.state, f.detail, ovr);
                         }
                     }
                     else if (auto* virtualDriver = dynamic_cast<gt_esmini::ControllerVirtualDriver*>(ctrl))

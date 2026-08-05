@@ -123,15 +123,22 @@ ControllerManualDrive::ControllerManualDrive(InitArgs* args)
     // A) -- build the AEB/FCW coexistence stack from config_.adas, now that
     // config_ has actually been loaded above (constructed here, not as a
     // default member initializer -- see ControllerManualDrive.hpp's comment
-    // on adas_stack_ for why). Phase A's config skeleton (design §9) does not
-    // expose warning_min_a_req_mps2 or the intervention-stage AebSafetyConfig
-    // itself as separate keys (manualdrive_adas_design.md §3-2: "ttc_threshold
-    // 等はAebSafetyConfigを共有"), so ManualAdasStackConfig::aeb and
-    // ::warning_min_a_req_mps2 are left at their compiled-in defaults.
+    // on adas_stack_ for why). The intervention-stage AebSafetyConfig itself
+    // still has no separate keys (manualdrive_adas_design.md §3-2:
+    // "ttc_threshold 等はAebSafetyConfigを共有"), so ManualAdasStackConfig::aeb
+    // is left at its compiled-in defaults.
+    //
+    // BOTH FCW gate thresholds are wired (req-vd-ad:REQ-AD-028, phase B).
+    // Phase A wired only warning_ttc_threshold_s and left
+    // warning_min_a_req_mps2 at its compiled-in default, which made the pair
+    // half-calibratable and therefore, on encounters where required
+    // deceleration is the binding side, not calibratable at all (design
+    // §9/§12).
     ManualAdasStackConfig adas_cfg;
     adas_cfg.aeb_enabled                   = config_.adas.aeb.enabled;
     adas_cfg.kickdown_suppress_enabled     = config_.adas.aeb.kickdown_suppress_enabled;
     adas_cfg.warning_ttc_threshold_s       = config_.adas.aeb.warning_ttc_threshold_s;
+    adas_cfg.warning_min_a_req_mps2        = config_.adas.aeb.warning_min_a_req_mps2;
     adas_cfg.arbitrator.full_brake_decel_mps2 = config_.adas.brake_control.full_brake_decel_mps2;
     adas_cfg.arbitrator.brake_kp           = config_.adas.brake_control.brake_kp;
     adas_cfg.arbitrator.brake_ki           = config_.adas.brake_control.brake_ki;

@@ -438,6 +438,138 @@ TEST(AdasCoexistenceStackTest, KickdownSuppressDisabledIgnoresKickdownAebStillIn
 }
 
 // ============================================================================
+// Accelerator-origin driver override (req-vd-ad:REQ-AD-028 段b, phase B)
+// ============================================================================
+//
+// decision.driver_override_accel tracks kickdown_effective (kickdown latched
+// AND suppression configured on), NOT pedals.aeb_suppressed. The two differ
+// exactly when the driver is floored but AEB had nothing to say that frame:
+// the function IS being held off by the accelerator, which is the question
+// OSI's DriverOverride asks, even though no request was vetoed. The narrower
+// per-frame veto stays observable as gt.aeb.suppressed -- the tests below pin
+// that BOTH facts survive, and that they are not the same fact.
+
+TEST(AdasCoexistenceStackTest, KickdownWithNoAebRequestStillReportsTheAccelOverride)
+{
+    ManualAdasStackConfig cfg;
+    cfg.aeb_enabled               = true;
+    cfg.kickdown_suppress_enabled = true;
+
+    KickdownDetector detector(cfg.kickdown);
+    PedalArbitrator  arb(cfg.arbitrator);
+
+    // No qualifying constraint anywhere: AEB has nothing to suppress ...
+    const TrafficPolicySnapshot intervention = EmptySnapshot();
+    const TrafficPolicySnapshot warning       = EmptySnapshot();
+    const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.99, 0.0);  // ... but the driver is floored
+
+    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+                                                /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
+                                                detector, arb);
+
+    EXPECT_TRUE(result.decision.driver_override_accel);  // the FUNCTION is overridden ...
+    EXPECT_FALSE(result.pedals.aeb_suppressed);          // ... but nothing was vetoed this frame
+    EXPECT_TRUE(DetailHas(result.detail, "gt.aeb.suppressed", "false"));
+}
+
+TEST(AdasCoexistenceStackTest, KickdownVetoingAnActualRequestReportsBothTheOverrideAndTheSuppression)
+{
+    ManualAdasStackConfig cfg;
+    cfg.aeb_enabled               = true;
+    cfg.kickdown_suppress_enabled = true;
+
+    KickdownDetector detector(cfg.kickdown);
+    PedalArbitrator  arb(cfg.arbitrator);
+
+    const TrafficPolicySnapshot intervention = MakeSnapshotWithConstraint(10.0);  // AEB wants to fire
+    const TrafficPolicySnapshot warning       = EmptySnapshot();
+    const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.99, 0.0);
+
+    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+                                                /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
+                                                detector, arb);
+
+    EXPECT_TRUE(result.decision.driver_override_accel);
+    EXPECT_TRUE(result.pedals.aeb_suppressed);
+    EXPECT_TRUE(DetailHas(result.detail, "gt.aeb.suppressed", "true"));
+}
+
+// Suppression configured OFF: the raw kickdown latch still exists (MSL, phase
+// C, reads it -- see gt.aeb.kickdown), but AEB is NOT being held off, so
+// claiming a driver override of the AEB function would be a false report.
+TEST(AdasCoexistenceStackTest, KickdownWithSuppressDisabledReportsNoAccelOverride)
+{
+    ManualAdasStackConfig cfg;
+    cfg.aeb_enabled               = true;
+    cfg.kickdown_suppress_enabled = false;
+
+    KickdownDetector detector(cfg.kickdown);
+    PedalArbitrator  arb(cfg.arbitrator);
+
+    const TrafficPolicySnapshot intervention = MakeSnapshotWithConstraint(10.0);
+    const TrafficPolicySnapshot warning       = EmptySnapshot();
+    const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.99, 0.0);
+
+    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+                                                /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
+                                                detector, arb);
+
+    EXPECT_FALSE(result.decision.driver_override_accel);
+    EXPECT_TRUE(DetailHas(result.detail, "gt.aeb.kickdown", "true"));  // raw latch still observable
+}
+
+// A driver who is not accelerating never produces the override -- the "off"
+// pole of the observable, without which the "on" pole above proves nothing.
+TEST(AdasCoexistenceStackTest, NoKickdownMeansNoAccelOverride)
+{
+    ManualAdasStackConfig cfg;
+    cfg.aeb_enabled               = true;
+    cfg.kickdown_suppress_enabled = true;
+
+    KickdownDetector detector(cfg.kickdown);
+    PedalArbitrator  arb(cfg.arbitrator);
+
+    const TrafficPolicySnapshot intervention = MakeSnapshotWithConstraint(10.0);
+    const TrafficPolicySnapshot warning       = EmptySnapshot();
+    const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.0, 0.0);  // unresponsive driver
+
+    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+                                                /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
+                                                detector, arb);
+
+    EXPECT_FALSE(result.decision.driver_override_accel);
+    EXPECT_TRUE(result.pedals.aeb_engaged);  // and AEB intervened normally
+}
+
+// The domain/config bypass must not fabricate an override either: the shared
+// KickdownDetector is deliberately left FROZEN on a bypassed frame (see
+// AdasCoexistenceStack.hpp's DOMAIN OWNERSHIP block), so a stack that is not
+// running on this domain reports the all-false decision including this new
+// field. Reporting an override from a bypassed frame would tell a face-3
+// consumer that a function which was not even running had been overridden.
+TEST(AdasCoexistenceStackTest, BypassedFrameReportsNoAccelOverrideEvenWithTheDriverFloored)
+{
+    ManualAdasStackConfig cfg;
+    cfg.aeb_enabled               = true;
+    cfg.kickdown_suppress_enabled = true;
+
+    KickdownDetector detector(cfg.kickdown);
+    PedalArbitrator  arb(cfg.arbitrator);
+
+    const TrafficPolicySnapshot intervention = MakeSnapshotWithConstraint(10.0);
+    const TrafficPolicySnapshot warning       = EmptySnapshot();
+    const PedalSteerCommand     driver_cmd    = MakeDriverCmd(1.0, 0.0);
+
+    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/false, intervention, warning, driver_cmd,
+                                                /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
+                                                detector, arb);
+
+    EXPECT_FALSE(result.decision.driver_override_accel);
+    EXPECT_FALSE(detector.IsActive());  // detector state frozen, not advanced
+    EXPECT_TRUE(result.detail.empty());
+}
+
+// ============================================================================
 // Detail merge rule
 // ============================================================================
 

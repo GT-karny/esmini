@@ -619,6 +619,29 @@ struct ManualDriveConfig
             // UN R152 concept, same §5 entry). 3.5s is a placeholder chosen
             // only to satisfy that ordering constraint, not a measured value.
             double warning_ttc_threshold_s = 3.5;
+
+            // On-disk key: adas_aeb_warning_min_a_req_mps2.
+            //
+            // The OTHER half of the FCW gate. DeriveFcwGateConfig
+            // (AdasCoexistenceStack.cpp) clamps BOTH warning_ttc_threshold_s
+            // and this value to build the warning-path AebSafetyConfig, so the
+            // warning fires only where both thresholds admit it. Phase A
+            // exposed only the first of the pair, which made the calibration
+            // the verification plan §5 asks for structurally impossible: on
+            // any encounter where required deceleration is the binding side,
+            // moving warning_ttc_threshold_s alone cannot move the warning
+            // point at all (design §9/§12's recorded gap, closed here in
+            // phase B).
+            //
+            // REQUIRES CALIBRATION -- verification plan §5. Must stay LOOSER
+            // (numerically SMALLER) than AebSafetyConfig::min_a_req (3.0
+            // m/s^2); DeriveFcwGateConfig clamps rather than rejects a value
+            // that is not, so a mis-set key degrades the warning lead instead
+            // of breaking the run. 2.0 mirrors ManualAdasStackConfig::
+            // warning_min_a_req_mps2's own compiled-in default, the same
+            // "config file overrides the C++-side default" relationship
+            // brake_control below has with PedalArbitratorConfig.
+            double warning_min_a_req_mps2 = 2.0;   // [m/s^2]
         } aeb;
 
         // §3-4: required-deceleration -> brake-pedal PI conversion.

@@ -39,6 +39,27 @@
 | :-- | :-- | :-- |
 | manual_aeb_fires | function gt.aeb, after 2.0s, before 5.0s, min_frames 1 | キックダウン前にAEBが既に介入していたこと(抑制の前提) |
 | no_intervention_in_window | function gt.aeb, after 5.3s, before 20.0s, min_frames 1 | キックダウン後にAEBが介入しないこと(抑制そのもの) |
+| driver_override_reported | function gt.aeb, expect_active true, expect_custom_state DRIVER_OVERRIDE_ACCEL, mode all, after 5.4s, before 20.0s | 抑制の**理由**が面3から読めること(REQ-AD-028 段b) |
+| driver_override_reported | function gt.fcw, expect_active false, mode all, after 5.4s, before 20.0s | 警報は上書きされないこと=同一実行内の負の対照 |
+
+## この資産は REQ-AD-025 段d と REQ-AD-028 段b の両方を担う(2026-08-05 フェーズBで追加)
+
+上の2行(AEB列)は「撃たなくなった」ことを見るが、それだけでは**なぜ**撃たなかったのかが
+外から分からない——対象が視界から消えた場合と運転者が上書きした場合が、同じ観測値
+(gt.aeb が ACTIVE でない)になる。DriverOverride と custom_state はその区別を面3が読める
+唯一の量であり、`no_intervention_in_window` の結果に因果の説明を与える。
+
+`expect_reason` ではなく `expect_custom_state` を見るのは**規格制約**による。OSI の
+`DriverOverride.Reason` 列挙は brake_pedal / steering_input の2値しかなく、アクセル起因を
+表す値が存在しない(設計書§8-3)。書き忘れではない。
+
+窓の下端が 5.4 と、上の `no_intervention_in_window` の 5.3 より 0.1 s 遅いのは、
+キックダウン検出のラッチがスロットル傾斜(5.0→5.3で0→1.0)の完了フレームと同一フレームに
+立つかが入力サンプリングの位相に依存するため。境界1フレームの位相差で mode:all が落ちるのは
+実装の欠陥ではなく計測の粗さなので、主張したい区間を確実に含む側へ1フレーム寄せてある。
+
+**実測(2026-08-05)**: 窓内 293 フレーム全てで gt.aeb が active + DRIVER_OVERRIDE_ACCEL、
+同じ 293 フレームで gt.fcw は非作動。
 
 ## 数値の出典・要校正の明示
 
@@ -52,5 +73,6 @@
 - バッチ: `manualdrive_adas_batch.yaml`
 - 期待値: `md_aeb_kickdown_suppress.expectations.yaml`
 - 入力プロファイル: `profiles/kickdown_at.json`
-- 関連ID: `req-vd-ad:REQ-AD-025` 段d / `vd-func:FUNC-075`
+- 関連ID: `req-vd-ad:REQ-AD-025` 段d / `req-vd-ad:REQ-AD-028` 段b / `vd-func:FUNC-075`
+- 上書きの負例(対): `md_aeb_unresponsive.expectations.yaml` の `driver_override_reported`
 - 参考(幾何の出典): `resources/xosc/verification/07_aeb/cutin_hard_brake.xosc`

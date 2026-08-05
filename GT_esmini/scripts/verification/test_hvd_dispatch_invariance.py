@@ -290,6 +290,26 @@ def test_realdriver_path_unfed_emits_zero_rows_and_never_leaks_manualdrive_label
             "UDP-fed only, never populated here)."
         )
 
+        # req-vd-ad:REQ-AD-028 段b (phase B): AddADASFunctionEx grew a 6th,
+        # DEFAULTED parameter carrying DriverOverride/custom_state. The whole
+        # point of defaulting it is that non-ManualDrive callers stay
+        # byte-identical on the wire, so no row on this path may carry either
+        # field. Vacuously true while the row count is 0, and deliberately
+        # kept anyway: if this harness ever gains a UDP feed and the count
+        # becomes 24, this assertion is what catches the 6th argument having
+        # been wired into the shared pushControllerState lambda by mistake.
+        for f in rows:
+            assert not f.HasField("driver_override"), (
+                f"frame {i}: RealDriver row {f.custom_name!r} carries a "
+                "driver_override submessage -- phase B's per-row override is "
+                "ManualDrive-only and must leave every other dispatch branch's "
+                "serialized HVD unchanged."
+            )
+            assert not f.custom_state, (
+                f"frame {i}: RealDriver row {f.custom_name!r} carries "
+                f"custom_state={f.custom_state!r} -- same invariance argument."
+            )
+
 
 # ---------------------------------------------------------------------------
 # ManualDrive side: the two paths are disjoint, not additive
@@ -349,3 +369,25 @@ def test_manualdrive_path_realdriver_24_slot_block_is_absent(tmp_path):
             "(ControllerManualDrive::GetADASStates() is deliberately always "
             "empty; see its header comment)."
         )
+
+        # req-vd-ad:REQ-AD-028 段b (phase B): with the ADAS config left OFF
+        # (this fixture's BASE_MD_CONFIG default) both rows are UNAVAILABLE,
+        # i.e. the function was never running -- so the override channel must
+        # be UNWRITTEN, not written-as-inactive. An absent submessage is the
+        # only way OSI can say "nobody looked"; emitting an explicit
+        # active=false here would tell a face-3 consumer that a switched-off
+        # function had been observed and found un-overridden, which is a
+        # measurement that never happened.
+        for f in rows:
+            assert not f.HasField("driver_override"), (
+                f"frame {i}: ManualDrive row {f.custom_name!r} is "
+                "UNAVAILABLE (ADAS config OFF) yet carries a driver_override "
+                "submessage -- a function that was not running cannot have "
+                "been overridden, and reporting it as evaluated-but-inactive "
+                "would let a negative matcher pass on a run where the stack "
+                "never executed."
+            )
+            assert not f.custom_state, (
+                f"frame {i}: ManualDrive row {f.custom_name!r} carries "
+                f"custom_state={f.custom_state!r} with ADAS config OFF."
+            )

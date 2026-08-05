@@ -56,7 +56,52 @@ enum State
     STATE_STANDBY     = 5,
     STATE_ACTIVE      = 6,
 };
+
+// Mirrors osi3::HostVehicleData_VehicleAutomatedDrivingFunction_DriverOverride_
+// Reason (req-vd-ad:REQ-AD-028 段b, design §8-3). The enum has EXACTLY TWO
+// values in OSI 3.7.0 -- brake pedal and steering input. There is NO
+// accelerator value; that is a standard-level constraint, not an omission
+// here, and it is why accelerator-origin overrides (AEB kickdown suppression,
+// MSL cap release, ACC temporary override) are reported through `custom_state`
+// (kDriverOverrideAccel below) instead of a third Reason. Pinned against the
+// real proto by static_assert in GT_esminiLib.cpp, same as Name/State above.
+enum OverrideReason
+{
+    REASON_BRAKE_PEDAL    = 0,
+    REASON_STEERING_INPUT = 1,
+};
 }  // namespace osi_adas
+
+// custom_state token for the accelerator-origin driver override (design §8-3's
+// third bullet). A STRING token rather than an enum value precisely because
+// OSI has no enum slot for it -- see osi_adas::OverrideReason's comment. The
+// exact spelling is part of the observation contract: verification matchers
+// (driver_override_reported) compare against this literal, so changing it is a
+// breaking change to face-3 assets, not an internal rename.
+inline constexpr const char* kDriverOverrideAccel = "DRIVER_OVERRIDE_ACCEL";
+
+// One row's DriverOverride submessage (req-vd-ad:REQ-AD-028 段b).
+//
+// `reported` is NOT redundant with `active`. It distinguishes "this row's
+// override channel was evaluated this frame and found nothing" (reported=true,
+// active=false) from "nothing ever populated this channel" (reported=false) --
+// the same absent-key-is-not-zero discipline AdasCoexistenceStack.hpp applies
+// to `detail` on a bypassed frame, and the same STANDBY-vs-UNAVAILABLE
+// distinction REQ-AD-028 段a makes for State. A consumer cannot evidence "the
+// driver did not override" from a channel that was never written, so
+// reported=false must reach OSI as an ABSENT submessage (GT_HostVehicleReporter
+// only emits driver_override when reported is true), never as an explicit
+// active=false that would look like a measurement.
+//
+// This is also what keeps every non-ManualDrive caller byte-identical: the
+// RealDriver 24-slot rows and the VirtualDriver rows leave this default-
+// constructed, so their serialized HVD is unchanged by phase B.
+struct AdasDriverOverride
+{
+    bool             reported = false;  // false -> do not emit the submessage at all
+    bool             active   = false;
+    std::vector<int> reasons;           // osi_adas::OverrideReason values
+};
 
 // One row of vehicle_automated_driving_function[].
 struct AdasFunctionState
@@ -65,6 +110,12 @@ struct AdasFunctionState
     std::string  custom_name;  // always set — the only label for NAME_OTHER rows
     int          state = osi_adas::STATE_UNAVAILABLE;
     PolicyDetail detail;       // -> custom_detail (KeyValuePair), see PolicyDetail.hpp
+
+    // req-vd-ad:REQ-AD-028 段b (phase B). Empty custom_state = field not set
+    // on the wire (OSI `optional string custom_state`); only ManualDrive's
+    // accelerator-origin override writes it today (kDriverOverrideAccel).
+    AdasDriverOverride driver_override;
+    std::string        custom_state;
 };
 
 // Which policies the controller actually instantiated (config flags). A policy
@@ -125,6 +176,25 @@ struct ManualAdasDecision
 {
     bool aeb_intervening = false;  // AEB safety stage fired this frame (brake authority raised)
     bool fcw_warning     = false;  // FCW pre-stage: TTC below the (looser) warning threshold
+
+    // req-vd-ad:REQ-AD-028 段b (phase B) -- the accelerator-origin driver
+    // override, i.e. "the human's floored accelerator is currently holding
+    // AEB off" (design §3-2/§8-3). True while the shared KickdownDetector is
+    // latched AND kickdown suppression is configured on, NOT merely while AEB
+    // happened to be suppressed on this particular frame.
+    //
+    // WHY THE WIDER CONDITION: OSI's DriverOverride asks "has the driver
+    // overridden this FUNCTION", which is a property of the function's
+    // availability, not of one frame's arbitration outcome. AEB is genuinely
+    // overridden -- it cannot intervene -- for as long as the kickdown holds,
+    // whether or not a target happens to be in front right now. Reporting
+    // only the frames where a request was actually vetoed
+    // (PedalArbitrationSnapshot::aeb_suppressed) would make the override
+    // channel blink on and off with the traffic situation rather than track
+    // the driver's input, and the narrower fact remains separately observable
+    // anyway as the gt.aeb.suppressed custom_detail key. Neither fact is lost;
+    // they are reported in the two places whose semantics each one fits.
+    bool driver_override_accel = false;
 };
 
 // Projects one frame of the ManualDrive ADAS stack onto the OSI AD-function
@@ -137,6 +207,31 @@ struct ManualAdasDecision
 // config flags above, exactly like a config-disabled function (slug
 // md-split-no-double-equipment). This is intentionally a single flag for phase
 // A: both functions this phase implements share one domain.
+//
+// DRIVER OVERRIDE (req-vd-ad:REQ-AD-028 段b, phase B). Every row whose gate is
+// OPEN (config-enabled AND owning the domain, i.e. the row is not UNAVAILABLE)
+// gets driver_override.reported = true, because on such a frame the manual
+// stack really did evaluate the override question -- an answer of "no
+// override" is then a measurement, not silence. Rows behind a closed gate
+// (config off / domain not owned) leave it default (reported=false), matching
+// the empty-not-zeroed `detail` rule AdasCoexistenceStack applies to the same
+// bypass: a function that was never running cannot have been overridden.
+//
+// Only the AEB row carries the accelerator override (decision.
+// driver_override_accel -> active=true + custom_state=kDriverOverrideAccel).
+// FCW does not: kickdown suppresses INTERVENTION, and suppressing the warning
+// as well would remove the driver's last cue precisely when they are
+// accelerating toward a hazard. The FCW row therefore reports an evaluated-
+// but-inactive override, which doubles as the in-run negative control for the
+// driver_override_reported matcher (same frame, same run, one row active and
+// one not).
+//
+// `reasons` stays EMPTY for the accelerator override -- see
+// osi_adas::OverrideReason: OSI has only brake/steering values, and picking
+// the "closest" one would misreport which pedal the human used. Brake-origin
+// (ACC cancel, phase C) and steering-origin (LKA interrupt, phase D) overrides
+// are the producers that will populate it; phase B builds the mechanism and
+// exercises the accelerator path only.
 //
 // NO aggregate row: unlike BuildAdasFunctionReport()'s "gt.virtual_driver" /
 // NAME_URBAN_DRIVING row (§8-1), a manual-context report must NOT claim "an

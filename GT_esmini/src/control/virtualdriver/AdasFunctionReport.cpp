@@ -131,12 +131,29 @@ std::vector<AdasFunctionState> BuildManualAdasFunctionReport(const ManualAdasEna
         f.name        = osi_adas::NAME_AUTOMATIC_EMERGENCY_BRAKING;
         f.custom_name = "gt.aeb";
 
-        if (!flags.aeb || !domain_gate)
+        const bool gate_open = flags.aeb && domain_gate;
+
+        if (!gate_open)
             f.state = osi_adas::STATE_UNAVAILABLE;
         else if (decision.aeb_intervening)
             f.state = osi_adas::STATE_ACTIVE;
         else
             f.state = osi_adas::STATE_STANDBY;
+
+        // req-vd-ad:REQ-AD-028 段b -- see the header's DRIVER OVERRIDE block.
+        // reported only while the gate is open (a function that was never
+        // running cannot have been overridden); active + custom_state only
+        // for the accelerator-origin override, whose `reasons` stays empty
+        // because OSI's Reason enum has no accelerator value.
+        if (gate_open)
+        {
+            f.driver_override.reported = true;
+            f.driver_override.active   = decision.driver_override_accel;
+            if (decision.driver_override_accel)
+            {
+                f.custom_state = kDriverOverrideAccel;
+            }
+        }
 
         // design §8-4: gt.aeb.* diagnostics (ttc_s / a_req_mps2 / triggered /
         // ..., plus gt.aeb.warning -- the FCW flag; see below) all route here
@@ -160,12 +177,23 @@ std::vector<AdasFunctionState> BuildManualAdasFunctionReport(const ManualAdasEna
         f.name        = osi_adas::NAME_FORWARD_COLLISION_WARNING;
         f.custom_name = "gt.fcw";
 
-        if (!flags.fcw || !domain_gate)
+        const bool gate_open = flags.fcw && domain_gate;
+
+        if (!gate_open)
             f.state = osi_adas::STATE_UNAVAILABLE;
         else if (decision.fcw_warning)
             f.state = osi_adas::STATE_ACTIVE;
         else
             f.state = osi_adas::STATE_STANDBY;
+
+        // req-vd-ad:REQ-AD-028 段b: evaluated, never active. Kickdown
+        // suppresses INTERVENTION, not the WARNING -- see the header's DRIVER
+        // OVERRIDE block for why, and why this row is the in-run negative
+        // control for the accelerator override on the AEB row above.
+        if (gate_open)
+        {
+            f.driver_override.reported = true;
+        }
 
         // No "gt.fcw." keys exist yet in phase A (design §8-4's table has no
         // FCW-specific quantity; gt.aeb.warning -- the FCW flag itself --

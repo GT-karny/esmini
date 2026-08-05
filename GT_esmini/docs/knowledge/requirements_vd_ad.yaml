@@ -1031,6 +1031,10 @@ requirements:
       （観測性は専用刺激を持たず、全 ADAS シナリオに横断適用する）。
     acceptance_ladder:
       - { step: a, claim: "3機能の状態が vehicle_automated_driving_function[] に正規 Name 列挙で出る（NAME_OTHER でなく実列挙。custom_detail に gt.* 規約の内部量）", met: true, verified_by: [matcher:adas_state_matches] }
+      # met: false のまま verified_by は空に保つ（lint が「met:false + verified_by」を禁じる）。
+      # 判定器具 matcher:driver_override_reported は実在し正負とも緑だが、段b の claim が
+      # 挙げる3経路のうち brake/steer の producer が C/D 未着地のため met を上げない。
+      # 器具と実証範囲は下の note と graph.yaml の verifies 辺（同趣旨の但し書き付き）が持つ。
       - { step: b, claim: "運転者上書き事象が DriverOverride{active, reason} に出る（Reason はブレーキ/ステアの2値＝規格制約。アクセル起因は custom_state で補完）",   met: false, verified_by: [] }
       - { step: c, claim: 検証ハーネス（gt_sim_test）が HVD を読んで matcher 判定に使える（ManualDrive 実行対応を含む）,                                              met: true, verified_by: [matcher:manual_aeb_fires, matcher:adas_state_matches] }
     acceptance: >-
@@ -1058,6 +1062,42 @@ requirements:
     related: [req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-027]
     status: partial
     note: >-
+      **2026-08-05 フェーズB（観測列）実装: 段b の機構は完成、実証はアクセル経路のみ**。
+      populate 機構は `AdasFunctionState` に `driver_override{reported,active,reasons}` と
+      `custom_state` を持たせ、`BuildManualAdasFunctionReport` がゲートの開いた行にだけ
+      それを立て、`AddADASFunctionEx` の**既定値付き**第6引数で `GT_HostVehicleReporter` へ
+      渡し、`UpdateFromObjectState` が「言うことがある行」だけ OSI submessage を書く、という
+      1本の経路で通っている（既定値のおかげで RealDriver 24行・VD 行の直列化バイトは不変＝
+      `test_hvd_dispatch_invariance.py` で固定）。producer はキックダウン
+      （`decision.driver_override_accel = kickdown_effective`）で、これがアクセル起因の
+      上書きとして `active=true` ＋ `custom_state="DRIVER_OVERRIDE_ACCEL"` を出す。
+      matcher は `driver_override_reported` を新設し、正
+      （`md_aeb_kickdown_suppress` のキックダウン保持窓、mode:all）と負
+      （`md_aeb_unresponsive` 全区間、mode:all）を同一バッチに置いた。
+
+      **それでも段bは `met: false` のままにする**。段bの claim はブレーキ／ステア／アクセルの
+      3経路を含むが、**brake 理由の実 producer は ACC（フェーズC）、steering 理由は LKA
+      （フェーズD）でしか作れない**——本フェーズには両者を発火させる実装も刺激も原理的に
+      存在しない。実証できたのは「機構＋アクセル経路」だけであり、3経路を1つの段で
+      主張している以上、1経路の達成で met を上げるのは overclaim にあたる。
+      matcher の `expect_reason` 経路（`REASON_BRAKE_PEDAL` / `REASON_STEERING_INPUT`）は
+      「無い Reason を要求したら赤になる」ことだけ単体で固定してある
+      （`test_manualdrive_matchers.py`）ので、フェーズC/D が producer を足した時点で
+      E2E 資産を書けば段bはそのまま閉じられる。`verified_by` に matcher を載せたのは
+      「これが段bを判定する器具である」ことの記録であって、達成の主張ではない。
+
+      **`reported`（OSI submessage の有無）を設けた理由**——「評価して上書き無しと測った」と
+      「誰も見ていない」を面3が区別できるようにするため。ゲートが閉じた行（config OFF /
+      ドメイン非所有）は submessage を**書かない**ので、`driver_override_reported` の負方向は
+      そこで pass ではなく skip になる。これが無いと、populate 機構ごと消した実行でも
+      負の matcher が緑になってしまう（段a の STANDBY/UNAVAILABLE 規律と同じ形の穴）。
+
+      **フェーズA残債の解消**: `warning_min_a_req_mps2` に config キー
+      （`adas_aeb_warning_min_a_req_mps2`）を新設した。FCW の発火点は
+      `warning_ttc_threshold_s` とこの値の**両方**のクランプで決まるため、片方だけが
+      config から効く状態では、要求減速度側が支配的な遭遇で警報点がまったく動かせない
+      （校正の詰み）。design §9/§12 に記録されていたギャップをここで閉じた。
+
       **2026-08-05 実測（フェーズA、manualdrive_adas_batch.yaml、run: test_results/mdadas_run3、
       overall=pass、6/6 シナリオ・全440フレーム）**: 段a・段cは達成——`GT_GetOSIHostVehicleData`
       経由の in-process 読み出しで6シナリオ全てが frames=0 にならず440フレームずつ完走し、

@@ -267,10 +267,10 @@ namespaces:
     title: 検証matcher（vd_metrics event語彙）
     entity_type: matcher
     face: "3"
-    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn|overtake_decision_holds|manual_aeb_fires|no_intervention_in_window|brake_not_stacked|fcw_leads_intervention|adas_state_matches|domain_split_holds|vd_control_relinquished)"
+    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn|overtake_decision_holds|manual_aeb_fires|no_intervention_in_window|brake_not_stacked|fcw_leads_intervention|adas_state_matches|driver_override_reported|domain_split_holds|vd_control_relinquished)"
     source_of_truth: GT_esmini/web/backend/services/vd_metrics.py
     status: active
-    count: 26
+    count: 27
     notes: >-
       min_separation_above（中心間距離）は 2026-07-24 に実装ごと削除（DEPRECATED 確定
       2026-07-21、min_obb_separation_above の厳密な劣位版・参照資産0件。根拠は graph.yaml の
@@ -280,6 +280,10 @@ namespaces:
       （2026-08-04、manualdrive_adas_verification_plan.md §4）。
       domain_split_holds / vd_control_relinquished（feature:F7 系）は実装時に未収載のまま
       残っていた drift を 2026-08-05 に解消して収載（フェーズA報告の先行不具合指摘による）。
+      driver_override_reported は req-vd-ad:REQ-AD-028 段b フェーズB（観測列）で新設
+      （2026-08-05）。上書き入力の窓と HVD の DriverOverride/custom_state の一致を見る。
+      赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py の単体
+      両極性テスト（populate停止・入力プロファイル時刻ずらしの2赤を含む）。
 
   - slug: openx
     title: ASAM OpenX Ontology 概念（コミット済みスナップショット）
@@ -379,7 +383,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(_[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/signal_catalog.yaml
     status: active
-    count: 54
+    count: 55
     notes: >-
       検証スパイン④観測の一級市民（capability_model.md §4）。canonical は
       **OSI .proto 面（GroundTruth / HostVehicleData）**で、`vd_metrics.py` の

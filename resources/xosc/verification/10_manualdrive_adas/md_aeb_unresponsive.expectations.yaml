@@ -45,3 +45,23 @@ must:
     threshold: 10.0             # carried over from VD baseline; CONFIRMED PASS at 8.26 m/s measured (mdadas_run1, 2026-08-04) -- see rationale above
     after: { sim_time: 2.0 }
     reason: "完全回避不能な域でも、AEBが手動運転の実効ブレーキを経由して衝突速度を安全レベルまで低減すること(緩和・REQ-AD-025段a)"
+#
+# --- 観測列 / REQ-AD-028 段b、slug md-driver-override-accel-custom-state(負) ---
+# フェーズBで追加。unresponsive プロファイルは全区間でペダルに触れないので、
+# 上書き事象は一度も起きてはならない。md_aeb_kickdown_suppress の正例と対で
+# 初めて主張になる: 片方だけでは「常に active を返す計器」と「常に非作動を返す
+# 計器」のどちらも通してしまう。
+#
+# この負例が空虚に通らない理由: matcher は expect_active:false のとき
+# 「上書きチャネルが少なくとも1フレーム書かれていたこと(present)」を要求する。
+# populate 機構ごと消した実行では present が立たないので、この行は pass ではなく
+# skip になる — 「誰も書かなかったチャネル」は「運転者が上書きしなかった」ことの
+# 証拠にならない、というREQ-AD-028段aのSTANDBY/UNAVAILABLE規律と同じ形。
+  - event: driver_override_reported
+    function: gt.aeb
+    expect_active: false
+    mode: all
+    after: { sim_time: 0.5 }    # Init/コントローラ活性化の過渡を外す(他資産と同じ margin)
+    before: { sim_time: 20.0 }  # StopTrigger
+    min_frames: 1
+    reason: "ペダルに一切触れない運転者では上書き事象が観測されないこと=正例の対(md-driver-override-accel-custom-state 負, REQ-AD-028段b)"

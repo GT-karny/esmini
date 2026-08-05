@@ -1729,18 +1729,22 @@ edges:
       要求自身の scenario 欄が明記するとおり「REQ-AD-025/026/027 の刺激と同一バッチで
       判定面として使う」（専用刺激を持たない横断適用）。段a（正規Name列挙でのState報告）は
       matcher:adas_state_matches が同じ5シナリオの実行から判定する（下の verifies 辺）。
-      段b（DriverOverride）はフェーズAでは populate 未実装のため未結線（実体の無い辺は張らない）。
       段c（ハーネスがHVDを読めること）は、このバッチが frames=0 エラー無く440フレームずつ
       実行できたこと自体で実証済み（test_results/mdadas_run1/*/telemetry.jsonl 実測）。
+      **段b（DriverOverride）は 2026-08-05 のフェーズBで populate 機構が入り、同じバッチが
+      刺激になった**（md_aeb_kickdown_suppress のキックダウン保持窓＝正、md_aeb_unresponsive
+      ＝負、同 kickdown 行の gt.fcw＝同一実行内の対照）。ただし刺激できるのは**アクセル経路
+      だけ**である: 段b の claim が挙げる3経路のうち、brake 理由の producer は ACC
+      （フェーズC）、steering 理由の producer は LKA（フェーズD）にしか無く、本バッチには
+      それらを発火させる資産が原理的に存在しない。
 
-  # ---- ④観測: ManualDrive ADAS 5 matcher -> signal:manualdrive_adas_states ----
-  # 5つとも vd_metrics.py の _hvd_adas_record(frames[i], function) 経由で
-  # frame["hvd"]["adas"][function] を読む（1585-1919行）。これは signal:manualdrive_adas_states
+  # ---- ④観測: ManualDrive ADAS matcher -> signal:manualdrive_adas_states ----
+  # いずれも vd_metrics.py の _hvd_adas_record(frames[i], function) 経由で
+  # frame["hvd"]["adas"][function] を読む。これは signal:manualdrive_adas_states
   # が指す HVD ADAS states そのもの（GetADASFunctions -> AddADASFunctionEx 経路、design §8-1）。
-  # ★このsignalのcatalogエントリは exposure:[hvd] / state:"(a)"（未実装スタブ）のまま
-  # 2026-07-21時点で凍結されており、フェーズA実装後の現状（HVDへ実際にemitされている）を
-  # 反映していない。signal_catalog.yaml は本作業の許可ファイル外につき編集せず、
-  # コーディネータへ別途報告する（PROCESS CONSTRAINTS 遵守）。
+  # ★2026-08-05 訂正: ここに「signal_catalog.yaml の当該エントリが state:"(a)"（未実装
+  # スタブ）のまま凍結されている」と書かれていたが、その後 state:"●" へ更新済みである
+  # （フェーズA報告時のファイル所有制約に由来する当時の記述で、現状と食い違っていた）。
   - from: matcher:manual_aeb_fires
     to: signal:manualdrive_adas_states
     type: observes
@@ -1821,6 +1825,35 @@ edges:
       REQ-AD-028 step a」の主判定と明記。正規Name列挙のstate_nameが期待どおりに出ることの
       確認そのものが観測性要求（3値規律のUNAVAILABLE/STANDBY/ACTIVE区別）の判定にあたる。
 
+  # ---- フェーズB（req-vd-ad:REQ-AD-028 段b、2026-08-05）: 上書きチャネル ----
+  # State 列とは別の OSI フィールド（driver_override / custom_state）を読むため、
+  # 別 signal（manualdrive_driver_override）として起こしたうえで observes を張る。
+  # 「State を見れば上書きも分かる」は成り立たない: 抑制中のAEBは STANDBY のままで、
+  # 対象が消えて撃たなかった場合と State 上は区別できない。
+  - from: matcher:driver_override_reported
+    to: signal:manualdrive_driver_override
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      frame["hvd"]["adas"][function] の driver_override{present,active,reasons} と
+      custom_state を読み、指定窓で期待どおりの上書きが出ている（または出ていない）かを判定する。
+      present（＝OSI submessage の有無）を読むのが肝で、正方向は present 不要（行が出ている
+      時点で計器は生きているので submessage 欠如は真の負観測＝fail）、負方向は present を
+      必須にする（誰も書かなかったチャネルは「上書きしなかった」証拠にならない）。
+  - from: matcher:driver_override_reported
+    to: req-vd-ad:REQ-AD-028
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_aeb_kickdown_suppress.expectations.yaml
+    note: >-
+      段b（運転者上書き事象が DriverOverride{active,reason} に出る／アクセル起因は
+      custom_state で補完）の主判定。**この辺は「matcher が段bを判定できる」ことを主張し、
+      「段bが全経路で達成されている」ことは主張しない**——段b の claim はブレーキ/ステア/
+      アクセルの3経路を含むが、実証できたのはアクセル経路のみ（brake理由の producer は
+      ACC＝フェーズC、steering理由は LKA＝フェーズD にしか無い）。要求側の
+      acceptance_ladder は段b を met: false のまま保持しており、この辺はそれを覆さない。
+      赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py（populate停止・
+      入力プロファイル時刻ずらしの2赤）。
+
   # ---- ⑥常設: vd-func:FUNC-075 の69新規C++ユニットがgate:unit-ctest傘バイナリに乗る ----
   # feature:F7 -> gate:unit-ctest（本ファイル上部）と同型。manualdrive_adas_batchはphase E待ちの
   # 候補ゲートであり常設ではない（design §10）ため、この辺は claim しない。
@@ -1830,7 +1863,10 @@ edges:
     source: GT_esmini/test/CMakeLists.txt
     note: >-
       test_ManualAdasFunctionReport.cpp / test_KickdownDetector.cpp / test_PedalArbitrator.cpp /
-      test_ManualDriveAdasConfig.cpp / test_AdasCoexistenceStack.cpp 他が傘バイナリ常設
-      （69新規ケース、661/661緑の内数、2026-08-05実測）。matcher実装自体の赤実証（Python側）は
-      GT_esmini/scripts/verification/test_manualdrive_matchers.py（35テスト）が別途担うが、
+      test_ManualDriveAdasConfig.cpp / test_AdasCoexistenceStack.cpp / test_ScriptedInputSource.cpp
+      が傘バイナリ常設（ManualDrive ADAS 関連 81ケース、**673/673緑**の内数、2026-08-05
+      フェーズB実測。フェーズA時点は69ケース/661件で、フェーズBが上書きチャネル5件・
+      accel producer 5件・FCWゲート config 2件を追加した）。
+      matcher実装自体の赤実証（Python側）は
+      GT_esmini/scripts/verification/test_manualdrive_matchers.py（50テスト）が別途担うが、
       これは gt_sim_test 検証ハーネス側であり ctest 傘バイナリの外＝この辺には含めない。

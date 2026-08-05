@@ -166,6 +166,14 @@ ManualAdasFrameResult ComputeManualAdasFrame(const ManualAdasStackConfig& cfg,
     result.aeb_decel_request_mps2 = a_req;
 
     result.decision.aeb_intervening = has_request;
+    // req-vd-ad:REQ-AD-028 段b (phase B): the accelerator-origin driver
+    // override. kickdown_effective, NOT pedals.aeb_suppressed -- the wider
+    // "AEB is being held off by the driver's accelerator" condition, which is
+    // what OSI's DriverOverride asks about. See ManualAdasDecision::
+    // driver_override_accel in AdasFunctionReport.hpp for the full rationale
+    // (the narrower per-frame veto stays observable as gt.aeb.suppressed,
+    // emitted a few lines below).
+    result.decision.driver_override_accel = kickdown_effective;
     // Superset repair (header's "InterventionWithoutWarningSnapshot..."
     // rationale): an actual intervention always implies the warning flag,
     // regardless of what the (possibly inconsistent) warning snapshot says.

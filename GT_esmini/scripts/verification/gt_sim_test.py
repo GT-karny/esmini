@@ -470,11 +470,22 @@ def _hvd_to_dict(raw: bytes, _hvd_cache=[]) -> dict | None:
     that case without a full row-count contract from the C++ side, so it is
     left as a known limitation rather than guarded against here.
 
-    driver_override is ALWAYS emitted in the {"active": bool, "reasons":
-    [str]} shape even though nothing in GT_esmini populates it yet (that is
-    phase B, req-vd-ad:REQ-AD-028 段b) -- an all-false/empty value here means
-    "not populated yet", NOT "measured no override". A matcher must not be
-    able to read phase-B evidence out of a phase-A run."""
+    driver_override is ALWAYS emitted in the {"present": bool, "active":
+    bool, "reasons": [str]} shape, and `present` is what separates the two
+    facts a phase-A-era reader could not tell apart. present=False means the
+    producer never wrote the submessage at all -- "nobody looked" -- and
+    active/reasons then carry no information; present=True with active=False
+    is a real measurement of "looked, no override" (req-vd-ad:REQ-AD-028 段b).
+    GT_esmini emits the submessage only from rows whose function was actually
+    running (AdasFunctionReport.hpp's AdasDriverOverride), so present=False is
+    the normal, correct reading for a switched-off or non-owned function --
+    and for every row produced by a controller other than ManualDrive, which
+    passes no override at all.
+
+    custom_state is the OSI `optional string custom_state` field, "" when
+    unset. It carries DRIVER_OVERRIDE_ACCEL for accelerator-origin overrides,
+    which OSI's two-value DriverOverride.Reason enum (brake/steering) cannot
+    express -- design §8-3."""
     from osi3.osi_hostvehicledata_pb2 import HostVehicleData
 
     if not _hvd_cache:
@@ -510,9 +521,10 @@ def _hvd_to_dict(raw: bytes, _hvd_cache=[]) -> dict | None:
     Fn = HostVehicleData.VehicleAutomatedDrivingFunction
     adas: dict = {}
     for func in hvd.vehicle_automated_driving_function:
+        override_present = func.HasField("driver_override")
         override_active = False
         reasons: list[str] = []
-        if func.HasField("driver_override"):
+        if override_present:
             override_active = func.driver_override.active
             reasons = [
                 _enum_name(
@@ -528,7 +540,12 @@ def _hvd_to_dict(raw: bytes, _hvd_cache=[]) -> dict | None:
             "state": func.state,
             "state_name": _enum_name(Fn, "state", func.state, _HVD_STATE_PREFIX),
             "detail": {kv.key: kv.value for kv in func.custom_detail},
-            "driver_override": {"active": override_active, "reasons": reasons},
+            "driver_override": {
+                "present": override_present,
+                "active": override_active,
+                "reasons": reasons,
+            },
+            "custom_state": func.custom_state,
         }
 
     return {
@@ -1389,6 +1406,34 @@ def _reset_batch_output_dir(out_root: Path) -> None:
     out_root.mkdir(parents=True, exist_ok=True)
 
 
+def _batch_run_name(scenario: Path, variant: str | None) -> str:
+    """Output-directory name for one batch entry: the scenario stem, plus a
+    `__<variant>` suffix when the manifest gives one.
+
+    WHY THIS EXISTS (verification plan §7-2): several observations are proved
+    only by running the SAME stimulus under TWO configurations and showing the
+    outcome differs -- "switched off" vs "armed and quiet"
+    (md-state-three-value-discipline), respect_speed_limit on/off, warning_only
+    on/off. Keying output purely by scenario stem made that impossible to
+    express: the second entry would land in the first one's directory. A
+    variant token is the smallest thing that fixes it without duplicating an
+    xosc whose GEOMETRY is identical and whose only difference is config --
+    duplicating the asset would put two files under review that must never
+    diverge, which is a worse failure mode than a manifest key.
+
+    Entries with no `variant` keep exactly their previous directory name, so
+    every existing manifest and committed baseline is unaffected."""
+    if not variant:
+        return scenario.stem
+    token = str(variant).strip()
+    if not token or any(c in token for c in '/\\:*?"<>|') or token in (".", ".."):
+        raise ValueError(
+            f"invalid batch variant {variant!r} for {scenario.name}: must be a "
+            "non-empty token usable as a directory-name suffix"
+        )
+    return f"{scenario.stem}__{token}"
+
+
 def batch(
     manifest: Path,
     out_root: Path,
@@ -1433,13 +1478,33 @@ def batch(
     snapshots = int(defaults.get("snapshots", 3))
     default_osi = bool(defaults.get("osi", False))
 
+    # Manifest-level guard for the `variant` key below. A duplicate run_dir
+    # would make one entry silently overwrite another's telemetry and verdict,
+    # and the batch would still report both as having run -- a fabricated
+    # result, not a visible failure. Checked up front so the whole manifest is
+    # rejected before any scenario runs, rather than halfway through.
+    seen_run_dirs: dict[str, str] = {}
+    for entry in spec.get("scenarios", []):
+        key = _batch_run_name(_resolve_repo(entry["scenario"]), entry.get("variant"))
+        prior = seen_run_dirs.get(key)
+        if prior is not None:
+            raise ValueError(
+                f"manifest {manifest.name}: two entries resolve to the same run "
+                f"directory '{key}' ({prior} and {entry['scenario']}). Give the "
+                "later one a distinct `variant:` -- entries sharing an output "
+                "directory would overwrite each other's telemetry and verdict "
+                "while both still being reported as run."
+            )
+        seen_run_dirs[key] = entry["scenario"]
+
     scen_results: list[dict] = []
     for entry in spec.get("scenarios", []):
         scen_path = _resolve_repo(entry["scenario"])
-        stem = scen_path.stem
+        stem = _batch_run_name(scen_path, entry.get("variant"))
         run_dir = out_root / stem
         rec = {
             "scenario": entry["scenario"],
+            "variant": entry.get("variant"),
             "run_dir": str(run_dir),
             "frames": 0,
             "compare": None,
@@ -1638,9 +1703,14 @@ def batch(
                 pass
         if rec["error"]:
             first_fail = f"ERROR: {rec['error']}"
-        lines.append(
-            f"| {Path(rec['scenario']).name} | {st} | {pfs} | {xy} | {sp} | {first_fail} |"
-        )
+        # Variant is part of the row's IDENTITY, not decoration: two rows can
+        # share a scenario file and differ only in config, and a summary that
+        # printed the same name twice would be unreadable exactly where the
+        # two-configuration polarity evidence lives.
+        label = Path(rec["scenario"]).name
+        if rec.get("variant"):
+            label = f"{label} [{rec['variant']}]"
+        lines.append(f"| {label} | {st} | {pfs} | {xy} | {sp} | {first_fail} |")
     lines += ["", f"OVERALL: {overall}"]
     (out_root / "batch_summary.md").write_text("\n".join(lines), encoding="utf-8")
 

@@ -103,11 +103,12 @@
         "button_override": true,
         "button_takeover": false
     },
-    "_adas": "ManualDrive ADAS, phase A only (AEB + shared kickdown detector + decel->brake PI conversion). req-vd-ad:REQ-AD-025, vd-func:FUNC-075. Every key below ships at its default-OFF/harmless value so this file's runtime behaviour is unchanged. Key names are FLAT and PREFIXED (adas_aeb_enabled, not 'enabled') even though nested here for readability: ManualDriveConfig's loader matches JSON keys by flat substring across the whole file, not by object scope, and a bare 'enabled' would alias with override.enabled above (same reason ffb.target_track_* below is prefixed instead of using bare 'enabled').",
+    "_adas": "ManualDrive ADAS, phases A-B (AEB + its FCW warning pre-stage + shared kickdown detector + decel->brake PI conversion + the DriverOverride/custom_state observation path). req-vd-ad:REQ-AD-025 REQ-AD-028, vd-func:FUNC-075. The FCW warning point is set by the PAIR adas_aeb_warning_ttc_threshold_s + adas_aeb_warning_min_a_req_mps2 -- both must be loosened together, since either one alone can be the binding side of the gate. Every key below ships at its default-OFF/harmless value so this file's runtime behaviour is unchanged. Key names are FLAT and PREFIXED (adas_aeb_enabled, not 'enabled') even though nested here for readability: ManualDriveConfig's loader matches JSON keys by flat substring across the whole file, not by object scope, and a bare 'enabled' would alias with override.enabled above (same reason ffb.target_track_* below is prefixed instead of using bare 'enabled').",
     "adas": {
         "adas_aeb_enabled": false,
         "adas_aeb_kickdown_suppress_enabled": true,
         "adas_aeb_warning_ttc_threshold_s": 3.5,
+        "adas_aeb_warning_min_a_req_mps2": 2.0,
         "adas_brake_full_decel_mps2": 8.0,
         "adas_brake_kp": 0.05,
         "adas_brake_ki": 0.6,

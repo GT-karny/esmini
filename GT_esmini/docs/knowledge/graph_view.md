@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:f92ebc0ff640a809 -->
+<!-- generated-from: sha256:42e6245ea161aa8f -->
 
-ノード 222・辺 241（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 224・辺 243（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -220,6 +220,7 @@ flowchart LR
     n_matcher_brake_not_stacked["brake_not_stacked"]
     n_matcher_fcw_leads_intervention["fcw_leads_intervention"]
     n_matcher_adas_state_matches["adas_state_matches"]
+    n_matcher_driver_override_reported["driver_override_reported"]
   end
   subgraph sg_vd_component["vd-component｜VirtualDriver 実装ユニット（ITrafficPolicy 以外の層）"]
     n_vd_component_route_lane_plan["route-lane-plan"]
@@ -247,6 +248,7 @@ flowchart LR
     n_signal_junction_turn_signal_distance["junction_turn_signal_distance"]
     n_signal_overtake_decision["overtake_decision"]
     n_signal_manualdrive_adas_states["manualdrive_adas_states"]
+    n_signal_manualdrive_driver_override["manualdrive_driver_override"]
   end
   subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
     n_gate_vd_behavior_regression["vd-behavior-regression"]
@@ -503,6 +505,8 @@ flowchart LR
   n_matcher_fcw_leads_intervention -->|verifies| n_req_vd_ad_REQ_AD_025
   n_matcher_adas_state_matches -->|verifies| n_req_vd_ad_REQ_AD_025
   n_matcher_adas_state_matches -->|verifies| n_req_vd_ad_REQ_AD_028
+  n_matcher_driver_override_reported -->|observes| n_signal_manualdrive_driver_override
+  n_matcher_driver_override_reported -->|verifies| n_req_vd_ad_REQ_AD_028
   n_vd_func_FUNC_075 -->|sustained-by| n_gate_unit_ctest
 ```
 
@@ -628,7 +632,7 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### observes (29)
+### observes (30)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -661,6 +665,7 @@ flowchart LR
 | `matcher:brake_not_stacked` | `signal:manualdrive_adas_states` | active区間のcustom_detail（driver_brake/brake_request/brake_outキー）を読み、max合成かを判定 |
 | `matcher:fcw_leads_intervention` | `signal:manualdrive_adas_states` | warning_function/intervention_functionの2行を読み、最初のactive遷移の時刻差をリードとする |
 | `matcher:adas_state_matches` | `signal:manualdrive_adas_states` | functionのstate_name列が窓内でexpectと一致するか（modeパラメータでall/any切替）を判定する汎用matcher |
+| `matcher:driver_override_reported` | `signal:manualdrive_driver_override` | frame["hvd"]["adas"][function] の driver_override{present,active,reasons} と custom_state を読み、指定窓で期待どおりの上書きが出ている（または出ていない）かを判定する。 present（＝OSI submessage の有無）を読むのが肝で、正方向は present 不要（行が出ている 時点で計器は生きているので submessage 欠如は真の負観測＝fail）、負方向は present を 必須にする（誰も書かなかったチャネルは「上書きしなかった」証拠にならない）。 |
 
 ### realizes (47)
 
@@ -736,7 +741,7 @@ flowchart LR
 | `req-vd-ad:REQ-AD-006` | `scenario-variant:07_oncoming_yield__p017` | p017（junction_conflict_batch.yaml:31-33, policies:[conflict]）＝Ego 左折が 14m/s 対向直進車を横切る ＝要求 title「対向直進車に譲る」に字句一致。min_obb_separation_above/speed_below で判定。 face:3 scenario-variant を直指し。 |
 | `req-vd-ad:REQ-AD-006` | `scenario-variant:08_unsignalized_junction__p004` | p004_nonpriority_yield（junction_priority_batch.yaml:38-40, policies:[conflict,junction_priority]）＝ 非優先(MINOR)側が優先側に譲り STOP_AT_S で待つ＝要求 rationale「優先権を評価…非優先側は STOP_AT_S」 および realized_by FUNC-029(交差点優先権) に一致（直交交差車で title の「対向直進」とは別ファセット）。 title=p017／rationale=p004 の2ファセットを別辺で明示（要求が両面を包含）。 |
 | `req-vd-ad:REQ-AD-025` | `policy:aeb` | 10_manualdrive_adas/ の5シナリオ（md_aeb_unresponsive / md_aeb_no_conflict / md_aeb_strong_brake_driver / md_aeb_kickdown_suppress / md_fcw_warning_only、 controller: manualdrive）が AdasCoexistenceStack 経由で AebSafety(policy:aeb) を 毎フレーム発火させる（design §2-1、ゼロ改修流用）。実測（test_results/mdadas_run1/ md_aeb_unresponsive/verdict.json）: gt.aeb が t=2.00 で ACTIVE、impact_speed 8.26 m/s まで低減（段a）。段b-eは同バッチの他4シナリオが刺激する。段d（キックダウン抑制）・ 段e（FCWリード）は閾値未校正・実測で design §3-2 の想定と食い違いが判明済み （design doc 訂正・下の verifies 辺の note を参照）。 |
-| `req-vd-ad:REQ-AD-028` | `policy:aeb` | 要求自身の scenario 欄が明記するとおり「REQ-AD-025/026/027 の刺激と同一バッチで 判定面として使う」（専用刺激を持たない横断適用）。段a（正規Name列挙でのState報告）は matcher:adas_state_matches が同じ5シナリオの実行から判定する（下の verifies 辺）。 段b（DriverOverride）はフェーズAでは populate 未実装のため未結線（実体の無い辺は張らない）。 段c（ハーネスがHVDを読めること）は、このバッチが frames=0 エラー無く440フレームずつ 実行できたこと自体で実証済み（test_results/mdadas_run1/*/telemetry.jsonl 実測）。 |
+| `req-vd-ad:REQ-AD-028` | `policy:aeb` | 要求自身の scenario 欄が明記するとおり「REQ-AD-025/026/027 の刺激と同一バッチで 判定面として使う」（専用刺激を持たない横断適用）。段a（正規Name列挙でのState報告）は matcher:adas_state_matches が同じ5シナリオの実行から判定する（下の verifies 辺）。 段c（ハーネスがHVDを読めること）は、このバッチが frames=0 エラー無く440フレームずつ 実行できたこと自体で実証済み（test_results/mdadas_run1/*/telemetry.jsonl 実測）。 **段b（DriverOverride）は 2026-08-05 のフェーズBで populate 機構が入り、同じバッチが 刺激になった**（md_aeb_kickdown_suppress のキックダウン保持窓＝正、md_aeb_unresponsive ＝負、同 kickdown 行の gt.fcw＝同一実行内の対照）。ただし刺激できるのは**アクセル経路 だけ**である: 段b の claim が挙げる3経路のうち、brake 理由の producer は ACC （フェーズC）、steering 理由の producer は LKA（フェーズD）にしか無く、本バッチには それらを発火させる資産が原理的に存在しない。 |
 
 ### supersedes (1)
 
@@ -767,7 +772,7 @@ flowchart LR
 | `matcher:no_constraint_kind` | `gate:anticipation-driving-regression` | cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。 |
 | `feature:F6` | `gate:integration-ctest` | F6 環境ヘッドライト 5本＋AutoLight/LightStateAction 6本の per-test アサーション（run_gt_tests.ps1 -IncludeIntegration、opt-in＝既定ゲート外）。 「ビューワー目視未」は残る（アサーションは灯火状態変化のみ）。 |
 | `feature:F7` | `gate:unit-ctest` | OverrideManagerTest 10ケースが傘バイナリ常設（片方向ラッチ仕様の固定＋RESUMEエッジ復帰）。フルサイクルsmoke(scripts/vd_override_smoke.py)はCI未統合＝手動のため計上しない |
-| `vd-func:FUNC-075` | `gate:unit-ctest` | test_ManualAdasFunctionReport.cpp / test_KickdownDetector.cpp / test_PedalArbitrator.cpp / test_ManualDriveAdasConfig.cpp / test_AdasCoexistenceStack.cpp 他が傘バイナリ常設 （69新規ケース、661/661緑の内数、2026-08-05実測）。matcher実装自体の赤実証（Python側）は GT_esmini/scripts/verification/test_manualdrive_matchers.py（35テスト）が別途担うが、 これは gt_sim_test 検証ハーネス側であり ctest 傘バイナリの外＝この辺には含めない。 |
+| `vd-func:FUNC-075` | `gate:unit-ctest` | test_ManualAdasFunctionReport.cpp / test_KickdownDetector.cpp / test_PedalArbitrator.cpp / test_ManualDriveAdasConfig.cpp / test_AdasCoexistenceStack.cpp / test_ScriptedInputSource.cpp が傘バイナリ常設（ManualDrive ADAS 関連 81ケース、**673/673緑**の内数、2026-08-05 フェーズB実測。フェーズA時点は69ケース/661件で、フェーズBが上書きチャネル5件・ accel producer 5件・FCWゲート config 2件を追加した）。 matcher実装自体の赤実証（Python側）は GT_esmini/scripts/verification/test_manualdrive_matchers.py（50テスト）が別途担うが、 これは gt_sim_test 検証ハーネス側であり ctest 傘バイナリの外＝この辺には含めない。 |
 
 ### upstream-candidate (6)
 
@@ -780,7 +785,7 @@ flowchart LR
 | `fork-patch:10` | `odr-upstream-pr:PR-4` |  |
 | `fork-patch:17` | `odr-upstream-pr:PR-5` |  |
 
-### verifies (24)
+### verifies (25)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -834,6 +839,7 @@ min_distance_m の 29.5 は法定 30.0 に対する**フレーム量子化の余
 | `matcher:fcw_leads_intervention` | `req-vd-ad:REQ-AD-025` | 段e（警報が介入に先行しリード≥0.8s）の判定。実測ではcut-inにつきリード0.000sでfail （gt.fcw/gt.aebが同一フレームt=1.75でACTIVE、test_results/mdadas_run1/ md_aeb_unresponsive/verdict.json）。design §3-2訂正・検証計画の対象。 **この辺は「matcherが正しく判定を出す」ことを主張するのであって「要求段eが 現状達成されている」ことは主張しない**（現に fail）。 |
 | `matcher:adas_state_matches` | `req-vd-ad:REQ-AD-025` | 段b（config OFFでなくSTANDBYで見張っていたことの確認、負系の意味を担保）と 段e（md_fcw_warning_only、gt.fcwが少なくとも一度activeになること）の補助判定。 |
 | `matcher:adas_state_matches` | `req-vd-ad:REQ-AD-028` | コード自身のコメント（vd_metrics.py:1853-1854）が「req-vd-ad:REQ-AD-026 step c / REQ-AD-028 step a」の主判定と明記。正規Name列挙のstate_nameが期待どおりに出ることの 確認そのものが観測性要求（3値規律のUNAVAILABLE/STANDBY/ACTIVE区別）の判定にあたる。 |
+| `matcher:driver_override_reported` | `req-vd-ad:REQ-AD-028` | 段b（運転者上書き事象が DriverOverride{active,reason} に出る／アクセル起因は custom_state で補完）の主判定。**この辺は「matcher が段bを判定できる」ことを主張し、 「段bが全経路で達成されている」ことは主張しない**——段b の claim はブレーキ/ステア/ アクセルの3経路を含むが、実証できたのはアクセル経路のみ（brake理由の producer は ACC＝フェーズC、steering理由は LKA＝フェーズD にしか無い）。要求側の acceptance_ladder は段b を met: false のまま保持しており、この辺はそれを覆さない。 赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py（populate停止・ 入力プロファイル時刻ずらしの2赤）。 |
 
 ## OpenX概念 逆引き
 

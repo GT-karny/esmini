@@ -215,6 +215,143 @@ TEST(ManualAdasFunctionReport, ReportHasNoAggregateRow)
     }
 }
 
+// ============================================================================
+// req-vd-ad:REQ-AD-028 段b (phase B) -- DriverOverride / custom_state.
+//
+// design §8-3 maps override causes onto OSI: brake -> REASON_BRAKE_PEDAL,
+// steering -> REASON_STEERING_INPUT, accelerator -> NO Reason value exists, so
+// custom_state carries kDriverOverrideAccel instead. Phase B builds the
+// mechanism and wires the ACCELERATOR producer only (kickdown); the brake and
+// steering producers are ACC (phase C) and LKA (phase D) and cannot be
+// exercised here because nothing yet generates them.
+// ============================================================================
+
+// The positive: the accelerator override reaches BOTH observable fields at
+// once. Splitting them would let a half-populated row (active but no
+// custom_state, or vice versa) pass -- and a consumer reading only one of the
+// two would then draw a different conclusion than one reading the other.
+TEST(ManualAdasFunctionReport, AccelOverrideSetsActiveAndCustomStateOnTheAebRow)
+{
+    ManualAdasDecision decision;
+    decision.driver_override_accel = true;
+    PolicyDetail detail;
+
+    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto* aeb     = Find(report, "gt.aeb");
+
+    ASSERT_NE(aeb, nullptr);
+    EXPECT_TRUE(aeb->driver_override.reported);
+    EXPECT_TRUE(aeb->driver_override.active);
+    EXPECT_EQ(aeb->custom_state, std::string(kDriverOverrideAccel));
+
+    // OSI's Reason enum has no accelerator value (osi_adas::OverrideReason),
+    // and picking the "nearest" one would misreport which control the human
+    // actually used. Empty is the honest encoding, and custom_state above is
+    // what carries the information.
+    EXPECT_TRUE(aeb->driver_override.reasons.empty());
+}
+
+// The negative that makes the positive mean something: same row, same enabled
+// config, no override -- the channel is still REPORTED (the stack looked), but
+// inactive and with no custom_state. Without this, "override observed" could
+// not be distinguished from "this row always says active".
+TEST(ManualAdasFunctionReport, NoAccelOverrideStillReportsTheChannelAsInactive)
+{
+    ManualAdasDecision decision;  // driver_override_accel = false
+    PolicyDetail        detail;
+
+    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto* aeb     = Find(report, "gt.aeb");
+
+    ASSERT_NE(aeb, nullptr);
+    EXPECT_TRUE(aeb->driver_override.reported);  // evaluated ...
+    EXPECT_FALSE(aeb->driver_override.active);   // ... and found nothing
+    EXPECT_TRUE(aeb->custom_state.empty());
+}
+
+// "Evaluated and found no override" vs "nobody ever looked" is the same
+// distinction REQ-AD-028 段a draws between STANDBY and UNAVAILABLE, applied to
+// the override channel. A closed gate (config off, or the longitudinal domain
+// owned by someone else) must leave the channel UNREPORTED so it reaches OSI
+// as an absent submessage -- a face-3 consumer cannot evidence "the driver did
+// not override" from a function that was not running.
+TEST(ManualAdasFunctionReport, ClosedGateLeavesTheOverrideChannelUnreported)
+{
+    ManualAdasDecision decision;
+    decision.driver_override_accel = true;  // even with an override asserted
+    PolicyDetail detail;
+
+    ManualAdasEnableFlags disabled;  // aeb = fcw = false
+
+    const auto  report_off = BuildManualAdasFunctionReport(disabled, /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto* aeb_off    = Find(report_off, "gt.aeb");
+    ASSERT_NE(aeb_off, nullptr);
+    ASSERT_EQ(aeb_off->state, osi_adas::STATE_UNAVAILABLE);
+    EXPECT_FALSE(aeb_off->driver_override.reported);
+    EXPECT_FALSE(aeb_off->driver_override.active);
+    EXPECT_TRUE(aeb_off->custom_state.empty());
+
+    const auto  report_split = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/false, decision, detail);
+    const auto* aeb_split    = Find(report_split, "gt.aeb");
+    ASSERT_NE(aeb_split, nullptr);
+    ASSERT_EQ(aeb_split->state, osi_adas::STATE_UNAVAILABLE);
+    EXPECT_FALSE(aeb_split->driver_override.reported);
+    EXPECT_FALSE(aeb_split->driver_override.active);
+    EXPECT_TRUE(aeb_split->custom_state.empty());
+}
+
+// Kickdown suppresses INTERVENTION, not the WARNING: suppressing FCW too would
+// remove the driver's last cue exactly when they are accelerating toward a
+// hazard. Consequence for verification: within a single frame of a single run,
+// gt.aeb reports an active override while gt.fcw reports an inactive one --
+// an in-run negative control for driver_override_reported that needs no second
+// scenario.
+TEST(ManualAdasFunctionReport, AccelOverrideMarksAebButNeverFcw)
+{
+    ManualAdasDecision decision;
+    decision.driver_override_accel = true;
+    PolicyDetail detail;
+
+    const auto report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+
+    const auto* aeb = Find(report, "gt.aeb");
+    ASSERT_NE(aeb, nullptr);
+    const auto* fcw = Find(report, "gt.fcw");
+    ASSERT_NE(fcw, nullptr);
+
+    EXPECT_TRUE(aeb->driver_override.active);
+    EXPECT_TRUE(fcw->driver_override.reported);  // FCW's channel was evaluated ...
+    EXPECT_FALSE(fcw->driver_override.active);   // ... and the warning is NOT overridden
+    EXPECT_TRUE(fcw->custom_state.empty());
+    EXPECT_NE(aeb->driver_override.active, fcw->driver_override.active);
+}
+
+// The override is orthogonal to State: a suppressed AEB is STANDBY (armed,
+// watching, not intervening) WHILE reporting an active override. Collapsing
+// the two -- e.g. reporting UNAVAILABLE during suppression -- would erase the
+// REQ-AD-028 段a distinction the phase-A report was built to preserve, and
+// would make a suppressed AEB indistinguishable from a switched-off one.
+TEST(ManualAdasFunctionReport, AccelOverrideDoesNotChangeTheAebState)
+{
+    PolicyDetail detail;
+
+    ManualAdasDecision quiet;  // no intervention, no override
+    ManualAdasDecision suppressed;
+    suppressed.driver_override_accel = true;  // override, still no intervention
+
+    const auto  r_quiet = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, quiet, detail);
+    const auto* a_quiet = Find(r_quiet, "gt.aeb");
+    ASSERT_NE(a_quiet, nullptr);
+
+    const auto  r_supp = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, suppressed, detail);
+    const auto* a_supp = Find(r_supp, "gt.aeb");
+    ASSERT_NE(a_supp, nullptr);
+
+    EXPECT_EQ(a_quiet->state, osi_adas::STATE_STANDBY);
+    EXPECT_EQ(a_supp->state, osi_adas::STATE_STANDBY);
+    EXPECT_NE(a_quiet->driver_override.active, a_supp->driver_override.active);
+}
+
 // Phase A implements only AEB + FCW (design §10 phase table). The report must
 // never emit rows for functions later phases add (ACC/LKA/MSL) -- there is no
 // input to this function that could even ask for them yet, but this pins the

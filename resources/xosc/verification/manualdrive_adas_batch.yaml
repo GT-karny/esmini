@@ -6,10 +6,24 @@ origin: vd-func:FUNC-075 / req-vd-ad:REQ-AD-025,REQ-AD-028   # 由来はメタ�
 # 主張する: REQ-AD-025 段a-eの6つの検証観点(2-1節、slug md-aeb-* / md-fcw-*)。
 # ManualDriveController配下でも AEB/FCW が独立に監視・介入し、人間のペダル入力との
 # 合成規則(max合成・キックダウン抑制)を守ること。
+# 主張する(フェーズBで追加): REQ-AD-028 観測列のうち2観点 —
+#   md-driver-override-accel-custom-state (段b): アクセル起因の上書き事象が
+#     DriverOverride + custom_state=DRIVER_OVERRIDE_ACCEL として面3から読めること。
+#     正=md_aeb_kickdown_suppress(キックダウン保持中)、負=md_aeb_unresponsive
+#     (ペダル不触)、同一実行内の対照=同 kickdown 行の gt.fcw。
+#   md-state-three-value-discipline (段a): 「切ってあった」(UNAVAILABLE)と
+#     「見張っていて撃たなかった」(STANDBY)が区別されること。
+#     md_aeb_no_conflict.xosc を adas_aeb_enabled の true/false 2構成で回す対。
 # 主張しない: 段a-eの数値閾値の最終校正(§5参照 — このバッチの資産の一部は依然として
 # 実測未確認の推測を含む。各 .md の「未検証部分」節を参照)。
-# 主張しない: REQ-AD-025以外の列(観測性=REQ-AD-028、ACC/Stop&Go/MSL=REQ-AD-026/030/031、
-# LKA/LDW/HMI=REQ-AD-027/029)。これらはフェーズB-Dで別途行を追加する
+# 主張しない: REQ-AD-028 段b のうち**ブレーキ起因・ステア起因**の上書き。機構は
+# 共通だが、その2経路の producer は ACC(フェーズC)と LKA(フェーズD)にしか無く、
+# 本バッチには実証する刺激が存在しない。matcher の expect_reason 経路が
+# 「無いReasonを要求したら赤になる」ことだけは単体で固定済み
+# (test_manualdrive_matchers.py)。
+# 主張しない: 残るREQ-AD-028観点(028cのharness readbackは既に段cとして達成済)と
+# 他の列(ACC/Stop&Go/MSL=REQ-AD-026/030/031、LKA/LDW/HMI=REQ-AD-027/029)。
+# これらはフェーズC-Dで別途行を追加する
 # (manualdrive_adas_verification_plan.md §3-4: バッチは1本を育てる、機能別に分けない)。
 #
 # 【2026-08-05 改版】mdadas_run1(2026-08-04、初回実ハーネス実行)の結果を受けて
@@ -122,4 +136,20 @@ scenarios:
       input_type: scripted
       input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/brake_after_warning.json
       adas_aeb_enabled: true
+    osi: true
+  # ---- 負例 / REQ-AD-028 段a: 「切ってあった」(UNAVAILABLE)と「見張っていて撃たなかった」(STANDBY)の区別 ----
+  # フェーズBで追加。md_aeb_no_conflict.xosc を*同じファイルのまま*2構成で回す
+  # (variant キー): 上の既定行が adas_aeb_enabled=true で STANDBY、この行が
+  # false で UNAVAILABLE。同一刺激で観測量だけが変わることが主張の全部であり、
+  # 幾何を複製すると「絶対に食い違ってはいけない2ファイル」が生まれるので
+  # 複製しない(検証計画§7-2、md_aeb_no_conflict_adas_off.expectations.yaml 冒頭)。
+  # このペアは片方だけでは何も主張しない — どちらか一方を消さないこと。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_no_conflict.xosc
+    variant: adas_off
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_no_conflict_adas_off.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/steady_throttle.json
+      adas_aeb_enabled: false   # ← 既定行との唯一の差分
     osi: true

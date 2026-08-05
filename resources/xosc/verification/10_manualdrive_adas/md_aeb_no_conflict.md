@@ -54,10 +54,28 @@ real_vehicle_params.jsonのトルク/変速モデルに対して校正されて�
 - LeadStartS=100(VD版85からの拡大)は上記の不確実性を吸収するための設計判断であり、実測ではない。
 - 2つのmatcherとも数値閾値を持たない(構造/状態判定)ため、校正が必要な数値はプロファイル側にのみ存在する。
 
+## この xosc はバッチで**2回**走る(2026-08-05 フェーズBで追加)
+
+同じファイルが `manualdrive_adas_batch.yaml` に2行ある。差分は `adas_aeb_enabled` だけ:
+
+| 行 | adas_aeb_enabled | 期待値ファイル | 主張 |
+| :-- | :-- | :-- | :-- |
+| （variant なし） | true | `md_aeb_no_conflict.expectations.yaml` | AEBは**ARMされていて撃たなかった**（STANDBY） |
+| `variant: adas_off` | false | `md_aeb_no_conflict_adas_off.expectations.yaml` | AEBは**切ってあった**（UNAVAILABLE） |
+
+これは REQ-AD-028 段a の 3値規律(slug `md-state-three-value-discipline`)で、
+**1本の実行では原理的に示せない**主張である——どちらの構成でも「AEBが撃たなかった」という
+同じ振る舞いになるので、区別は同一刺激・2構成で観測量だけが変わることでしか示せない。
+
+**この xosc を編集するときは両方の行に効くことに注意**。逆に、一方の期待値ファイルだけを
+消すと主張そのものが消える(片側だけでは「常にSTANDBYを返す壊れた計器」「常にUNAVAILABLEを
+返す壊れた計器」のどちらも通ってしまう)。幾何を複製して2ファイルにしないのは、
+「絶対に食い違ってはいけない2ファイル」をレビュー対象に増やすほうが悪い失敗様式だから。
+
 ## 関連
 
 - バッチ: `manualdrive_adas_batch.yaml`
-- 期待値: `md_aeb_no_conflict.expectations.yaml`
+- 期待値: `md_aeb_no_conflict.expectations.yaml` / `md_aeb_no_conflict_adas_off.expectations.yaml`
 - 入力プロファイル: `profiles/steady_throttle.json`
-- 関連ID: `req-vd-ad:REQ-AD-025` 段b / `vd-func:FUNC-075`
+- 関連ID: `req-vd-ad:REQ-AD-025` 段b / `req-vd-ad:REQ-AD-028` 段a / `vd-func:FUNC-075`
 - 参考(幾何の出典): `resources/xosc/verification/07_aeb/normal_following.xosc`

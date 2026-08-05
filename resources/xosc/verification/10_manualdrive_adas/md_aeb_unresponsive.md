@@ -85,12 +85,32 @@ TTC/必要減速度の両ゲート(FCWのTTC<3.5・AEBのTTC<2.5)を跨いでい
 (warning_ttc_threshold_s=3.5[manual_drive_headless_stub.json] / warning_min_a_req_mps2=2.0[コンパイル済み既定、
 `AdasCoexistenceStack.hpp`])から**リードを算術的に導出**している。詳細は`md_aeb_stationary_lead.md`参照。
 
+> **2026-08-05 フェーズBの訂正**: 上の `warning_min_a_req_mps2=2.0` の但し書き「コンパイル済み既定」は
+> もはや正しくない。config キー `adas_aeb_warning_min_a_req_mps2` を新設したため、
+> `manual_drive_headless_stub.json` からも設定できる(既定値 2.0 は不変)。FCW の発火点はこの2値の
+> **ペア**で決まるので、校正時は片方だけ振っても動かない場合があることに注意。
+
+## この資産は上書き検出の**負例**も担う(2026-08-05 フェーズBで追加)
+
+`unresponsive` プロファイルは全区間でペダルに触れないので、運転者上書き事象は一度も
+起きてはならない。`driver_override_reported`(function gt.aeb, expect_active false, mode all,
+0.5-20.0s)がそれを見る。`md_aeb_kickdown_suppress` の正例と**対で初めて主張になる**——
+片方だけでは「常に active を返す計器」と「常に非作動を返す計器」のどちらも通ってしまう。
+
+この負例が空虚に通らない仕掛け: matcher は `expect_active: false` のとき「上書きチャネルが
+少なくとも1フレーム**書かれていた**こと」を要求する。populate 機構ごと消した実行では
+チャネルが書かれないので、この行は pass ではなく skip になる。誰も書かなかったチャネルは
+「運転者が上書きしなかった」ことの証拠にならない(REQ-AD-028 段a の STANDBY/UNAVAILABLE 規律と同じ形)。
+
+**実測(2026-08-05)**: 391 フレーム全てで非作動。
+
 ## 関連
 
 - バッチ: `manualdrive_adas_batch.yaml`
 - 期待値: `md_aeb_unresponsive.expectations.yaml`
 - 入力プロファイル: `profiles/unresponsive.json`
-- 関連ID: `req-vd-ad:REQ-AD-025` 段a / `vd-func:FUNC-075`
+- 関連ID: `req-vd-ad:REQ-AD-025` 段a / `req-vd-ad:REQ-AD-028` 段b(負) / `vd-func:FUNC-075`
+- 上書きの正例(対): `md_aeb_kickdown_suppress.expectations.yaml` の `driver_override_reported`
 - 参考(幾何の出典): `resources/xosc/verification/07_aeb/cutin_hard_brake.xosc`
 - 関連(段eの移設先): `md_aeb_stationary_lead.md`
 - 実測データ: `test_results/mdadas_run1/md_aeb_unresponsive/telemetry.jsonl`(2026-08-04)

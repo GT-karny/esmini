@@ -36,3 +36,44 @@ must:
     before: { sim_time: 20.0 }  # StopTrigger
     min_frames: 1
     reason: "全踏み(キックダウン)後は、直前まで介入していたAEBが抑制されて介入しないこと(md-aeb-kickdown-suppression, REQ-AD-025段d)"
+#
+# --- 観測列 / REQ-AD-028 段b、slug md-driver-override-accel-custom-state -------
+# フェーズBで追加。上の2つは「AEBが撃たなくなったこと」を見るが、それだけでは
+# 「なぜ撃たなかったのか」が面3から分からない — 対象が消えた場合と運転者が
+# 上書きした場合が同じ観測値(ACTIVEでない)になる。DriverOverride/custom_state は
+# その区別を外から読める唯一の量であり、no_intervention_in_window の結果に
+# 因果の説明を与える。
+#
+# custom_state を見るのは規格制約による: OSI の DriverOverride.Reason 列挙は
+# ブレーキ/ステアの2値しかなく、アクセル起因の上書きを表す値が存在しない
+# (設計書§8-3)。したがってアクセル経路は custom_state=DRIVER_OVERRIDE_ACCEL で
+# 補完する。expect_reason ではなく expect_custom_state を書いているのは
+# その規格制約の反映であって、書き忘れではない。
+#
+# 窓の下端が 5.4 で、上の no_intervention_in_window の 5.3 より 0.1 s 遅いのは、
+# キックダウン検出のラッチがスロットル傾斜(5.0→5.3で0→1.0)の完了フレームと
+# 同一フレームに立つかどうかが入力サンプリングの位相に依存するため。境界1
+# フレームの位相差で mode:all が落ちるのは実装の欠陥ではなく計測の粗さなので、
+# 主張したい区間(キックダウン保持中)を確実に含む側へ 1 フレーム分寄せてある。
+  - event: driver_override_reported
+    function: gt.aeb
+    expect_active: true
+    expect_custom_state: DRIVER_OVERRIDE_ACCEL
+    mode: all
+    after: { sim_time: 5.4 }
+    before: { sim_time: 20.0 }
+    min_frames: 1
+    reason: "アクセル全踏みでAEBが抑制されている間、上書き事象がHVDのDriverOverride+custom_stateに出続けること(md-driver-override-accel-custom-state, REQ-AD-028段b)"
+  # 同一実行・同一窓の対照。キックダウンが抑制するのは「介入」であって「警報」
+  # ではない — 危険へ向けて加速している最中こそ警報は残らなければならない。
+  # gt.fcw の上書きチャネルが「書かれている(present)が非作動」であることは、
+  # 上の正例が「常に active を返すだけの壊れた計器」ではないことの証拠でもある
+  # (別シナリオを増やさずに両極性が同一フレーム上で取れる)。
+  - event: driver_override_reported
+    function: gt.fcw
+    expect_active: false
+    mode: all
+    after: { sim_time: 5.4 }
+    before: { sim_time: 20.0 }
+    min_frames: 1
+    reason: "キックダウンは介入のみを抑制し警報(FCW)は上書きしないこと=同一実行内の負の対照(md-driver-override-accel-custom-state, REQ-AD-028段b)"

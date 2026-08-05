@@ -445,6 +445,48 @@ signals:
       （「主張/matcher が実際に参照した signal だけを起こす」）に従うと、その消費者は
       フェーズB（REQ-AD-028段b実装後）であり、参照する matcher（`driver_override_reported`、
       検証計画§4-2、未着手）が存在しない現時点で起こすのは早い。フェーズB着手時に判断し直す。
+      → **2026-08-05 のフェーズBで消費者が実在したため新設した**（下記
+      `manualdrive_driver_override`）。上の②「OSI DriverOverride populate ゼロ」も同時に解消。
+
+  - id: manualdrive_driver_override
+    title: ManualDrive の運転者上書き事象（DriverOverride / custom_state）
+    exposure: [hvd, frame]
+    state: "●"
+    emit: >-
+      GT_HostVehicleReporter.cpp（UpdateFromObjectState の ADAS 行ループ、
+      AdasFunctionOverride.reported が真の行にだけ driver_override を書き、
+      custom_state は非空のときだけ set）／AdasFunctionReport.cpp
+      （BuildManualAdasFunctionReport、ゲートが開いている行に reported を立て、
+      アクセル起因は active + custom_state="DRIVER_OVERRIDE_ACCEL"）／
+      AdasCoexistenceStack.cpp（producer: decision.driver_override_accel = kickdown_effective）
+    note: >-
+      **2026-08-05 フェーズB（req-vd-ad:REQ-AD-028 段b）で新設**。上の
+      `manualdrive_adas_states` が「機能がどの状態だったか」を運ぶのに対し、この signal は
+      「その状態を**運転者が上書きしたか、何によって上書きしたか**」を運ぶ。OSI 上でも
+      別フィールド（`VehicleAutomatedDrivingFunction.driver_override` と `custom_state`）で
+      あり、State 列からは導出できない——だから独立した観測量として起こす。
+      matcher:driver_override_reported が唯一の消費者（on-demand 原則）。
+
+      **規格制約**: `DriverOverride.Reason` 列挙は brake_pedal / steering_input の**2値のみ**で、
+      アクセル起因を表す値が無い（osi_hostvehicledata.proto 実物を確認済み）。したがって
+      アクセル経路は `custom_state="DRIVER_OVERRIDE_ACCEL"` で補完する（設計書§8-3）。
+      この signal を読む側は、`reasons` が空でも `custom_state` を見なければ上書きを
+      見落とすことに注意。
+
+      **`reported`（＝OSI submessage の有無）が意味を持つ**: submessage を書くのは
+      「その機能が実際に動いていたフレーム」だけで、config OFF / ドメイン非所有の行は
+      **書かない**。これにより面3は「評価して上書き無しと測った」（present かつ
+      active=false）と「誰も見ていない」（present 無し）を区別できる——後者を前者と
+      同一視すると、スタックが一度も走っていない実行で負の matcher が緑になる。
+      `manualdrive_adas_states` の STANDBY/UNAVAILABLE 規律と同じ形を上書きチャネルへ
+      適用したもの。
+
+      **●であっても producer は1経路だけ**: 現時点で上書きを生むのはキックダウン
+      （アクセル起因）のみ。brake 理由は ACC（フェーズC）、steering 理由は LKA
+      （フェーズD）が実装されて初めて生じる。ただしそれらの機能自体が存在しない以上
+      「観測できていない上書き」も存在しないため、観測可能性としては ● で正しい。
+      増分は `req-vd-ad:REQ-AD-028` の `acceptance_ladder`（段b は `met: false` のまま）
+      が持つ——signal の state を曖昧化して持たせない、というこの上の項と同じ規約。
 
   - id: override_domain_state
     title: 操作権限ドメイン（lat/lon が manual か scenario か）

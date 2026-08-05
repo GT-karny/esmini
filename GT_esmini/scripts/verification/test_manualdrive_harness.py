@@ -9,8 +9,11 @@ Covers:
     EXISTING ConfigFile Property is REPLACED, not duplicated; a scenario with
     no ManualDriveController raises
   - _hvd_to_dict: HVD protobuf -> the exact {"inputs": ..., "adas": ...}
-    frame shape (state_name derivation off the live enum descriptor,
-    driver_override's always-emitted default shape)
+    frame shape (state_name derivation off the live enum descriptor;
+    driver_override's present/active/reasons shape, where `present`
+    separates "measured no override" from "nobody wrote this channel";
+    custom_state, which carries the accelerator-origin override OSI's
+    two-value Reason enum cannot express -- req-vd-ad:REQ-AD-028 段b)
   - batch()'s controller routing: a manifest entry with no `controller:` key
     still calls run() with controller="virtualdriver" -- the byte-identity
     guarantee three committed regression baselines depend on
@@ -299,13 +302,21 @@ def _build_hvd_bytes() -> bytes:
     kv = aeb.custom_detail.add()
     kv.key = "gt.aeb.ttc_s"
     kv.value = "1.842"
-    # driver_override deliberately left unset -- phase A does not populate it.
+    # driver_override set EXPLICITLY INACTIVE (req-vd-ad:REQ-AD-028 段b): the
+    # producer evaluated the override question this frame and measured
+    # nothing. `active` is an OSI `optional bool`, so an explicit false is
+    # present on the wire and must read back as present=True/active=False --
+    # a measurement, not silence.
+    aeb.driver_override.active = False
 
     fcw = hvd.vehicle_automated_driving_function.add()
     fcw.name = Fn.NAME_FORWARD_COLLISION_WARNING  # 3
     fcw.custom_name = "gt.fcw"
     fcw.state = Fn.STATE_STANDBY  # 5
-    # no custom_detail, no driver_override.
+    # no custom_detail, and NO driver_override at all -- the "nobody wrote
+    # this channel" case (a switched-off/non-owned function, or any row from a
+    # controller other than ManualDrive). It must read back present=False, and
+    # a matcher must never mistake it for "measured no override".
 
     overridden = hvd.vehicle_automated_driving_function.add()
     overridden.name = Fn.NAME_LANE_KEEPING_ASSIST
@@ -318,6 +329,9 @@ def _build_hvd_bytes() -> bytes:
     overridden.driver_override.override_reason.append(
         Fn.DriverOverride.REASON_STEERING_INPUT
     )
+    # The accelerator-origin override has no Reason value in OSI (the enum has
+    # exactly brake/steering), so design §8-3 carries it in custom_state.
+    overridden.custom_state = "DRIVER_OVERRIDE_ACCEL"
 
     return hvd.SerializeToString()
 
@@ -338,14 +352,28 @@ def test_hvd_to_dict_exact_frame_shape():
                 "state": 6,
                 "state_name": "active",
                 "detail": {"gt.aeb.ttc_s": "1.842"},
-                "driver_override": {"active": False, "reasons": []},
+                # explicit active=false on the wire -> a real measurement
+                "driver_override": {
+                    "present": True,
+                    "active": False,
+                    "reasons": [],
+                },
+                "custom_state": "",
             },
             "gt.fcw": {
                 "name": 3,
                 "state": 5,
                 "state_name": "standby",
                 "detail": {},
-                "driver_override": {"active": False, "reasons": []},
+                # submessage absent -> nobody wrote the channel. Same
+                # active/reasons values as gt.aeb above, and `present` is the
+                # ONLY thing that tells the two apart.
+                "driver_override": {
+                    "present": False,
+                    "active": False,
+                    "reasons": [],
+                },
+                "custom_state": "",
             },
             "gt.test_override": {
                 "name": 11,
@@ -353,9 +381,11 @@ def test_hvd_to_dict_exact_frame_shape():
                 "state_name": "unavailable",
                 "detail": {},
                 "driver_override": {
+                    "present": True,
                     "active": True,
                     "reasons": ["brake_pedal", "steering_input"],
                 },
+                "custom_state": "DRIVER_OVERRIDE_ACCEL",
             },
         },
     }
@@ -467,3 +497,96 @@ def test_batch_manualdrive_entry_with_osi_false_fails_loudly(tmp_path, monkeypat
     assert rec["error"] is not None
     assert "osi: false" in rec["error"]
     assert agg["overall"] == "fail"
+
+
+# ---------------------------------------------------------------------------
+# batch() `variant`: the same stimulus under two configurations
+# (verification plan §7-2 -- how two-configuration polarity evidence is
+# expressed without duplicating an xosc whose geometry is identical)
+# ---------------------------------------------------------------------------
+
+
+def test_batch_run_name_is_unchanged_without_a_variant():
+    """Every existing manifest and committed baseline keys off this name, so
+    the no-variant path must stay byte-identical to what it produced before."""
+    assert gst._batch_run_name(Path("a/b/md_aeb_no_conflict.xosc"), None) == (
+        "md_aeb_no_conflict"
+    )
+    assert gst._batch_run_name(Path("a/b/md_aeb_no_conflict.xosc"), "") == (
+        "md_aeb_no_conflict"
+    )
+
+
+def test_batch_run_name_appends_the_variant_token():
+    assert gst._batch_run_name(Path("a/b/md_aeb_no_conflict.xosc"), "aeb_off") == (
+        "md_aeb_no_conflict__aeb_off"
+    )
+
+
+@pytest.mark.parametrize("bad", ["../escape", "a/b", "c:\\x", ".", ".."])
+def test_batch_run_name_rejects_path_bearing_variants(bad):
+    """The token becomes a directory name; a separator or a dot-segment would
+    let a manifest write outside its own output root."""
+    with pytest.raises(ValueError):
+        gst._batch_run_name(Path("a/b/x.xosc"), bad)
+
+
+def test_batch_rejects_two_entries_sharing_an_output_directory(tmp_path, monkeypatch):
+    """Without the guard, the second entry would silently overwrite the
+    first's telemetry and verdict while the batch still reported both as
+    having run -- a fabricated result rather than a visible failure. The
+    manifest is rejected UP FRONT, before any scenario runs."""
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        "name: dup_probe\n"
+        "scenarios:\n"
+        "  - scenario: does/not/matter.xosc\n"
+        "  - scenario: does/not/matter.xosc\n",
+        encoding="utf-8",
+    )
+
+    def _fake_run(*args, **kwargs):
+        raise AssertionError("no scenario may run from a colliding manifest")
+
+    monkeypatch.setattr(gst, "run", _fake_run)
+
+    with pytest.raises(ValueError, match="same run directory"):
+        gst.batch(manifest, tmp_path / "out")
+
+
+def test_batch_variant_makes_a_repeated_scenario_legal_and_separate(
+    tmp_path, monkeypatch
+):
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text(
+        "name: variant_probe\n"
+        "scenarios:\n"
+        "  - scenario: does/not/matter.xosc\n"
+        "  - scenario: does/not/matter.xosc\n"
+        "    variant: aeb_off\n",
+        encoding="utf-8",
+    )
+
+    def _fake_run(*args, **kwargs):
+        return {
+            "scenario": "does/not/matter.xosc",
+            "controller": "VirtualDriver",
+            "dt": 0.05,
+            "frames": 5,
+            "sim_duration_s": 1.0,
+            "osi": False,
+            "commit": "",
+        }
+
+    monkeypatch.setattr(gst, "run", _fake_run)
+
+    agg = gst.batch(manifest, tmp_path / "out")
+
+    assert [r["variant"] for r in agg["scenarios"]] == [None, "aeb_off"]
+    run_dirs = [Path(r["run_dir"]).name for r in agg["scenarios"]]
+    assert run_dirs == ["does_not_matter", "does_not_matter__aeb_off"] or (
+        # the stem depends only on the manifest path spelling; what this test
+        # actually pins is that the two entries do NOT share a directory
+        run_dirs[0]
+        != run_dirs[1]
+    )

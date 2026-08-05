@@ -49,6 +49,7 @@ TEST(ManualDriveAdasConfigTest, ShippedDefaultsAreAllOff)
     EXPECT_FALSE(cfg.adas.aeb.enabled);
     EXPECT_TRUE(cfg.adas.aeb.kickdown_suppress_enabled);
     EXPECT_DOUBLE_EQ(cfg.adas.aeb.warning_ttc_threshold_s, 3.5);
+    EXPECT_DOUBLE_EQ(cfg.adas.aeb.warning_min_a_req_mps2, 2.0);
     EXPECT_DOUBLE_EQ(cfg.adas.brake_control.full_brake_decel_mps2, 8.0);
     EXPECT_DOUBLE_EQ(cfg.adas.brake_control.brake_kp, 0.05);
     EXPECT_DOUBLE_EQ(cfg.adas.brake_control.brake_ki, 0.6);
@@ -69,6 +70,7 @@ TEST(ManualDriveAdasConfigTest, EveryAdasKeyParsesToTheFileValue)
             "adas_aeb_enabled": true,
             "adas_aeb_kickdown_suppress_enabled": false,
             "adas_aeb_warning_ttc_threshold_s": 4.2,
+            "adas_aeb_warning_min_a_req_mps2": 1.25,
             "adas_brake_full_decel_mps2": 7.5,
             "adas_brake_kp": 0.11,
             "adas_brake_ki": 0.9,
@@ -87,6 +89,7 @@ TEST(ManualDriveAdasConfigTest, EveryAdasKeyParsesToTheFileValue)
     EXPECT_TRUE(cfg.adas.aeb.enabled);
     EXPECT_FALSE(cfg.adas.aeb.kickdown_suppress_enabled);
     EXPECT_DOUBLE_EQ(cfg.adas.aeb.warning_ttc_threshold_s, 4.2);
+    EXPECT_DOUBLE_EQ(cfg.adas.aeb.warning_min_a_req_mps2, 1.25);
     EXPECT_DOUBLE_EQ(cfg.adas.brake_control.full_brake_decel_mps2, 7.5);
     EXPECT_DOUBLE_EQ(cfg.adas.brake_control.brake_kp, 0.11);
     EXPECT_DOUBLE_EQ(cfg.adas.brake_control.brake_ki, 0.9);
@@ -116,11 +119,68 @@ TEST(ManualDriveAdasConfigTest, PartialAdasBlockLeavesUnspecifiedKeysAtDefault)
     // override must not zero out the rest of the block.
     EXPECT_TRUE(cfg.adas.aeb.kickdown_suppress_enabled);
     EXPECT_DOUBLE_EQ(cfg.adas.aeb.warning_ttc_threshold_s, 3.5);
+    EXPECT_DOUBLE_EQ(cfg.adas.aeb.warning_min_a_req_mps2, 2.0);
     EXPECT_DOUBLE_EQ(cfg.adas.brake_control.full_brake_decel_mps2, 8.0);
     EXPECT_DOUBLE_EQ(cfg.adas.brake_control.brake_kp, 0.05);
     EXPECT_DOUBLE_EQ(cfg.adas.brake_control.brake_ki, 0.6);
     EXPECT_DOUBLE_EQ(cfg.adas.kickdown_threshold, 0.95);
     EXPECT_DOUBLE_EQ(cfg.adas.kickdown_release_threshold, 0.80);
+
+    std::filesystem::remove(path);
+}
+
+// --- The FCW gate is a PAIR of keys, and both halves must be settable ------
+//
+// req-vd-ad:REQ-AD-028 (phase B), closing the gap design §9/§12 recorded in
+// phase A. DeriveFcwGateConfig (AdasCoexistenceStack.cpp) builds the warning
+// gate by clamping BOTH warning_ttc_threshold_s AND warning_min_a_req_mps2,
+// so the warning fires only where both admit it. Phase A shipped a config key
+// for the first alone, which meant that on any encounter where required
+// deceleration was the binding side, moving the one exposed key could not move
+// the warning point at all -- a calibration dead end rather than a wrong
+// number.
+//
+// The two keys are also given DIFFERENT non-default values here on purpose:
+// they share the "adas_aeb_warning_" prefix, and ManualDriveConfig's loader
+// matches by flat substring, so a truncated/duplicated key token would alias
+// them. Distinct values make that aliasing a failure rather than a silent
+// coincidence (same discipline as the override/adas alias guard at the bottom
+// of this file).
+TEST(ManualDriveAdasConfigTest, BothFcwGateThresholdsAreIndependentlySettable)
+{
+    const auto path = WriteTempConfig("gt_mdadas_fcw_pair.json", R"({
+        "adas": {
+            "adas_aeb_warning_ttc_threshold_s": 4.75,
+            "adas_aeb_warning_min_a_req_mps2": 0.5
+        }
+    })");
+
+    ManualDriveConfig cfg;
+    ASSERT_TRUE(cfg.LoadFromFile(path.string()));
+
+    EXPECT_DOUBLE_EQ(cfg.adas.aeb.warning_ttc_threshold_s, 4.75);
+    EXPECT_DOUBLE_EQ(cfg.adas.aeb.warning_min_a_req_mps2, 0.5);
+    EXPECT_NE(cfg.adas.aeb.warning_ttc_threshold_s, cfg.adas.aeb.warning_min_a_req_mps2);
+
+    std::filesystem::remove(path);
+}
+
+// Setting ONLY the min_a_req half must move that half and leave the TTC half
+// at its default -- the mirror of the phase-A situation, proving the new key
+// is not merely present but independently effective.
+TEST(ManualDriveAdasConfigTest, WarningMinAReqAloneDoesNotDisturbWarningTtc)
+{
+    const auto path = WriteTempConfig("gt_mdadas_fcw_min_only.json", R"({
+        "adas": {
+            "adas_aeb_warning_min_a_req_mps2": 1.75
+        }
+    })");
+
+    ManualDriveConfig cfg;
+    ASSERT_TRUE(cfg.LoadFromFile(path.string()));
+
+    EXPECT_DOUBLE_EQ(cfg.adas.aeb.warning_min_a_req_mps2, 1.75);
+    EXPECT_DOUBLE_EQ(cfg.adas.aeb.warning_ttc_threshold_s, 3.5);  // untouched default
 
     std::filesystem::remove(path);
 }

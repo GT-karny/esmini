@@ -171,6 +171,12 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_bool("adas_aeb_enabled", adas.aeb.enabled);
         parse_bool("adas_aeb_kickdown_suppress_enabled", adas.aeb.kickdown_suppress_enabled);
         parse_double("adas_aeb_warning_ttc_threshold_s", adas.aeb.warning_ttc_threshold_s);
+        // req-vd-ad:REQ-AD-028 (phase B) -- the second half of the FCW gate.
+        // See ManualDriveConfig.hpp's field comment: exposing only the TTC
+        // half made calibrating the warning point impossible whenever the
+        // required-deceleration half was the binding one (design §9/§12's
+        // recorded phase-A gap).
+        parse_double("adas_aeb_warning_min_a_req_mps2", adas.aeb.warning_min_a_req_mps2);
         parse_double("adas_brake_full_decel_mps2", adas.brake_control.full_brake_decel_mps2);
         parse_double("adas_brake_kp", adas.brake_control.brake_kp);
         parse_double("adas_brake_ki", adas.brake_control.brake_ki);

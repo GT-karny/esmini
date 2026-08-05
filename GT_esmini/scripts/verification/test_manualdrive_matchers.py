@@ -1,8 +1,10 @@
-"""Both-polarity unit tests for the ManualDrive ADAS matchers (phase A,
-req-vd-ad:REQ-AD-025): manual_aeb_fires, no_intervention_in_window,
-brake_not_stacked, fcw_leads_intervention, adas_state_matches.
+"""Both-polarity unit tests for the ManualDrive ADAS matchers.
 
-This module IS the red-proof asset for these five matchers. Per
+  phase A (req-vd-ad:REQ-AD-025): manual_aeb_fires, no_intervention_in_window,
+      brake_not_stacked, fcw_leads_intervention, adas_state_matches
+  phase B (req-vd-ad:REQ-AD-028 step b): driver_override_reported
+
+This module IS the red-proof asset for these six matchers. Per
 docs/virtualdriver/design/manualdrive_adas_verification_plan.md §4-1, a new
 matcher needs a red-proof asset before it can go on a standing gate; an E2E
 red is impractical here because the ManualDrive/HVD producing side is not in
@@ -45,17 +47,37 @@ from vd_metrics import eval_must  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-def _adas_rec(state_name: str, detail: dict | None = None) -> dict:
+def _adas_rec(
+    state_name: str,
+    detail: dict | None = None,
+    *,
+    override: dict | None = None,
+    custom_state: str = "",
+) -> dict:
     """One hvd.adas[function] record, per the contract in vd_metrics.py's
     _hvd_adas_record docstring: state_name plus a detail dict of STRING
-    values (the OSI custom_detail KeyValuePair contract)."""
+    values (the OSI custom_detail KeyValuePair contract).
+
+    `override` defaults to the "channel never written" shape
+    (present=False) -- what a phase-A DLL, a switched-off function, or a
+    non-ManualDrive controller all produce. Phase-B override tests pass an
+    explicit dict; see _override() below."""
     return {
         "name": 7,
         "state": 6,
         "state_name": state_name,
         "detail": dict(detail) if detail is not None else {},
-        "driver_override": {"active": False, "reasons": []},
+        "driver_override": (
+            dict(override)
+            if override is not None
+            else {"present": False, "active": False, "reasons": []}
+        ),
+        "custom_state": custom_state,
     }
+
+
+def _override(present: bool, active: bool = False, reasons: list | None = None) -> dict:
+    return {"present": present, "active": active, "reasons": list(reasons or [])}
 
 
 def _frame(
@@ -526,3 +548,296 @@ def test_adas_state_matches_red_catches_config_off_regression():
     )
     assert r["status"] == "fail"
     assert "'unavailable'" in r["detail"]
+
+
+# ---------------------------------------------------------------------------
+# driver_override_reported (phase B, req-vd-ad:REQ-AD-028 step b)
+# ---------------------------------------------------------------------------
+#
+# This block IS the unit-level red proof the verification plan's §4-2 row asks
+# for ("populate を止めた単体赤実証＋入力プロファイル時刻ずらし"): the first two
+# reds below are exactly those two, and the rest pin the vacuous-pass guards
+# that keep the negative direction from passing for the wrong reason.
+
+
+def _kickdown_frames() -> list[dict]:
+    """A run where the accelerator override holds from t=2.0 onward: the shape
+    the kickdown input profile produces on the AEB row. gt.fcw is present
+    throughout with its channel written but never active -- the in-run negative
+    control the C++ report builder produces by construction (kickdown
+    suppresses the intervention, never the warning)."""
+    frames = []
+    for i in range(6):
+        t = i * 1.0
+        active = t >= 2.0
+        frames.append(
+            _frame(
+                t,
+                {
+                    "gt.aeb": _adas_rec(
+                        "standby",
+                        override=_override(True, active),
+                        custom_state="DRIVER_OVERRIDE_ACCEL" if active else "",
+                    ),
+                    "gt.fcw": _adas_rec("standby", override=_override(True, False)),
+                },
+            )
+        )
+    return frames
+
+
+def test_driver_override_reported_green_in_the_kickdown_window():
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "expect_active": True,
+            "expect_custom_state": "DRIVER_OVERRIDE_ACCEL",
+            "mode": "all",
+            "after": {"sim_time": 2.0},
+        },
+        _kickdown_frames(),
+    )
+    assert r["status"] == "pass", r["detail"]
+    assert "custom_state == 'DRIVER_OVERRIDE_ACCEL'" in r["detail"]
+
+
+# RED #1 -- "populate を止めた" (verification plan §4-2). The C++ producer is
+# removed, so the row still reports (State is unaffected) but the override
+# channel is never written. A matcher that skipped here would let the whole
+# phase-B mechanism be deleted without one gate turning red; it must FAIL,
+# because the row being present is already proof the instrument was live.
+def test_driver_override_reported_red_when_populate_is_removed():
+    frames = [_frame(t, {"gt.aeb": _adas_rec("standby")}) for t in (2.0, 3.0, 4.0, 5.0)]
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "expect_active": True,
+            "expect_custom_state": "DRIVER_OVERRIDE_ACCEL",
+            "after": {"sim_time": 2.0},
+        },
+        frames,
+    )
+    assert r["status"] == "fail"
+    assert "present=False" in r["detail"]
+    assert "active=False" in r["detail"]
+
+
+# RED #2 -- "入力プロファイル時刻ずらし". The override really happens, but the
+# window it is judged in no longer contains the driver input that caused it.
+# Judging the WINDOW is the whole point: an override reported at some point
+# during a 20 s run says nothing about whether it tracked the driver's input.
+def test_driver_override_reported_red_when_the_override_window_is_shifted():
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "expect_active": True,
+            "mode": "all",
+            "after": {"sim_time": 0.0},
+            "before": {"sim_time": 1.5},  # shifted: now the pre-kickdown window
+        },
+        _kickdown_frames(),
+    )
+    assert r["status"] == "fail"
+    assert "active=False" in r["detail"]
+
+
+def test_driver_override_reported_red_on_wrong_custom_state_token():
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "expect_active": True,
+            "expect_custom_state": "DRIVER_OVERRIDE_BRAKE",  # not what the producer emits
+            "after": {"sim_time": 2.0},
+        },
+        _kickdown_frames(),
+    )
+    assert r["status"] == "fail"
+    assert "DRIVER_OVERRIDE_ACCEL" in r["detail"]  # what was actually observed
+
+
+def test_driver_override_reported_red_on_missing_expected_reason():
+    """expect_reason is the channel phases C/D will use (brake -> ACC cancel,
+    steering -> LKA interrupt). Phase B has no producer for either, so this
+    pins only that asking for a Reason which is absent FAILS -- without it a
+    phase-C asset could be written against a producer that was never wired and
+    still go green."""
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "expect_active": True,
+            "expect_reason": "REASON_BRAKE_PEDAL",
+            "after": {"sim_time": 2.0},
+        },
+        _kickdown_frames(),
+    )
+    assert r["status"] == "fail"
+    assert "reasons=[]" in r["detail"]
+
+
+def test_driver_override_reported_green_negative_direction():
+    """The negative: an unresponsive driver never overrides. The channel IS
+    written (present=True) on every frame, which is what makes this a
+    measurement rather than silence."""
+    frames = [
+        _frame(t, {"gt.aeb": _adas_rec("standby", override=_override(True, False))})
+        for t in (0.0, 1.0, 2.0, 3.0)
+    ]
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "expect_active": False,
+            "mode": "all",
+        },
+        frames,
+    )
+    assert r["status"] == "pass", r["detail"]
+
+
+def test_driver_override_reported_red_negative_direction_catches_a_stray_override():
+    frames = [
+        _frame(t, {"gt.aeb": _adas_rec("standby", override=_override(True, False))})
+        for t in (0.0, 1.0)
+    ]
+    frames.append(
+        _frame(
+            2.0,
+            {
+                "gt.aeb": _adas_rec(
+                    "standby",
+                    override=_override(True, True),
+                    custom_state="DRIVER_OVERRIDE_ACCEL",
+                )
+            },
+        )
+    )
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "expect_active": False,
+            "mode": "all",
+        },
+        frames,
+    )
+    assert r["status"] == "fail"
+    assert "active=True" in r["detail"]
+
+
+# The asymmetry between the two directions, pinned. Same frames, no override
+# channel written at all: the POSITIVE direction fails (the row is live, so
+# absence is a real negative observation) while the NEGATIVE direction skips (a
+# channel nobody wrote cannot evidence "the driver did not override"). Getting
+# this backwards would hand the phase-B mechanism a green negative in a run
+# where it was never even called.
+def test_driver_override_reported_negative_direction_skips_when_channel_unwritten():
+    frames = [_frame(t, {"gt.aeb": _adas_rec("standby")}) for t in (0.0, 1.0, 2.0)]
+
+    neg = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "expect_active": False,
+            "mode": "all",
+        },
+        frames,
+    )
+    assert neg["status"] == "skip"
+    assert "never populated" in neg["detail"]
+
+    pos = eval_must({"event": "driver_override_reported", "function": "gt.aeb"}, frames)
+    assert pos["status"] == "fail"
+
+
+def test_driver_override_reported_skip_without_function():
+    r = eval_must({"event": "driver_override_reported"}, _kickdown_frames())
+    assert r["status"] == "skip"
+    assert "no function" in r["detail"]
+
+
+def test_driver_override_reported_skip_on_empty_window():
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "after": {"sim_time": 100.0},
+        },
+        _kickdown_frames(),
+    )
+    assert r["status"] == "skip"
+    assert "time window" in r["detail"]
+
+
+def test_driver_override_reported_skip_when_function_never_reported():
+    frames = [_frame(0.0, no_hvd=True)]
+    r = eval_must({"event": "driver_override_reported", "function": "gt.aeb"}, frames)
+    assert r["status"] == "skip"
+    assert "never reported" in r["detail"]
+
+
+def test_driver_override_reported_skip_below_min_frames():
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "min_frames": 50,
+        },
+        _kickdown_frames(),
+    )
+    assert r["status"] == "skip"
+    assert "min_frames" in r["detail"]
+
+
+def test_driver_override_reported_refuses_negative_with_mode_any():
+    """expect_active: false + mode: any is satisfied by nearly any run,
+    including one where the override fired on every other frame. Refused
+    outright rather than reported as a pass nobody should trust."""
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "expect_active": False,
+            "mode": "any",
+        },
+        _kickdown_frames(),
+    )
+    assert r["status"] == "skip"
+    assert "mode: all" in r["detail"]
+
+
+def test_driver_override_reported_mode_any_green_on_a_single_matching_frame():
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.aeb",
+            "expect_active": True,
+            "expect_custom_state": "DRIVER_OVERRIDE_ACCEL",
+            "mode": "any",
+        },
+        _kickdown_frames(),  # frames 0-1 carry no override, 2-5 do
+    )
+    assert r["status"] == "pass", r["detail"]
+    assert "first seen at t=2.00" in r["detail"]
+
+
+def test_driver_override_reported_fcw_row_is_the_in_run_negative_control():
+    """Same frames, same window as the green positive: the FCW row must show
+    its override channel written and inactive. Kickdown suppresses the
+    INTERVENTION, never the WARNING -- if this ever went active the driver
+    would lose the collision cue exactly while accelerating toward a hazard."""
+    r = eval_must(
+        {
+            "event": "driver_override_reported",
+            "function": "gt.fcw",
+            "expect_active": False,
+            "mode": "all",
+            "after": {"sim_time": 2.0},
+        },
+        _kickdown_frames(),
+    )
+    assert r["status"] == "pass", r["detail"]

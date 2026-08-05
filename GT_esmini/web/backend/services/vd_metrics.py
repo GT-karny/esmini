@@ -670,15 +670,25 @@ def _ego_state(fr: dict) -> dict:
 #   frame["hvd"]["adas"][<custom_name>] = {
 #       "name": int, "state": int, "state_name": str,
 #       "detail": {"<custom_name>.<field>": "<string>", ...},
-#       "driver_override": {"active": bool, "reasons": [...]},
+#       "driver_override": {"present": bool, "active": bool, "reasons": [...]},
+#       "custom_state": str,
 #   }
 # keyed by custom_name (e.g. "gt.aeb", "gt.fcw"). state_name is one of
 # unavailable/available/standby/active/errored/unknown. `detail` VALUES ARE
 # STRINGS (fixed 3-decimal for reals, "true"/"false" for booleans) -- the OSI
 # custom_detail KeyValuePair contract, not a bug -- so _adas_detail_float
 # below parses defensively: a missing key returns None, never a fabricated
-# 0.0. `driver_override` is not populated by phase A (phase B does that); no
-# matcher below reads it.
+# 0.0.
+#
+# `driver_override`/`custom_state` are the phase-B observation channel
+# (req-vd-ad:REQ-AD-028 段b), read by driver_override_reported below.
+# `present` distinguishes "the producer evaluated the override question and
+# measured nothing" (present=True, active=False) from "nothing ever wrote this
+# channel" (present=False) -- the same absent-is-not-zero discipline the
+# detail parsing above follows, and the reason the matcher's negative
+# direction can refuse to pass vacuously. Frames captured before phase B carry
+# no "present" key at all; _adas_override normalises that to present=False,
+# which is the correct reading for them.
 
 
 def _hvd_adas_record(fr: dict, function: str) -> dict | None:
@@ -717,6 +727,29 @@ def _adas_detail_float(rec: dict | None, key: str) -> float | None:
         return float(detail[key])
     except (TypeError, ValueError):
         return None
+
+
+def _adas_override(rec: dict | None) -> dict:
+    """rec["driver_override"] normalised to {"present","active","reasons"}.
+
+    Always returns a dict so callers can read it without None-guarding, but
+    every field defaults to the "nothing was measured" value: a missing record
+    or a missing/malformed driver_override block yields present=False, which
+    the caller must treat as "the channel was never written", NOT as "no
+    override occurred". Pre-phase-B telemetry has no "present" key; it is
+    normalised to False here for the same reason -- such a run genuinely did
+    not populate the channel."""
+    if rec is None:
+        return {"present": False, "active": False, "reasons": []}
+    ovr = rec.get("driver_override")
+    if not isinstance(ovr, dict):
+        return {"present": False, "active": False, "reasons": []}
+    reasons = ovr.get("reasons")
+    return {
+        "present": bool(ovr.get("present", False)),
+        "active": bool(ovr.get("active", False)),
+        "reasons": list(reasons) if isinstance(reasons, list) else [],
+    }
 
 
 def _gated_frame_indices(frames: list[dict], must: dict) -> list[int]:
@@ -1927,6 +1960,178 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
                 f"(frame {i0})"
             )
             return res("pass", detail)
+
+    if kind == "driver_override_reported":
+        # req-vd-ad:REQ-AD-028 段b (phase B): the driver-override event the
+        # human's input produced is visible on the function's HVD row, in the
+        # window where that input was actually applied.
+        #
+        #   function            str  : hvd.adas key (required -- there is no
+        #                              sensible default; the AEB row and the
+        #                              FCW row answer DIFFERENT questions here)
+        #   expect_active       bool : default True
+        #   expect_reason       str  : optional, e.g. "REASON_BRAKE_PEDAL" --
+        #                              must appear in driver_override.reasons
+        #   expect_custom_state str  : optional, e.g. "DRIVER_OVERRIDE_ACCEL"
+        #                              -- exact match on the row's custom_state
+        #   mode                str  : "all" (default) | "any"
+        #   min_frames          int  : default 1
+        #   after / before           : the usual sim_time window
+        #
+        # WHY expect_custom_state EXISTS AT ALL: OSI's DriverOverride.Reason
+        # enum has exactly two values (brake pedal, steering input) and no
+        # accelerator value, so an accelerator-origin override cannot be
+        # expressed as a Reason. design §8-3 routes it through custom_state
+        # instead. A matcher that only knew about `reasons` would therefore be
+        # structurally unable to observe the one override producer phase B
+        # actually implements.
+        #
+        # WHY THE POSITIVE AND NEGATIVE DIRECTIONS HAVE DIFFERENT PRECONDITIONS
+        # (this is the part that keeps the matcher honest, see verification
+        # plan §4-1):
+        #   * expect_active=True needs no presence precondition. The function
+        #     row being reported at all already proves the instrument is live,
+        #     so an ABSENT driver_override submessage is a genuine negative
+        #     observation -- "the populate mechanism did not report an
+        #     override" -- and must FAIL. That is exactly what makes deleting
+        #     the populate code turn this matcher red rather than grey.
+        #   * expect_active=False DOES need it. "No override was ever
+        #     reported" is what a run with the whole mechanism removed also
+        #     looks like, so without requiring that the channel was written at
+        #     least once, the negative would pass vacuously for the wrong
+        #     reason. This is the same STANDBY-vs-UNAVAILABLE argument
+        #     no_intervention_in_window makes about State, applied to the
+        #     override channel: a channel nobody wrote cannot evidence "the
+        #     driver did not override".
+        if "function" not in must:
+            return res(
+                "skip",
+                "must entry names no function -- a matcher that checks nothing "
+                "must not report pass",
+            )
+        function = must["function"]
+        expect_active = bool(must.get("expect_active", True))
+        expect_reason = must.get("expect_reason")
+        expect_custom_state = must.get("expect_custom_state")
+        mode = must.get("mode", "all")
+        if mode not in ("all", "any"):
+            return res("skip", f"mode must be 'all' or 'any', got {mode!r}")
+        if not expect_active and mode == "any":
+            # "at least one frame reported no override" is satisfied by almost
+            # any run, including one where the override fired on every other
+            # frame. Refuse the combination rather than report a pass nobody
+            # should trust.
+            return res(
+                "skip",
+                "expect_active: false with mode: any asserts only that SOME frame "
+                "lacked an override, which nearly any run satisfies -- use "
+                "mode: all for the negative direction",
+            )
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        reported = [
+            i for i in gated if _hvd_adas_record(frames[i], function) is not None
+        ]
+        if not reported:
+            return res(
+                "skip",
+                f"{function!r} never reported in hvd.adas over {len(gated)} gated "
+                "frame(s) -- no row to read a driver override off",
+            )
+
+        if not expect_active:
+            live = [
+                i
+                for i in reported
+                if _adas_override(_hvd_adas_record(frames[i], function)).get("present")
+            ]
+            if not live:
+                return res(
+                    "skip",
+                    f"{function!r} reported on {len(reported)} frame(s) but its "
+                    "driver_override channel was never populated -- a channel "
+                    "nobody wrote cannot evidence 'the driver did not override' "
+                    "(REQ-AD-028 段b, mirrors the STANDBY-vs-UNAVAILABLE rule)",
+                )
+        else:
+            live = reported
+
+        def _ok(idx: int) -> bool:
+            rec = _hvd_adas_record(frames[idx], function)
+            ovr = _adas_override(rec)
+            if bool(ovr.get("active")) != expect_active:
+                return False
+            if expect_reason is not None and expect_reason not in (
+                ovr.get("reasons") or []
+            ):
+                return False
+            if (
+                expect_custom_state is not None
+                and (rec.get("custom_state") or "") != expect_custom_state
+            ):
+                return False
+            return True
+
+        wanted = [
+            f"active={expect_active}",
+            *(
+                [f"reason includes {expect_reason!r}"]
+                if expect_reason is not None
+                else []
+            ),
+            *(
+                [f"custom_state == {expect_custom_state!r}"]
+                if expect_custom_state is not None
+                else []
+            ),
+        ]
+        want_txt = ", ".join(wanted)
+
+        def _seen(idx: int) -> str:
+            rec = _hvd_adas_record(frames[idx], function)
+            ovr = _adas_override(rec)
+            return (
+                f"present={bool(ovr.get('present'))} active={bool(ovr.get('active'))} "
+                f"reasons={ovr.get('reasons') or []} "
+                f"custom_state={(rec.get('custom_state') or '')!r}"
+            )
+
+        if mode == "all":
+            offenders = [i for i in live if not _ok(i)]
+            if offenders:
+                i0 = offenders[0]
+                detail = (
+                    f"{function} driver override at t={frames[i0]['sim_time']:.2f} "
+                    f"(frame {i0}): {_seen(i0)} (want {want_txt} on every frame; "
+                    f"{len(offenders)}/{len(live)} disagreed)"
+                )
+                return res("fail", detail, i0)
+            detail = (
+                f"{function} driver override matched [{want_txt}] on all "
+                f"{len(live)} evaluated frame(s)"
+            )
+            return res("pass", detail)
+
+        found = [i for i in live if _ok(i)]
+        if not found:
+            i_last = live[-1]
+            detail = (
+                f"no frame in window had {function} driver override [{want_txt}] "
+                f"over {len(live)} evaluated frame(s); last observed: {_seen(i_last)}"
+            )
+            return res("fail", detail, i_last)
+        i0 = found[0]
+        detail = (
+            f"{function} driver override [{want_txt}] first seen at "
+            f"t={frames[i0]['sim_time']:.2f} (frame {i0}); "
+            f"{len(found)}/{len(live)} evaluated frame(s) matched"
+        )
+        return res("pass", detail)
 
     if kind == "route_lane_plan_holds":
         # vd-func:FUNC-050 (レーンレベル経路計画) / RouteLanePlan.hpp conformance.
