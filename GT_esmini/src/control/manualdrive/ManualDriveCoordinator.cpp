@@ -174,7 +174,24 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
         pctx.entities = c.entities_;
         pctx.sim_time = c.sim_time_;
 
-        ManualAdasFrameResult adas_result = c.adas_stack_->Step(pctx, owns_longitudinal, cmd, dt);
+        // req-vd-ad:REQ-AD-026 段e/g/h + REQ-AD-030 (phase C) -- the two
+        // per-frame inputs the stack cannot derive from the policy snapshots.
+        //
+        // GetSpeedLimit() is the SAME route the VD overtake ceiling uses
+        // (ControllerVirtualDriver.cpp's respect_speed_limit branch,
+        // req-vd-ad:REQ-AD-023), which is what REQ-AD-026 段g's note asks for.
+        // It is read here, not inside the stack, because the stack takes only
+        // a TrafficPolicyContext and must not start reaching into Position.
+        //
+        // `cmd.buttons` (not frame.pedal_steer->buttons) so the mask the ADAS
+        // stalk sees is the same one every other consumer this frame sees --
+        // cmd is what the domain-zeroing above produced and what the bus is
+        // about to carry.
+        ManualAdasEnvironment env;
+        env.speed_limit_mps = c.object_->pos_.GetSpeedLimit();
+        env.buttons         = cmd.buttons;
+
+        ManualAdasFrameResult adas_result = c.adas_stack_->Step(pctx, owns_longitudinal, cmd, env, dt);
 
         // Apply the arbitrated pedals back into cmd BEFORE the publish block
         // below -- phase A is longitudinal-only (design §10's phase table),

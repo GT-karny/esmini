@@ -686,7 +686,130 @@ struct ManualDriveConfig
         // measurement that resolves this (2026-08-05).
         double kickdown_threshold         = 0.95;  // engage, accelerator fraction [0,1]
         double kickdown_release_threshold = 0.80;  // release (hysteresis band), [0,1]
+
+        // ==================================================================
+        // PHASE C -- ACC (req-vd-ad:REQ-AD-026 / REQ-AD-031, vd-func:FUNC-079)
+        // ==================================================================
+        // Every field mirrors AccLonControllerConfig / AccStopAndGoConfig,
+        // which stay the C++-side single source of truth for the DEFAULTS
+        // (same relationship brake_control has with PedalArbitratorConfig);
+        // these exist only so the config FILE can override them. A
+        // recalibration must update both places by hand.
+        //
+        // On-disk keys are flat and prefixed (adas_acc_*) for the PARSER NOTE's
+        // reason. Note in particular `adas_acc_enabled` rather than a nested
+        // "enabled": the scanner is scope-blind and a bare "enabled" would
+        // alias with override_cfg's.
+        struct
+        {
+            bool   enabled            = false;
+            double set_speed_step_mps = 1.39;   // ~5 km/h
+
+            // Following-distance stages, as THREE FLAT KEYS rather than the
+            // design sketch's JSON array (design §9's "thw_stages_s": [...]).
+            // The loader cannot read an array at all -- it is a line scanner --
+            // so an array in the file would parse as nothing and leave every
+            // stage at its compiled-in default, silently. Three keys make the
+            // 3-stage count explicit, which is the count the design specifies.
+            // REQUIRES CALIBRATION (verification plan §5).
+            double thw_stage_short_s = 1.0;
+            double thw_stage_mid_s   = 1.6;
+            double thw_stage_long_s  = 2.2;
+            int    thw_default_stage = 1;
+
+            // REQ-AD-026 step f. max <= 0 means no upper bound; min 0 means
+            // down to standstill (correct for an ACC with Stop&Go).
+            double min_speed_mps = 0.0;
+            double max_speed_mps = 0.0;
+
+            // REQ-AD-026 step g. Same key vocabulary as the VD overtake
+            // ceiling's respect_speed_limit (req-vd-ad:REQ-AD-023), as that
+            // requirement's note asks.
+            bool   respect_speed_limit = false;
+
+            // ACC's OWN comfort envelope. Deliberately NOT the VD
+            // comfort_decel (design §4-2/§12: that number means "how smoothly
+            // the VD slows itself", which carries no meaning for a car a human
+            // is driving). REQUIRES CALIBRATION.
+            double accel_max_mps2 = 1.2;
+            double decel_max_mps2 = 2.0;
+
+            // Pedal references. These are what make the two limits above real:
+            // the speed loop commands an ACCELERATION and divides by these to
+            // get a pedal, so a large speed error can no longer saturate the
+            // command past the envelope. See AccLonControllerConfig's own
+            // "Pedal references" block for the measurement that motivated it.
+            // REQUIRES CALIBRATION.
+            double full_brake_decel_mps2    = 8.0;
+            double full_throttle_accel_mps2 = 3.0;
+
+            // Speed loop, in the ACCELERATION domain (kp: 1/s, ki: 1/s^2).
+            // REQUIRES CALIBRATION.
+            double speed_kp           = 0.45;
+            double speed_ki           = 0.12;
+            double speed_deadband_mps = 0.20;
+
+            // Driver-input thresholds: accelerator = temporary override
+            // (state retained), brake = cancel (ACTIVE -> STANDBY).
+            double accel_override_threshold = 0.05;
+            double brake_cancel_threshold   = 0.05;
+
+            // Stop&Go (REQ-AD-031 段a/b).
+            struct
+            {
+                bool   enabled = true;
+                // 段b targets. Each one ADDS a policy to the manual stack;
+                // leaving it false means the policy is never instantiated, so
+                // the negative direction of md-sng-target-config-polarity is
+                // structural rather than a filter (AdasCoexistenceStack's
+                // constructor).
+                bool   stop_at_traffic_light = false;
+                bool   stop_at_stop_sign     = false;
+                double restart_accel_threshold = 0.10;
+                // MEASURED against RealVehicle's automatic-transmission creep
+                // (design §12), 2026-08-05: hold_brake 0.30 keeps the vehicle
+                // inside 0.032 m over an 11.6 s hold. stop_speed_eps_mps 0.5
+                // must stay ABOVE the ~0.16 m/s creep floor or the hold can
+                // never engage at all -- see AccLonController.hpp's field
+                // comment and GT_esmini/docs/virtualdriver/measurements/
+                // manualdrive_creep_stop_hold_2026-08-05.md.
+                double hold_brake              = 0.30;
+                double stop_speed_eps_mps      = 0.5;
+            } stop_and_go;
+        } acc;
+
+        // ==================================================================
+        // PHASE C -- MSL (req-vd-ad:REQ-AD-030, vd-func:FUNC-081)
+        // ==================================================================
+        // Mirrors SpeedLimiterConfig. There is deliberately no set-speed key:
+        // the limiter's cap is SET FROM THE VEHICLE'S OWN SPEED when the
+        // driver switches it on and adjusted with the same stalk buttons as
+        // ACC's (design §9's shared-vocabulary note), exactly like a real
+        // limiter -- a config-file cap would be a fourth way to set the same
+        // number and none of the requirement's steps ask for one.
+        struct
+        {
+            bool   enabled            = false;
+            bool   speed_limit_linked = false;  // REQ-AD-030 step c
+            double taper_band_mps     = 2.0;    // REQUIRES CALIBRATION
+        } msl;
     } adas;
+
+    // ADAS operating controls (req-vd-ad:REQ-AD-026 step e/h, REQ-AD-030).
+    // Physical wheel button indices, -1 = unassigned -- the same convention
+    // and the same place as the existing sdl2 button mapping, per design
+    // §4-1 ("manual_drive.json の既存ボタンマッピング流儀に乗せる"). Kept in
+    // their own struct rather than appended to `sdl2` so the on-disk keys stay
+    // greppable as a group; the loader is scope-blind either way.
+    struct
+    {
+        int acc_toggle_button     = -1;
+        int acc_set_resume_button = -1;
+        int acc_speed_up_button   = -1;
+        int acc_speed_down_button = -1;
+        int acc_thw_cycle_button  = -1;
+        int msl_toggle_button     = -1;
+    } adas_buttons;
 
     bool LoadFromFile(const std::string& filepath);
 };

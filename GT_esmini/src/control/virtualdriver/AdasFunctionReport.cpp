@@ -115,7 +115,7 @@ std::vector<AdasFunctionState> BuildManualAdasFunctionReport(const ManualAdasEna
                                                               const PolicyDetail&          detail)
 {
     std::vector<AdasFunctionState> report;
-    report.reserve(2);
+    report.reserve(4);  // AEB + FCW always; ACC / MSL when config-enabled (phase C)
 
     // design §2-3 (slug md-split-no-double-equipment): not owning the
     // longitudinal domain collapses to the same UNAVAILABLE verdict as a
@@ -206,6 +206,76 @@ std::vector<AdasFunctionState> BuildManualAdasFunctionReport(const ManualAdasEna
             if (StartsWith(kv.first, "gt.fcw.")) f.detail.push_back(kv);
 
         report.push_back(std::move(f));
+    }
+
+    // ---- phase C rows (req-vd-ad:REQ-AD-026 / 030 / 031) -------------------
+    // Emitted ONLY when the corresponding function is config-enabled, so a
+    // phase-A/B config keeps producing exactly the two rows above and the
+    // committed ManualDrive baselines are unmoved. See the header's PHASE C
+    // ROWS block for the state mapping and for why "switched off by the
+    // driver" collapses onto UNAVAILABLE.
+    auto stateful_row = [&](int name, const char* custom_name, const char* detail_prefix, int fn_state,
+                            bool override_brake_reason, bool override_accel_token)
+    {
+        AdasFunctionState f;
+        f.name        = name;
+        f.custom_name = custom_name;
+
+        // Not owning the longitudinal domain collapses to UNAVAILABLE exactly
+        // as it does for AEB/FCW above (slug md-split-no-double-equipment) --
+        // the row is still EMITTED so a split run can be seen to have declined,
+        // rather than the function silently disappearing from the stream.
+        // `fn_state` 0 (driver has not switched it on) reports UNAVAILABLE too
+        // -- the collapse the header documents.
+        if (!domain_gate || fn_state == 0)
+            f.state = osi_adas::STATE_UNAVAILABLE;
+        else if (fn_state == 2)
+            f.state = osi_adas::STATE_ACTIVE;
+        else
+            f.state = osi_adas::STATE_STANDBY;
+
+        // req-vd-ad:REQ-AD-028 段b. `reported` follows the CONFIG+DOMAIN gate,
+        // NOT the function's own on/off state: a config-enabled function on an
+        // owned domain really was evaluated for an override this frame, so "no
+        // override" is a measurement even while the driver has it switched
+        // off. This is also what keeps the two facts the header's state
+        // collapse merges (never installed vs installed-and-driver-off)
+        // separable from outside.
+        if (domain_gate)
+        {
+            f.driver_override.reported = true;
+            f.driver_override.active   = override_brake_reason || override_accel_token;
+            if (override_brake_reason)
+            {
+                f.driver_override.reasons.push_back(osi_adas::REASON_BRAKE_PEDAL);
+            }
+            if (override_accel_token)
+            {
+                f.custom_state = kDriverOverrideAccel;
+            }
+        }
+
+        for (const auto& kv : detail)
+            if (StartsWith(kv.first, detail_prefix)) f.detail.push_back(kv);
+
+        report.push_back(std::move(f));
+    };
+
+    if (flags.acc)
+    {
+        // Both override producers can be live at once (a driver with one foot
+        // on each pedal), so `active` is their OR and the two channels -- a
+        // Reason for the brake, a custom_state token for the accelerator --
+        // are populated independently. Collapsing them would force a choice
+        // between two true statements.
+        stateful_row(osi_adas::NAME_ADAPTIVE_CRUISE_CONTROL, "gt.acc", "gt.acc.", decision.acc_state,
+                     decision.acc_driver_override_brake, decision.acc_driver_override_accel);
+    }
+
+    if (flags.msl)
+    {
+        stateful_row(osi_adas::NAME_SPEED_LIMIT_CONTROL, "gt.msl", "gt.msl.", decision.msl_state,
+                     /*override_brake_reason=*/false, decision.msl_driver_override_accel);
     }
 
     // No aggregate row here -- see BuildManualAdasFunctionReport's doc comment

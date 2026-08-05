@@ -87,6 +87,42 @@ bool TryGetDetailValue(const PolicyDetail& detail, const std::string& key, doubl
     return false;
 }
 
+// ============================================================================
+// PHASE-A CALL ADAPTER (added in phase C, req-vd-ad:REQ-AD-026)
+// ============================================================================
+// ComputeManualAdasFrame grew four parameters in phase C (the ACC policy
+// snapshot, the per-frame environment, the ACC controller and the cross-frame
+// runtime). The tests in THIS file are phase-A tests: they are about AEB/FCW
+// and the safety stage, and every one of them wants ACC and MSL to be absent.
+// Routing them through one adapter that supplies an EMPTY acc_policy, a
+// default environment and a DISABLED AccLonController states that intent once,
+// in a place a reader can check, instead of repeating four inert arguments 23
+// times where they would read as if they mattered.
+//
+// The adapter forwards to the REAL function -- it is not a reimplementation --
+// so a future signature or semantics change still breaks these tests rather
+// than drifting past them. Phase-C behaviour is exercised against the real
+// signature in test_AccLonController.cpp / test_ManualAdasPhaseC.cpp.
+ManualAdasFrameResult RunAebOnlyFrame(const ManualAdasStackConfig& cfg,
+                                       bool                         owns_longitudinal,
+                                       const TrafficPolicySnapshot& intervention,
+                                       const TrafficPolicySnapshot& warning,
+                                       const PedalSteerCommand&     driver_cmd,
+                                       double                       ego_speed_mps,
+                                       double                       measured_decel_mps2,
+                                       double                       dt,
+                                       KickdownDetector&            kickdown,
+                                       PedalArbitrator&             arbitrator)
+{
+    const TrafficPolicySnapshot no_acc_policy;
+    const ManualAdasEnvironment env;
+    AccLonController            acc_disabled{AccLonControllerConfig{}};  // .enabled defaults false
+    ManualAdasRuntime           runtime;
+    return ComputeManualAdasFrame(cfg, owns_longitudinal, intervention, warning, no_acc_policy, env, driver_cmd,
+                                   ego_speed_mps, measured_decel_mps2, dt, kickdown, arbitrator, acc_disabled,
+                                   runtime);
+}
+
 }  // namespace
 
 // ============================================================================
@@ -112,7 +148,7 @@ TEST(AdasCoexistenceStackTest, AebDisabledInConfigPassesDriverPedalsThroughAndDe
     const TrafficPolicySnapshot warning       = MakeSnapshotWithConstraint(2.0);
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.3, 0.45);
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/20.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -139,7 +175,7 @@ TEST(AdasCoexistenceStackTest, NotOwningLongitudinalDomainPassesThroughEvenWithF
     // stub that just zeroes the whole PedalArbitrationSnapshot.
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.5, 0.2);
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/false, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/false, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/20.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -168,7 +204,7 @@ TEST(AdasCoexistenceStackTest, QualifyingAebConstraintProducesExactRequiredDecel
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd;  // quiet driver
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 v, /*measured_decel_mps2=*/0.0, /*dt=*/0.02, detector, arb);
 
     const double expected = (v * v) / (2.0 * d);
@@ -189,7 +225,7 @@ TEST(AdasCoexistenceStackTest, DistanceAtOrBelowEpsilonSaturatesInsteadOfDividin
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd;
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/10.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -212,7 +248,7 @@ TEST(AdasCoexistenceStackTest, ZeroEgoSpeedProducesNoRequest)
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.0, 0.0);
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/0.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -245,7 +281,7 @@ TEST(AdasCoexistenceStackTest, ConstraintsWithWrongTierSourceOrKindAreIgnored)
     const TrafficPolicySnapshot warning    = EmptySnapshot();
     const PedalSteerCommand     driver_cmd = MakeDriverCmd(0.4, 0.0);
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/10.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -270,7 +306,7 @@ TEST(AdasCoexistenceStackTest, SeveralQualifyingConstraintsTheStrictestWins)
     const TrafficPolicySnapshot warning    = EmptySnapshot();
     const PedalSteerCommand     driver_cmd;
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 v, /*measured_decel_mps2=*/0.0, /*dt=*/0.02, detector, arb);
 
     // Smallest d (10.0) is the strictest -- largest a_req.
@@ -312,7 +348,7 @@ TEST(AdasCoexistenceStackTest, SupersetPropertyHoldsAcrossAllFourFireCombination
             // "no request when v<=0" rule.
             const PedalSteerCommand      driver_cmd;
 
-            const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning,
+            const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning,
                                                         driver_cmd, /*ego_speed_mps=*/10.0,
                                                         /*measured_decel_mps2=*/0.0, /*dt=*/0.02, detector, arb);
 
@@ -353,7 +389,7 @@ TEST(AdasCoexistenceStackTest, InterventionWithoutWarningSnapshotIsRepairedNotTr
     const TrafficPolicySnapshot warning       = EmptySnapshot();  // inconsistent: claims nothing
     const PedalSteerCommand     driver_cmd;
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/10.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -373,7 +409,7 @@ TEST(AdasCoexistenceStackTest, WarningOnlyFrameSetsFcwWithoutInterveningAndLeave
     const TrafficPolicySnapshot warning       = MakeSnapshotWithConstraint(15.0);  // looser FCW gate did
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.2, 0.0);
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/10.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -401,7 +437,7 @@ TEST(AdasCoexistenceStackTest, KickdownActiveWithSuppressEnabledSuppressesAeb)
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.99, 0.0);  // floored, above engage threshold
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -425,7 +461,7 @@ TEST(AdasCoexistenceStackTest, KickdownSuppressDisabledIgnoresKickdownAebStillIn
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.99, 0.0);  // floored -- detector would latch active
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -463,7 +499,7 @@ TEST(AdasCoexistenceStackTest, KickdownWithNoAebRequestStillReportsTheAccelOverr
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.99, 0.0);  // ... but the driver is floored
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -485,7 +521,7 @@ TEST(AdasCoexistenceStackTest, KickdownVetoingAnActualRequestReportsBothTheOverr
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.99, 0.0);
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -510,7 +546,7 @@ TEST(AdasCoexistenceStackTest, KickdownWithSuppressDisabledReportsNoAccelOverrid
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.99, 0.0);
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -533,7 +569,7 @@ TEST(AdasCoexistenceStackTest, NoKickdownMeansNoAccelOverride)
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.0, 0.0);  // unresponsive driver
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -560,7 +596,7 @@ TEST(AdasCoexistenceStackTest, BypassedFrameReportsNoAccelOverrideEvenWithTheDri
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(1.0, 0.0);
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/false, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/false, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -593,7 +629,7 @@ TEST(AdasCoexistenceStackTest, ResultDetailHasNoDuplicateKeysAndPreservesAebSafe
     const TrafficPolicySnapshot warning    = EmptySnapshot();
     const PedalSteerCommand     driver_cmd;
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/10.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -631,7 +667,7 @@ TEST(AdasCoexistenceStackTest, QuietFrameReportsDriverBrakeAndBrakeOutKeysEvenWh
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.2, 0.35);
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/10.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -658,7 +694,7 @@ TEST(AdasCoexistenceStackTest, FiringFrameBrakeOutEqualsMaxOfDriverBrakeAndBrake
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.0, 0.1);  // light driver brake, below the AEB request
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -686,7 +722,7 @@ TEST(AdasCoexistenceStackTest, NotOwningDomainEmitsEmptyDetailNotZeroedBrakeKeys
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.0, 0.3);
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/false, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/false, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 
@@ -708,7 +744,7 @@ TEST(AdasCoexistenceStackTest, AebDisabledEmitsEmptyDetailNotZeroedBrakeKeys)
     const TrafficPolicySnapshot warning       = EmptySnapshot();
     const PedalSteerCommand     driver_cmd    = MakeDriverCmd(0.0, 0.3);
 
-    const auto result = ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
+    const auto result = RunAebOnlyFrame(cfg, /*owns_longitudinal=*/true, intervention, warning, driver_cmd,
                                                 /*ego_speed_mps=*/15.0, /*measured_decel_mps2=*/0.0, /*dt=*/0.02,
                                                 detector, arb);
 

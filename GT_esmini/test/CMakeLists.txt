@@ -52,6 +52,8 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_ScriptedInputSource.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_ManualDriveAdasConfig.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_AdasCoexistenceStack.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_AccLonController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_ManualAdasPhaseC.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)

@@ -144,6 +144,42 @@ ControllerManualDrive::ControllerManualDrive(InitArgs* args)
     adas_cfg.arbitrator.brake_ki           = config_.adas.brake_control.brake_ki;
     adas_cfg.kickdown.engage_threshold     = config_.adas.kickdown_threshold;
     adas_cfg.kickdown.release_threshold    = config_.adas.kickdown_release_threshold;
+
+    // PHASE C (req-vd-ad:REQ-AD-026 / REQ-AD-030 / REQ-AD-031,
+    // vd-func:FUNC-079 / FUNC-081). As with the AEB block above, the policy
+    // thresholds ACC shares with LeadVehicleAware/TrafficLightAware/
+    // StopYieldSignAware stay at their compiled-in policy defaults (design
+    // §4-2 "policy 本体は無改修") -- the only LeadVehicleAware field this
+    // controller writes is time_headway, and it does so through the stage
+    // selection rather than directly (AdasCoexistenceStack::RebuildLeadPolicy).
+    adas_cfg.acc.enabled                  = config_.adas.acc.enabled;
+    adas_cfg.acc.set_speed_step_mps       = config_.adas.acc.set_speed_step_mps;
+    adas_cfg.acc.thw_stages.short_s       = config_.adas.acc.thw_stage_short_s;
+    adas_cfg.acc.thw_stages.mid_s         = config_.adas.acc.thw_stage_mid_s;
+    adas_cfg.acc.thw_stages.long_s        = config_.adas.acc.thw_stage_long_s;
+    adas_cfg.acc.thw_default_stage        = config_.adas.acc.thw_default_stage;
+    adas_cfg.acc.min_speed_mps            = config_.adas.acc.min_speed_mps;
+    adas_cfg.acc.max_speed_mps            = config_.adas.acc.max_speed_mps;
+    adas_cfg.acc.respect_speed_limit      = config_.adas.acc.respect_speed_limit;
+    adas_cfg.acc.accel_max_mps2           = config_.adas.acc.accel_max_mps2;
+    adas_cfg.acc.decel_max_mps2           = config_.adas.acc.decel_max_mps2;
+    adas_cfg.acc.full_brake_decel_mps2    = config_.adas.acc.full_brake_decel_mps2;
+    adas_cfg.acc.full_throttle_accel_mps2 = config_.adas.acc.full_throttle_accel_mps2;
+    adas_cfg.acc.speed_kp                 = config_.adas.acc.speed_kp;
+    adas_cfg.acc.speed_ki                 = config_.adas.acc.speed_ki;
+    adas_cfg.acc.speed_deadband_mps       = config_.adas.acc.speed_deadband_mps;
+    adas_cfg.acc.accel_override_threshold = config_.adas.acc.accel_override_threshold;
+    adas_cfg.acc.brake_cancel_threshold   = config_.adas.acc.brake_cancel_threshold;
+    adas_cfg.acc.stop_and_go.enabled                 = config_.adas.acc.stop_and_go.enabled;
+    adas_cfg.acc.stop_and_go.stop_at_traffic_light   = config_.adas.acc.stop_and_go.stop_at_traffic_light;
+    adas_cfg.acc.stop_and_go.stop_at_stop_sign       = config_.adas.acc.stop_and_go.stop_at_stop_sign;
+    adas_cfg.acc.stop_and_go.restart_accel_threshold = config_.adas.acc.stop_and_go.restart_accel_threshold;
+    adas_cfg.acc.stop_and_go.hold_brake              = config_.adas.acc.stop_and_go.hold_brake;
+    adas_cfg.acc.stop_and_go.stop_speed_eps_mps      = config_.adas.acc.stop_and_go.stop_speed_eps_mps;
+    adas_cfg.msl.enabled                  = config_.adas.msl.enabled;
+    adas_cfg.msl.speed_limit_linked       = config_.adas.msl.speed_limit_linked;
+    adas_cfg.msl.taper_band_mps           = config_.adas.msl.taper_band_mps;
+
     adas_stack_ = std::make_unique<AdasCoexistenceStack>(adas_cfg);
 
     // Create coordinator
@@ -435,6 +471,11 @@ void ControllerManualDrive::GetADASFunctions(std::vector<AdasFunctionState>& fun
     ManualAdasEnableFlags flags;
     flags.aeb = config_.adas.aeb.enabled;
     flags.fcw = config_.adas.aeb.enabled;
+    // req-vd-ad:REQ-AD-026 / REQ-AD-030 (phase C). Config-enabled only; the
+    // driver's own on/off and the function's STANDBY/ACTIVE come from
+    // adas_last_result_.decision.{acc,msl}_state, resolved by the stack.
+    flags.acc = config_.adas.acc.enabled;
+    flags.msl = config_.adas.msl.enabled;
 
     functions = BuildManualAdasFunctionReport(
         flags, adas_last_owns_longitudinal_, adas_last_result_.decision, adas_last_result_.detail);

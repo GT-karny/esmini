@@ -55,6 +55,12 @@ bool SDL2WheelInput::Init(const ManualDriveConfig& config)
     fog_light_button_       = config.sdl2.fog_light_button;
     hazard_button_          = config.sdl2.hazard_button;
     auto_resume_button_     = config.sdl2.auto_resume_button;
+    acc_toggle_button_      = config.adas_buttons.acc_toggle_button;
+    acc_set_resume_button_  = config.adas_buttons.acc_set_resume_button;
+    acc_speed_up_button_    = config.adas_buttons.acc_speed_up_button;
+    acc_speed_down_button_  = config.adas_buttons.acc_speed_down_button;
+    acc_thw_cycle_button_   = config.adas_buttons.acc_thw_cycle_button;
+    msl_toggle_button_      = config.adas_buttons.msl_toggle_button;
 
     // Initialize SDL joystick + haptic subsystems (NOT video)
     if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) < 0)
@@ -239,6 +245,19 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
     // The physical toggle carries both directions. Web/UDP Resume injection
     // sets AUTO_RESUME alone and therefore remains a return-to-AUTO command.
     read_btn(auto_resume_button_,     ButtonBits::AUTO_RESUME | ButtonBits::TAKE_MANUAL);
+    // req-vd-ad:REQ-AD-026 step e/h, REQ-AD-030 (phase C) -- the ADAS stalk.
+    // Read as LEVELS here, exactly like every button above; the rising-edge
+    // semantics these six need live in AdasCoexistenceStack
+    // (DecodeAdasOperations), the same split the light toggles already use
+    // (ManualDriveCoordinator's `rising` lambda). Unassigned (-1) reads as
+    // never pressed, so a wheel with no spare buttons simply has no ADAS stalk
+    // and the functions stay driver-off.
+    read_btn(acc_toggle_button_,      ButtonBits::ACC_TOGGLE);
+    read_btn(acc_set_resume_button_,  ButtonBits::ACC_SET_RESUME);
+    read_btn(acc_speed_up_button_,    ButtonBits::ACC_SPEED_UP);
+    read_btn(acc_speed_down_button_,  ButtonBits::ACC_SPEED_DOWN);
+    read_btn(acc_thw_cycle_button_,   ButtonBits::ACC_THW_CYCLE);
+    read_btn(msl_toggle_button_,      ButtonBits::MSL_TOGGLE);
 
     frame.pedal_steer = cmd;
     return frame;

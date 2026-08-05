@@ -51,6 +51,13 @@ private:
     int           fog_light_button_      = -1;
     int           hazard_button_         = -1;
     int           auto_resume_button_    = -1;  // feature:F7
+    // req-vd-ad:REQ-AD-026 / REQ-AD-030 (phase C) -- ADAS stalk. -1 = unassigned.
+    int           acc_toggle_button_     = -1;
+    int           acc_set_resume_button_ = -1;
+    int           acc_speed_up_button_   = -1;
+    int           acc_speed_down_button_ = -1;
+    int           acc_thw_cycle_button_  = -1;
+    int           msl_toggle_button_     = -1;
     bool          sdl_initialized_        = false;
     // Per-axis "has reported a non-zero value since open" latch. Used by the
     // pedal read guard to treat raw=0 as "released" (32767) until we've seen

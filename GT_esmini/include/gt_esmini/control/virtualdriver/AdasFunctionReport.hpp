@@ -161,6 +161,16 @@ struct ManualAdasEnableFlags
 {
     bool aeb = false;
     bool fcw = false;
+    // req-vd-ad:REQ-AD-026 / REQ-AD-030 (phase C). Config-enabled, NOT
+    // "currently controlling" -- the same distinction `aeb` already carries.
+    // ACC's own OFF/STANDBY/ACTIVE machine (AccState) rides on top of this
+    // flag: `acc == false` means the function does not exist in this run at
+    // all (UNAVAILABLE), whereas acc==true with AccState::OFF means it exists
+    // and the driver has not switched it on. Both report UNAVAILABLE -- see
+    // BuildManualAdasFunctionReport's own comment for why that collapse is
+    // correct rather than a lost distinction.
+    bool acc = false;
+    bool msl = false;
 };
 
 // Per-frame decisions the manual stack (AdasCoexistenceStack / AebSafety) has
@@ -195,6 +205,44 @@ struct ManualAdasDecision
     // anyway as the gt.aeb.suppressed custom_detail key. Neither fact is lost;
     // they are reported in the two places whose semantics each one fits.
     bool driver_override_accel = false;
+
+    // ===================== phase C (req-vd-ad:REQ-AD-026 / 030 / 031) =======
+    //
+    // ACC and MSL are STATEFUL functions with their own OFF/STANDBY/ACTIVE
+    // machines (AccLonController's AccState, and the limiter's
+    // enabled/limiting pair), unlike AEB/FCW whose state is a pure function of
+    // this frame's decision. The stack therefore hands the ALREADY-RESOLVED
+    // state in, rather than a "fired this frame" boolean the report function
+    // would have to interpret -- the state machine's semantics live in one
+    // place (AccLonController) and this projection stays a mapping.
+    //
+    // 0 = OFF (driver has not switched it on), 1 = STANDBY, 2 = ACTIVE.
+    // An int rather than the AccState enum because this header must not
+    // include a manualdrive/ header: control/virtualdriver/ is included by
+    // GT_esminiLib.cpp's dispatch and by the VD path, neither of which should
+    // acquire a dependency on the ManualDrive controller's internals.
+    // AdasCoexistenceStack owns the (one-line) translation and its unit test
+    // pins the three values.
+    int  acc_state = 0;
+    int  msl_state = 0;
+
+    // ACC's brake-origin driver override (design §8-3's first bullet) -- the
+    // producer REQ-AD-028 段b's REASON_BRAKE_PEDAL half has been waiting for
+    // since phase B. True while the driver's brake is holding ACC off, NOT
+    // merely on the cancelling frame; see AccFrameOutput::driver_override_brake
+    // for why the latched (input-tracking) condition is the honest one.
+    bool acc_driver_override_brake = false;
+
+    // ACC's accelerator-origin temporary override (design §3-1's generate
+    // stage). Same custom_state token as the AEB kickdown override, for the
+    // same standard-level reason (no accelerator value exists in OSI's Reason
+    // enum) -- one token, two producers, which is why kDriverOverrideAccel is
+    // a shared constant rather than a per-function string.
+    bool acc_driver_override_accel = false;
+
+    // MSL's kickdown release (REQ-AD-030 step b). Accelerator-origin, so it
+    // reports through custom_state exactly like the two above.
+    bool msl_driver_override_accel = false;
 };
 
 // Projects one frame of the ManualDrive ADAS stack onto the OSI AD-function
@@ -232,6 +280,25 @@ struct ManualAdasDecision
 // (ACC cancel, phase C) and steering-origin (LKA interrupt, phase D) overrides
 // are the producers that will populate it; phase B builds the mechanism and
 // exercises the accelerator path only.
+//
+// PHASE C ROWS (gt.acc, gt.msl). Emitted only when the corresponding enable
+// flag is set, so a phase-A/B-era config produces the SAME TWO ROWS it always
+// did and the committed ManualDrive baselines stay unmoved. The state mapping
+// is:
+//
+//   gate closed (config off / domain not owned) -> UNAVAILABLE
+//   gate open, function state OFF               -> UNAVAILABLE
+//   gate open, function state STANDBY           -> STANDBY
+//   gate open, function state ACTIVE            -> ACTIVE
+//
+// The first two lines collapse two different facts onto one OSI value, and
+// that is deliberate. OSI's State enum has no "installed but switched off by
+// the driver" value distinct from UNAVAILABLE, and inventing one (AVAILABLE,
+// say) would misuse a value that means something else. The distinction is not
+// lost: `driver_override.reported` is written for the config-enabled+owned
+// rows only, so "the run had ACC compiled in and the driver left it off" is
+// still separable from "this run had no ACC" by reading the override channel's
+// presence -- the same mechanism REQ-AD-028 段b built for a different question.
 //
 // NO aggregate row: unlike BuildAdasFunctionReport()'s "gt.virtual_driver" /
 // NAME_URBAN_DRIVING row (§8-1), a manual-context report must NOT claim "an

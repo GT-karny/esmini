@@ -183,6 +183,47 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_double("adas_kickdown_threshold", adas.kickdown_threshold);
         parse_double("adas_kickdown_release_threshold", adas.kickdown_release_threshold);
 
+        // ManualDrive ADAS phase C -- ACC (req-vd-ad:REQ-AD-026 / REQ-AD-031,
+        // vd-func:FUNC-079) and MSL (req-vd-ad:REQ-AD-030, vd-func:FUNC-081).
+        // Same flat-and-prefixed on-disk key discipline as the AEB block
+        // above; see ManualDriveConfig.hpp's PARSER NOTE.
+        parse_bool  ("adas_acc_enabled", adas.acc.enabled);
+        parse_double("adas_acc_set_speed_step_mps", adas.acc.set_speed_step_mps);
+        parse_double("adas_acc_thw_stage_short_s", adas.acc.thw_stage_short_s);
+        parse_double("adas_acc_thw_stage_mid_s", adas.acc.thw_stage_mid_s);
+        parse_double("adas_acc_thw_stage_long_s", adas.acc.thw_stage_long_s);
+        parse_int   ("adas_acc_thw_default_stage", adas.acc.thw_default_stage);
+        parse_double("adas_acc_min_speed_mps", adas.acc.min_speed_mps);
+        parse_double("adas_acc_max_speed_mps", adas.acc.max_speed_mps);
+        parse_bool  ("adas_acc_respect_speed_limit", adas.acc.respect_speed_limit);
+        parse_double("adas_acc_accel_max_mps2", adas.acc.accel_max_mps2);
+        parse_double("adas_acc_decel_max_mps2", adas.acc.decel_max_mps2);
+        parse_double("adas_acc_full_brake_decel_mps2", adas.acc.full_brake_decel_mps2);
+        parse_double("adas_acc_full_throttle_accel_mps2", adas.acc.full_throttle_accel_mps2);
+        parse_double("adas_acc_speed_kp", adas.acc.speed_kp);
+        parse_double("adas_acc_speed_ki", adas.acc.speed_ki);
+        parse_double("adas_acc_speed_deadband_mps", adas.acc.speed_deadband_mps);
+        parse_double("adas_acc_accel_override_threshold", adas.acc.accel_override_threshold);
+        parse_double("adas_acc_brake_cancel_threshold", adas.acc.brake_cancel_threshold);
+        parse_bool  ("adas_acc_stop_and_go_enabled", adas.acc.stop_and_go.enabled);
+        parse_bool  ("adas_acc_stop_at_traffic_light", adas.acc.stop_and_go.stop_at_traffic_light);
+        parse_bool  ("adas_acc_stop_at_stop_sign", adas.acc.stop_and_go.stop_at_stop_sign);
+        parse_double("adas_acc_restart_accel_threshold", adas.acc.stop_and_go.restart_accel_threshold);
+        parse_double("adas_acc_hold_brake", adas.acc.stop_and_go.hold_brake);
+        parse_double("adas_acc_stop_speed_eps_mps", adas.acc.stop_and_go.stop_speed_eps_mps);
+
+        parse_bool  ("adas_msl_enabled", adas.msl.enabled);
+        parse_bool  ("adas_msl_speed_limit_linked", adas.msl.speed_limit_linked);
+        parse_double("adas_msl_taper_band_mps", adas.msl.taper_band_mps);
+
+        // ADAS operating controls (design §9's `buttons` block).
+        parse_int("acc_toggle_button", adas_buttons.acc_toggle_button);
+        parse_int("acc_set_resume_button", adas_buttons.acc_set_resume_button);
+        parse_int("acc_speed_up_button", adas_buttons.acc_speed_up_button);
+        parse_int("acc_speed_down_button", adas_buttons.acc_speed_down_button);
+        parse_int("acc_thw_cycle_button", adas_buttons.acc_thw_cycle_button);
+        parse_int("msl_toggle_button", adas_buttons.msl_toggle_button);
+
         // Physics: RealVehicle
         parse_string("vehicle_params_file", real_vehicle.vehicle_params_file);
 

@@ -158,14 +158,18 @@
 // gt.aeb.warning boolean.
 
 #include "gt_esmini/control/common/VehicleCommand.hpp"
+#include "gt_esmini/control/manualdrive/AccLonController.hpp"
 #include "gt_esmini/control/manualdrive/KickdownDetector.hpp"
 #include "gt_esmini/control/manualdrive/PedalArbitrator.hpp"
+#include "gt_esmini/control/manualdrive/SpeedLimiter.hpp"
 #include "gt_esmini/control/virtualdriver/AdasFunctionReport.hpp"
 #include "gt_esmini/control/virtualdriver/ITrafficPolicy.hpp"
 #include "gt_esmini/control/virtualdriver/TrafficPolicyManager.hpp"
 #include "gt_esmini/control/virtualdriver/VirtualDriverTypes.hpp"
 #include "gt_esmini/control/virtualdriver/policies/AebSafety.hpp"
+#include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 
+#include <cstdint>
 #include <memory>
 
 namespace gt_esmini
@@ -201,6 +205,60 @@ struct ManualAdasStackConfig
     AebSafetyConfig         aeb;        // intervention-path thresholds (policy defaults)
     KickdownDetectorConfig  kickdown;   // shared detector config (design §3-3)
     PedalArbitratorConfig   arbitrator; // safety-stage pedal conversion config (design §3-4)
+
+    // ---- phase C (req-vd-ad:REQ-AD-026 / 030 / 031) ------------------------
+    AccLonControllerConfig acc;   // generate stage (design §4)
+    SpeedLimiterConfig     msl;   // limit stage    (design §6)
+
+    // Following-policy config for the ACC generate stage. `idm.time_headway`
+    // is OVERWRITTEN every time the driver cycles the following-distance stage
+    // (REQ-AD-026 step h) -- AdasCoexistenceStack rebuilds its LeadVehicleAware
+    // instance with the new value rather than mutating the policy, because
+    // "policy bodies are reused with ZERO modification" (design §2-1) and
+    // LeadVehicleAware exposes no setter. The policy is stateless (its only
+    // member is its config), so rebuilding costs nothing and loses nothing;
+    // the same trick would NOT be available for TrafficLightAware /
+    // StopYieldSignAware, which carry cross-frame latches.
+    LeadVehicleAwareConfig lead;
+};
+
+// Per-frame environment the stack cannot derive from the policy snapshots
+// alone. Grouped into one struct rather than added as four more positional
+// arguments to ComputeManualAdasFrame, which already takes ten.
+struct ManualAdasEnvironment
+{
+    // Road speed limit at the ego's position [m/s], <= 0 when unavailable
+    // (Position::GetSpeedLimit -- the SAME route REQ-AD-023's overtake ceiling
+    // uses, per REQ-AD-026 step g's "config キーも同語彙で揃える" note).
+    double        speed_limit_mps = 0.0;
+    // This frame's raw button mask, for the operating controls. The stack
+    // keeps its OWN previous-mask copy (ManualAdasRuntime::prev_buttons)
+    // rather than reusing ControllerManualDrive::prev_buttons_: that member is
+    // updated INSIDE the vehicle-lights block of RunFrame, which only executes
+    // when the object has a light extension, so an ADAS stalk decoded against
+    // it would silently stop producing edges on an entity without one.
+    std::uint32_t buttons         = 0;
+};
+
+// Cross-frame state of the phase-C functions that does NOT live inside
+// AccLonController: the limiter's driver-facing state, the ACC/MSL mutual
+// exclusion, and the button-edge anchor. Passed by reference (like
+// KickdownDetector and PedalArbitrator) so ComputeManualAdasFrame stays a
+// free function whose every decision is directly testable.
+//
+// EXCLUSIVITY (design §6): switching one function ON demotes the other to
+// STANDBY -- "the later ON wins" -- rather than switching it OFF. The demoted
+// function keeps its setting and reports STANDBY, so the pair is observable as
+// a state SEQUENCE (adas_state_sequence on gt.acc + gt.msl) instead of one row
+// simply vanishing.
+struct ManualAdasRuntime
+{
+    bool          msl_on            = false;  // driver toggle (OFF vs armed)
+    bool          msl_has_set_speed = false;
+    double        msl_set_speed_mps = 0.0;
+    bool          acc_suspended     = false;  // demoted by MSL
+    bool          msl_suspended     = false;  // demoted by ACC
+    std::uint32_t prev_buttons      = 0;
 };
 
 // One frame's stack output.
@@ -210,6 +268,12 @@ struct ManualAdasFrameResult
     ManualAdasDecision       decision;                      // -> BuildManualAdasFunctionReport (AdasFunctionReport.hpp)
     PolicyDetail             detail;                        // merged diagnostics -> custom_detail (see merge rule above)
     double                   aeb_decel_request_mps2 = 0.0;  // this frame's a_req (0.0 = none requested)
+
+    // phase C: the generate/limit stages' own outputs, kept for unit tests and
+    // for the coordinator's telemetry. The PEDALS that actually reach the
+    // vehicle are still `pedals` (the safety stage runs last, design §3-1).
+    AccFrameOutput           acc;
+    SpeedLimiterResult       msl;
 };
 
 // Achieved deceleration from two consecutive speed samples, POSITIVE when
@@ -269,16 +333,42 @@ AebSafetyConfig DeriveFcwGateConfig(const ManualAdasStackConfig& cfg);
 //   arbitrator          : the SAFETY-stage pedal arbitrator (design §3-1).
 //                         Arbitrate()d exactly once per call, same bypass
 //                         exception.
+//   acc_policy          : this frame's snapshot from the ACC-side policies
+//                         (LeadVehicleAware plus whichever of TrafficLightAware
+//                         / StopYieldSignAware the stop_targets config asked
+//                         for). Held SEPARATE from `intervention` so the ACC
+//                         ceiling and the AEB safety demand never have to be
+//                         told apart by filtering one concatenated list --
+//                         which is what makes REQ-AD-026 step d ("AEB fires
+//                         independently while ACC is active and safety wins")
+//                         a separable claim rather than an implementation
+//                         detail of a constraint filter.
+//   env                 : speed limit + button mask (ManualAdasEnvironment).
+//   acc                 : the stateful ACC controller (design §4). Step()ped
+//                         exactly once per call, same bypass exception as the
+//                         kickdown detector and the arbitrator.
+//   runtime             : cross-frame limiter/exclusivity/button state
+//                         (ManualAdasRuntime).
+//
+// PHASE-C STAGE ORDER inside this function is design §3-1's, verbatim and
+// non-negotiable: ACC generates -> MSL clamps the throttle -> AEB tops up the
+// brake. Each stage's output is the next stage's driver_* input, which is
+// exactly the seam PedalArbitrator.hpp predicted in phase A ("the real seam is
+// already here, it just has one producer instead of three").
 ManualAdasFrameResult ComputeManualAdasFrame(const ManualAdasStackConfig& cfg,
                                               bool                         owns_longitudinal,
                                               const TrafficPolicySnapshot& intervention,
                                               const TrafficPolicySnapshot& warning,
+                                              const TrafficPolicySnapshot& acc_policy,
+                                              const ManualAdasEnvironment& env,
                                               const PedalSteerCommand&     driver_cmd,
                                               double                       ego_speed_mps,
                                               double                       measured_decel_mps2,
                                               double                       dt,
                                               KickdownDetector&            kickdown,
-                                              PedalArbitrator&             arbitrator);
+                                              PedalArbitrator&             arbitrator,
+                                              AccLonController&            acc,
+                                              ManualAdasRuntime&           runtime);
 
 // Engine-facing wrapper (b): owns the policies + stateful helpers, builds the
 // TrafficPolicyContext-consuming calls, and delegates every decision to
@@ -314,10 +404,16 @@ public:
     //                       caller (design §2-3).
     //   driver_cmd        : this frame's pre-ADAS pedal/steer command.
     //   dt                : seconds since the last call.
-    ManualAdasFrameResult Step(const TrafficPolicyContext& ctx,
-                                bool                        owns_longitudinal,
-                                const PedalSteerCommand&    driver_cmd,
-                                double                      dt);
+    //   env               : this frame's speed limit + button mask
+    //                       (ManualAdasEnvironment). Supplied by the caller
+    //                       because both come from the esmini Object/Position,
+    //                       which this class deliberately does not reach into
+    //                       beyond ctx.
+    ManualAdasFrameResult Step(const TrafficPolicyContext&  ctx,
+                                bool                         owns_longitudinal,
+                                const PedalSteerCommand&     driver_cmd,
+                                const ManualAdasEnvironment& env,
+                                double                       dt);
 
     const ManualAdasStackConfig& Config() const
     {
@@ -325,6 +421,10 @@ public:
     }
 
 private:
+    // Rebuilds lead_ at the given time headway (REQ-AD-026 step h). See
+    // ManualAdasStackConfig::lead for why a rebuild rather than a setter.
+    void RebuildLeadPolicy(double time_headway_s);
+
     ManualAdasStackConfig cfg_;
 
     // INTERVENTION path (see this header's top-of-file comment). Holds ONE
@@ -340,6 +440,26 @@ private:
 
     KickdownDetector kickdown_;
     PedalArbitrator  arbitrator_;
+
+    // ---- phase C -----------------------------------------------------------
+    // The ACC-side policies, evaluated into their OWN snapshot (see
+    // ComputeManualAdasFrame's acc_policy parameter for why they are not
+    // concatenated onto policies_).
+    //
+    // lead_ is held apart from stop_policies_ because it is the one policy
+    // whose CONFIG changes at runtime: cycling the following-distance stage
+    // rebuilds it (RebuildLeadPolicy). TrafficLightAware / StopYieldSignAware
+    // must NOT be rebuilt -- they carry cross-frame latches (cleared signals,
+    // stop timers) that a rebuild would silently reset -- so they live in a
+    // manager that is constructed once, with membership decided by the
+    // stop_targets config (REQ-AD-031 段b: a policy that was never added
+    // cannot emit a constraint, which is what makes the negative direction of
+    // md-sng-target-config-polarity structural).
+    std::unique_ptr<LeadVehicleAware> lead_;
+    TrafficPolicyManager              stop_policies_;
+    AccLonController                  acc_;
+    ManualAdasRuntime                 runtime_;
+    int                               lead_stage_built_ = -1;  // THW stage lead_ was built at
 
     // ComputeMeasuredDecel's v_prev anchor, carried across frames.
     double prev_speed_mps_ = 0.0;
