@@ -216,6 +216,22 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_bool  ("adas_msl_speed_limit_linked", adas.msl.speed_limit_linked);
         parse_double("adas_msl_taper_band_mps", adas.msl.taper_band_mps);
 
+        // req-vd-ad:REQ-AD-027 (phase D). `adas_lka_warning_only` is the LDW
+        // mode switch, not a second function -- see the header's own note.
+        parse_bool  ("adas_lka_enabled", adas.lka.enabled);
+        parse_bool  ("adas_lka_warning_only", adas.lka.warning_only);
+        parse_double("adas_lka_min_speed_mps", adas.lka.min_speed_mps);
+        parse_double("adas_lka_max_speed_mps", adas.lka.max_speed_mps);
+        parse_double("adas_lka_tlc_threshold_s", adas.lka.tlc_threshold_s);
+        parse_double("adas_lka_margin_threshold_m", adas.lka.margin_threshold_m);
+        parse_double("adas_lka_release_margin_m", adas.lka.release_margin_m);
+        parse_double("adas_lka_kp_offset", adas.lka.kp_offset);
+        parse_double("adas_lka_kd_lateral", adas.lka.kd_lateral);
+        parse_double("adas_lka_correction_max", adas.lka.correction_max);
+        parse_double("adas_lka_correction_rate_max", adas.lka.correction_rate_max);
+        parse_double("adas_lka_steer_override_rate", adas.lka.steer_override_rate);
+        parse_double("adas_lka_steer_override_hold_s", adas.lka.steer_override_hold_s);
+
         // ADAS operating controls (design §9's `buttons` block).
         parse_int("acc_toggle_button", adas_buttons.acc_toggle_button);
         parse_int("acc_set_resume_button", adas_buttons.acc_set_resume_button);

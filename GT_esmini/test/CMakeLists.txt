@@ -54,6 +54,7 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_AdasCoexistenceStack.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_AccLonController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_ManualAdasPhaseC.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_LaneKeepAssist.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)

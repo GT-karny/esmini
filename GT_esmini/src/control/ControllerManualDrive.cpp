@@ -180,6 +180,27 @@ ControllerManualDrive::ControllerManualDrive(InitArgs* args)
     adas_cfg.msl.speed_limit_linked       = config_.adas.msl.speed_limit_linked;
     adas_cfg.msl.taper_band_mps           = config_.adas.msl.taper_band_mps;
 
+    // PHASE D (req-vd-ad:REQ-AD-027, vd-func:FUNC-080). Unlike every block
+    // above, LKA shares NO thresholds with an existing policy -- there was no
+    // lane-centre component to share them with (design §5-1) -- so every field
+    // here is its own, and all of them REQUIRE CALIBRATION (verification plan
+    // §5). LaneKeepAssistConfig's own member initializers stay the C++-side
+    // single source of truth for the defaults; these lines only let the config
+    // FILE override them.
+    adas_cfg.lka.enabled              = config_.adas.lka.enabled;
+    adas_cfg.lka.warning_only         = config_.adas.lka.warning_only;
+    adas_cfg.lka.min_speed_mps        = config_.adas.lka.min_speed_mps;
+    adas_cfg.lka.max_speed_mps        = config_.adas.lka.max_speed_mps;
+    adas_cfg.lka.tlc_threshold_s      = config_.adas.lka.tlc_threshold_s;
+    adas_cfg.lka.margin_threshold_m   = config_.adas.lka.margin_threshold_m;
+    adas_cfg.lka.release_margin_m     = config_.adas.lka.release_margin_m;
+    adas_cfg.lka.kp_offset            = config_.adas.lka.kp_offset;
+    adas_cfg.lka.kd_lateral           = config_.adas.lka.kd_lateral;
+    adas_cfg.lka.correction_max       = config_.adas.lka.correction_max;
+    adas_cfg.lka.correction_rate_max  = config_.adas.lka.correction_rate_max;
+    adas_cfg.lka.steer_override_rate  = config_.adas.lka.steer_override_rate;
+    adas_cfg.lka.steer_override_hold_s = config_.adas.lka.steer_override_hold_s;
+
     adas_stack_ = std::make_unique<AdasCoexistenceStack>(adas_cfg);
 
     // Create coordinator
@@ -476,9 +497,19 @@ void ControllerManualDrive::GetADASFunctions(std::vector<AdasFunctionState>& fun
     // adas_last_result_.decision.{acc,msl}_state, resolved by the stack.
     flags.acc = config_.adas.acc.enabled;
     flags.msl = config_.adas.msl.enabled;
+    // req-vd-ad:REQ-AD-027 (phase D). BOTH rows follow the SAME single config
+    // flag: warning_only is a mode of one function, not a second enable, and
+    // withdrawing the gt.lka row under warning_only would make step f's
+    // negative ("the assist produced no correction") indistinguishable from
+    // "nobody looked" -- see ManualAdasEnableFlags' own comment.
+    flags.lka = config_.adas.lka.enabled;
+    flags.ldw = config_.adas.lka.enabled;
 
-    functions = BuildManualAdasFunctionReport(
-        flags, adas_last_owns_longitudinal_, adas_last_result_.decision, adas_last_result_.detail);
+    functions = BuildManualAdasFunctionReport(flags,
+                                              adas_last_owns_longitudinal_,
+                                              adas_last_owns_lateral_,
+                                              adas_last_result_.decision,
+                                              adas_last_result_.detail);
 }
 
 void ControllerManualDrive::GetPowertrainForOSI(double& rpm, double& torque) const

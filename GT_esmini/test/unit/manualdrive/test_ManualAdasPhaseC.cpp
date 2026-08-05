@@ -107,7 +107,7 @@ struct Harness
         ManualAdasEnvironment env;
         env.speed_limit_mps = speed_limit;
         env.buttons         = cmd.buttons;
-        return ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, intervention, /*warning=*/{}, acc_policy, env,
+        return ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/true, /*owns_lateral=*/false, intervention, /*warning=*/{}, acc_policy, env,
                                        cmd, v, /*measured_decel_mps2=*/0.0, dt, kickdown, arbitrator, acc, runtime);
     }
 
@@ -274,7 +274,7 @@ TEST(ManualAdasPhaseCTest, NotOwningTheDomainStillBypassesEverythingInPhaseC)
 
     ManualAdasEnvironment env;
     const auto            out =
-        ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/false, AebStopSnapshot(3.0), {}, LeadStopSnapshot(3.0), env,
+        ComputeManualAdasFrame(cfg, /*owns_longitudinal=*/false, /*owns_lateral=*/false, AebStopSnapshot(3.0), {}, LeadStopSnapshot(3.0), env,
                                 Pedals(0.4, 0.15), 20.0, 0.0, 0.05, kd, arb, acc, runtime);
 
     EXPECT_DOUBLE_EQ(out.pedals.throttle_out, 0.4);
@@ -431,7 +431,7 @@ TEST(ManualAdasReportPhaseCTest, PhaseABConfigStillProducesExactlyTheTwoOriginal
     flags.aeb = flags.fcw = true;
     ManualAdasDecision decision;
 
-    const auto rows = BuildManualAdasFunctionReport(flags, /*owns_longitudinal_domain=*/true, decision, {});
+    const auto rows = BuildManualAdasFunctionReport(flags, /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, {});
     ASSERT_EQ(rows.size(), 2u);
     EXPECT_EQ(rows[0].custom_name, "gt.aeb");
     EXPECT_EQ(rows[1].custom_name, "gt.fcw");
@@ -444,18 +444,18 @@ TEST(ManualAdasReportPhaseCTest, AccRowUsesTheNativeOsiNameAndTheThreeValueState
     ManualAdasDecision decision;
 
     decision.acc_state = 0;
-    auto rows = BuildManualAdasFunctionReport(flags, true, decision, {});
+    auto rows = BuildManualAdasFunctionReport(flags, true, /*owns_lateral_domain=*/false, decision, {});
     ASSERT_EQ(rows.size(), 3u);
     EXPECT_EQ(rows[2].custom_name, "gt.acc");
     EXPECT_EQ(rows[2].name, osi_adas::NAME_ADAPTIVE_CRUISE_CONTROL);  // never NAME_OTHER (段a)
     EXPECT_EQ(rows[2].state, osi_adas::STATE_UNAVAILABLE);
 
     decision.acc_state = 1;
-    rows = BuildManualAdasFunctionReport(flags, true, decision, {});
+    rows = BuildManualAdasFunctionReport(flags, true, /*owns_lateral_domain=*/false, decision, {});
     EXPECT_EQ(rows[2].state, osi_adas::STATE_STANDBY);
 
     decision.acc_state = 2;
-    rows = BuildManualAdasFunctionReport(flags, true, decision, {});
+    rows = BuildManualAdasFunctionReport(flags, true, /*owns_lateral_domain=*/false, decision, {});
     EXPECT_EQ(rows[2].state, osi_adas::STATE_ACTIVE);
 }
 
@@ -466,7 +466,7 @@ TEST(ManualAdasReportPhaseCTest, MslRowUsesTheNativeOsiName)
     ManualAdasDecision decision;
     decision.msl_state = 2;
 
-    const auto rows = BuildManualAdasFunctionReport(flags, true, decision, {});
+    const auto rows = BuildManualAdasFunctionReport(flags, true, /*owns_lateral_domain=*/false, decision, {});
     ASSERT_EQ(rows.size(), 3u);
     EXPECT_EQ(rows[2].custom_name, "gt.msl");
     EXPECT_EQ(rows[2].name, osi_adas::NAME_SPEED_LIMIT_CONTROL);
@@ -483,7 +483,7 @@ TEST(ManualAdasReportPhaseCTest, BrakeOriginOverrideReachesTheAccRowAsAReasonEnu
     decision.acc_state                 = 1;
     decision.acc_driver_override_brake = true;
 
-    const auto rows = BuildManualAdasFunctionReport(flags, true, decision, {});
+    const auto rows = BuildManualAdasFunctionReport(flags, true, /*owns_lateral_domain=*/false, decision, {});
     const auto& acc = rows[2];
     EXPECT_TRUE(acc.driver_override.reported);
     EXPECT_TRUE(acc.driver_override.active);
@@ -504,7 +504,7 @@ TEST(ManualAdasReportPhaseCTest, AcceleratorOriginOverrideUsesTheCustomStateToke
     // reference into a TEMPORARY vector that dies at the end of the full
     // expression -- the reads afterwards are then undefined behaviour that
     // happens to look like "the field was never populated".
-    const auto  rows = BuildManualAdasFunctionReport(flags, true, decision, {});
+    const auto  rows = BuildManualAdasFunctionReport(flags, true, /*owns_lateral_domain=*/false, decision, {});
     const auto& acc  = rows[2];
     EXPECT_TRUE(acc.driver_override.active);
     EXPECT_TRUE(acc.driver_override.reasons.empty());  // OSI has no accelerator Reason
@@ -522,7 +522,7 @@ TEST(ManualAdasReportPhaseCTest, BothOverrideOriginsCanBeReportedAtOnce)
     decision.acc_driver_override_brake = true;
     decision.acc_driver_override_accel = true;
 
-    const auto  rows = BuildManualAdasFunctionReport(flags, true, decision, {});
+    const auto  rows = BuildManualAdasFunctionReport(flags, true, /*owns_lateral_domain=*/false, decision, {});
     const auto& acc  = rows[2];
     EXPECT_EQ(acc.driver_override.reasons.size(), 1u);
     EXPECT_EQ(acc.custom_state, std::string(kDriverOverrideAccel));
@@ -536,7 +536,7 @@ TEST(ManualAdasReportPhaseCTest, NotOwningTheDomainReportsUnavailableWithNoOverr
     decision.acc_state                 = 2;
     decision.acc_driver_override_brake = true;
 
-    const auto rows = BuildManualAdasFunctionReport(flags, /*owns_longitudinal_domain=*/false, decision, {});
+    const auto rows = BuildManualAdasFunctionReport(flags, /*owns_longitudinal_domain=*/false, /*owns_lateral_domain=*/false, decision, {});
     ASSERT_EQ(rows.size(), 4u);
     for (const auto& r : rows)
     {
@@ -559,7 +559,7 @@ TEST(ManualAdasReportPhaseCTest, DriverOffAccStillReportsAnEvaluatedOverrideChan
     ManualAdasDecision decision;
     decision.acc_state = 0;
 
-    const auto  rows = BuildManualAdasFunctionReport(flags, true, decision, {});
+    const auto  rows = BuildManualAdasFunctionReport(flags, true, /*owns_lateral_domain=*/false, decision, {});
     const auto& acc  = rows[2];
     EXPECT_EQ(acc.state, osi_adas::STATE_UNAVAILABLE);
     EXPECT_TRUE(acc.driver_override.reported);
@@ -577,7 +577,7 @@ TEST(ManualAdasReportPhaseCTest, DetailKeysRouteToTheirOwnRowOnly)
     detail.emplace_back("gt.acc.set_speed_mps", "20.000");
     detail.emplace_back("gt.msl.cap_mps", "18.000");
 
-    const auto rows = BuildManualAdasFunctionReport(flags, true, decision, detail);
+    const auto rows = BuildManualAdasFunctionReport(flags, true, /*owns_lateral_domain=*/false, decision, detail);
     ASSERT_EQ(rows.size(), 4u);
     EXPECT_EQ(rows[0].detail.size(), 1u);  // gt.aeb
     EXPECT_EQ(rows[1].detail.size(), 0u);  // gt.fcw

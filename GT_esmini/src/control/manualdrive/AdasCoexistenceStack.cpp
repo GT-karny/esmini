@@ -125,8 +125,77 @@ AebSafetyConfig DeriveFcwGateConfig(const ManualAdasStackConfig& cfg)
     return fcw;
 }
 
+// One frame of the LATERAL section (design §5, phase D). Split out as its own
+// helper purely so the longitudinal body below can keep its shape: it consumes
+// only the environment the caller already supplies, holds no state of its own,
+// and every decision it makes lives in ComputeLaneKeepAssist.
+//
+// The lane geometry arrives ALREADY in LaneKeepAssist's vehicle-left-positive
+// convention (see ManualAdasEnvironment's field comments and LaneKeepAssist.hpp's
+// SIGN CHAIN block) -- this function performs no sign conversion, deliberately,
+// so there is exactly ONE place in the codebase where that conversion happens.
+static void RunLateralSection(const ManualAdasStackConfig& cfg,
+                              bool                         owns_lateral,
+                              const ManualAdasEnvironment& env,
+                              const PedalSteerCommand&     driver_cmd,
+                              double                       ego_speed_mps,
+                              double                       dt,
+                              ManualAdasRuntime&           runtime,
+                              ManualAdasFrameResult&       result)
+{
+    LkaFrameInput lin;
+    lin.owns_lateral         = owns_lateral;
+    lin.lane_valid           = env.lane_valid;
+    lin.lane_offset_m        = env.lane_offset_m;
+    lin.lane_half_width_m    = env.lane_half_width_m;
+    lin.vehicle_half_width_m = env.vehicle_half_width_m;
+    lin.lateral_speed_mps    = env.lateral_speed_mps;
+    lin.ego_speed_mps        = ego_speed_mps;
+    lin.driver_steering      = driver_cmd.steering;
+    lin.indicator_active     = env.indicator_active;
+
+    result.lka = ComputeLaneKeepAssist(cfg.lka, lin, dt, runtime.lka);
+
+    result.decision.lka_correcting               = result.lka.correcting;
+    result.decision.ldw_warning                  = result.lka.warning;
+    result.decision.lka_driver_override_steering = result.lka.driver_override_steering;
+
+    // design §8-4's gt.lka.* row. Emitted only on frames the judgement actually
+    // ran, for the same reason the longitudinal bypass leaves `detail` EMPTY
+    // rather than zeroed: a reported 0.000 offset on a frame nobody measured is
+    // indistinguishable from a perfectly centred vehicle, and the E2E matchers
+    // have to be able to tell "did not look" from "looked, found nothing".
+    if (!result.lka.evaluated) return;
+
+    AddDetail(result.detail, "gt.lka.offset_m", env.lane_offset_m);
+    AddDetail(result.detail, "gt.lka.margin_m", result.lka.margin_m);
+    AddDetail(result.detail, "gt.lka.tlc_s", result.lka.tlc_s);
+    AddDetail(result.detail, "gt.lka.lateral_speed_mps", env.lateral_speed_mps);
+    AddDetail(result.detail, "gt.lka.warning", result.lka.warning);
+    AddDetail(result.detail, "gt.lka.departure", result.lka.departing);
+    AddDetail(result.detail, "gt.lka.in_speed_band", result.lka.in_speed_band);
+    // The FUNCTION's own steering contribution, and the two values it sits
+    // between. `correction` is what steer_output_absent reads: the human's
+    // steering is theirs to move and says nothing about whether the assist
+    // acted, exactly as no_brake_output reads gt.msl.brake_out rather than the
+    // vehicle's brake pedal.
+    AddDetail(result.detail, "gt.lka.correction", result.lka.correction);
+    AddDetail(result.detail, "gt.lka.driver_steering", driver_cmd.steering);
+    AddDetail(result.detail, "gt.lka.steer_out", result.lka.steer_out);
+    AddDetail(result.detail, "gt.lka.suppressed_indicator", result.lka.suppressed_indicator);
+    AddDetail(result.detail, "gt.lka.suppressed_steer", result.lka.suppressed_steer);
+    // The LANE the offset is measured against. NOT decoration: Position::
+    // GetOffset() RE-REFERENCES at a lane boundary (measured elsewhere in this
+    // project: -1.7482 -> +1.9425 in one frame), so |offset| alone SHRINKS when
+    // the vehicle departs into the next lane. A matcher judging "stayed in the
+    // lane" on |offset| without this key would report its cleanest pass exactly
+    // on the run that departed. lane_kept_within requires both.
+    AddDetail(result.detail, "gt.lka.lane_id", static_cast<double>(env.lane_id));
+}
+
 ManualAdasFrameResult ComputeManualAdasFrame(const ManualAdasStackConfig& cfg,
                                               bool                         owns_longitudinal,
+                                              bool                         owns_lateral,
                                               const TrafficPolicySnapshot& intervention,
                                               const TrafficPolicySnapshot& warning,
                                               const TrafficPolicySnapshot& acc_policy,
@@ -152,6 +221,12 @@ ManualAdasFrameResult ComputeManualAdasFrame(const ManualAdasStackConfig& cfg,
     // configuration take the bypass and produce nothing at all -- silently,
     // with the rows still reporting UNAVAILABLE, which is the failure mode
     // that looks exactly like a correctly-disabled run.
+    //
+    // PHASE D made this a SECTION skip rather than a function return: the
+    // lateral section below is gated independently (owns_lateral + cfg.lka),
+    // and a split configuration is exactly the case where one domain bypasses
+    // while the other does not. An early return here would have silenced LKA on
+    // every lat=manual/lon=VD frame -- the reverse of what §2-3 asks for.
     const bool any_function_enabled = cfg.aeb_enabled || cfg.acc.enabled || cfg.msl.enabled;
     if (!owns_longitudinal || !any_function_enabled)
     {
@@ -161,6 +236,7 @@ ManualAdasFrameResult ComputeManualAdasFrame(const ManualAdasStackConfig& cfg,
         // it here would turn a button that was pressed and released during a
         // bypass into a spurious edge on the first frame after the bypass ends.
         runtime.prev_buttons = env.buttons;
+        RunLateralSection(cfg, owns_lateral, env, driver_cmd, ego_speed_mps, dt, runtime, result);
         return result;
     }
 
@@ -421,6 +497,15 @@ ManualAdasFrameResult ComputeManualAdasFrame(const ManualAdasStackConfig& cfg,
         AddDetail(result.detail, "gt.msl.brake_out", 0.0);
     }
 
+    // ======================================================================
+    // LATERAL section (design §5, phase D) -- req-vd-ad:REQ-AD-027
+    // ======================================================================
+    // Runs AFTER the three longitudinal stages and is entirely independent of
+    // them: it neither reads nor writes the pedals, and its own gate is
+    // owns_lateral + cfg.lka.enabled. Placed last only so the detail map is
+    // built in one pass; nothing here depends on the order.
+    RunLateralSection(cfg, owns_lateral, env, driver_cmd, ego_speed_mps, dt, runtime, result);
+
     return result;
 }
 
@@ -474,6 +559,7 @@ void AdasCoexistenceStack::RebuildLeadPolicy(double time_headway_s)
 
 ManualAdasFrameResult AdasCoexistenceStack::Step(const TrafficPolicyContext&  ctx,
                                                   bool                         owns_longitudinal,
+                                                  bool                         owns_lateral,
                                                   const PedalSteerCommand&     driver_cmd,
                                                   const ManualAdasEnvironment& env,
                                                   double                       dt)
@@ -498,9 +584,10 @@ ManualAdasFrameResult AdasCoexistenceStack::Step(const TrafficPolicyContext&  ct
         acc_policy.detail.insert(acc_policy.detail.end(), s.detail.begin(), s.detail.end());
     }
 
-    ManualAdasFrameResult result = ComputeManualAdasFrame(cfg_, owns_longitudinal, intervention, warning, acc_policy,
-                                                           env, driver_cmd, ego_speed_mps, measured_decel_mps2, dt,
-                                                           kickdown_, arbitrator_, acc_, runtime_);
+    ManualAdasFrameResult result =
+        ComputeManualAdasFrame(cfg_, owns_longitudinal, owns_lateral, intervention, warning, acc_policy, env,
+                               driver_cmd, ego_speed_mps, measured_decel_mps2, dt, kickdown_, arbitrator_, acc_,
+                               runtime_);
 
     // REQ-AD-026 step h: the stage the driver just selected takes effect on
     // the NEXT frame's following constraint. Rebuilding here (after the frame,

@@ -171,6 +171,31 @@ struct ManualAdasEnableFlags
     // correct rather than a lost distinction.
     bool acc = false;
     bool msl = false;
+
+    // req-vd-ad:REQ-AD-027 (phase D). Declared as TWO flags for the same reason
+    // aeb/fcw are: LDW is not a separately-instantiated function but a MODE of
+    // the same judgement, and the caller (AdasCoexistenceStack) decides how the
+    // single `adas.lka` config block maps onto the pair.
+    //
+    // The mapping it uses, and why:
+    //   ldw = cfg.lka.enabled                    -- the judgement runs in both
+    //                                               modes, so the warning row
+    //                                               exists in both.
+    //   lka = cfg.lka.enabled                    -- ALSO both. The LKA row is
+    //                                               NOT withdrawn under
+    //                                               warning_only; it reports
+    //                                               STANDBY forever instead.
+    //
+    // That second choice is deliberate and load-bearing for REQ-AD-027 step f.
+    // If warning_only made the LKA row UNAVAILABLE, the row would carry no
+    // detail and gt.lka.correction would be ABSENT -- and "the assist produced
+    // no correction" would then be indistinguishable from "nobody looked",
+    // which is exactly the vacuous pass steer_output_absent must refuse. With
+    // the row present and reporting a measured 0.000, the negative is a
+    // measurement. STANDBY is also the honest state: the function is installed
+    // and watching, it just cannot act in this configuration.
+    bool lka = false;
+    bool ldw = false;
 };
 
 // Per-frame decisions the manual stack (AdasCoexistenceStack / AebSafety) has
@@ -243,6 +268,42 @@ struct ManualAdasDecision
     // MSL's kickdown release (REQ-AD-030 step b). Accelerator-origin, so it
     // reports through custom_state exactly like the two above.
     bool msl_driver_override_accel = false;
+
+    // ===================== phase D (req-vd-ad:REQ-AD-027) ===================
+    //
+    // LKA/LDW are LATERAL-domain functions. Their gate is the SEPARATE
+    // owns_lateral_domain argument below, never the longitudinal one -- the
+    // whole content of md-split-no-double-equipment in a split configuration is
+    // that the two domains answer differently.
+    //
+    // TWO booleans rather than one "state", because the LKA row and the LDW row
+    // are driven by DIFFERENT ones and collapsing them would make REQ-AD-027
+    // step f (警報は出るが cmd.steering は不変) unobservable:
+    //   * lka_correcting -- a correction actually reached cmd.steering. Always
+    //                       false under warning_only, by construction
+    //                       (LaneKeepAssist.cpp fences the output block), and
+    //                       also false whenever a suppression or the speed band
+    //                       held the assist off. It is therefore the honest
+    //                       basis for the LKA row's ACTIVE.
+    //   * ldw_warning    -- what the LDW row reports ACTIVE on: the departure
+    //                       verdict minus the indicator suppression.
+    //
+    // The DEPARTURE verdict itself, the speed-band flag and the two suppression
+    // flags are deliberately NOT carried here. No row's state is a function of
+    // them, and a field in this struct that nothing reads would be a claim the
+    // report does not make. They are observable in their own right as
+    // gt.lka.departure / in_speed_band / suppressed_* custom_detail keys, which
+    // is where a consumer asking "why is the row STANDBY" should look.
+    bool lka_correcting    = false;
+    bool ldw_warning       = false;
+
+    // req-vd-ad:REQ-AD-028 段b's THIRD and last producer -- the steering-origin
+    // driver override (REASON_STEERING_INPUT). Accelerator arrived in phase B,
+    // brake in phase C; with this one the step's three-path claim is complete.
+    // Latched on the driver's INPUT, like the other two (see
+    // LkaFrameOutput::driver_override_steering for why the indicator
+    // suppression deliberately does NOT raise it).
+    bool lka_driver_override_steering = false;
 };
 
 // Projects one frame of the ManualDrive ADAS stack onto the OSI AD-function
@@ -306,8 +367,35 @@ struct ManualAdasDecision
 // human is driving. Emitting that row here would misreport who is in control
 // to any face-3 consumer that trusts it, so this function omits it entirely
 // rather than trying to redefine its meaning.
+// PHASE D ROWS (gt.lka, gt.ldw) are gated by `owns_lateral_domain`, a SECOND
+// ownership flag. Phase A's doc comment above says "this is intentionally a
+// single flag for phase A: both functions this phase implements share one
+// domain" -- phase D is where that stops being true. In a lat=manual/lon=VD
+// split the longitudinal rows go UNAVAILABLE while gt.lka/gt.ldw stay live, and
+// in the reverse split the opposite; one flag could express neither.
+//
+// State mapping for the pair:
+//   gate closed (config off / lateral not owned) -> UNAVAILABLE   (both rows)
+//   gt.lka: warning_only                         -> STANDBY  (always; see
+//                                                   ManualAdasEnableFlags::lka)
+//           outside the speed band               -> STANDBY  (step e)
+//           correcting this frame                -> ACTIVE
+//           otherwise                            -> STANDBY
+//   gt.ldw: warning raised this frame            -> ACTIVE
+//           otherwise                            -> STANDBY
+//
+// The LKA row carries the steering-origin DriverOverride
+// (decision.lka_driver_override_steering -> active=true + reasons=
+// [REASON_STEERING_INPUT]). Unlike the accelerator override, this one DOES
+// populate `reasons`: OSI has a steering value, so using custom_state here
+// would be inventing a channel the standard already provides. The LDW row
+// reports an evaluated-but-inactive override, mirroring what the FCW row does
+// for the AEB kickdown -- the warning is not what the driver's steering
+// overrides, and having one active and one inactive row in the same frame is a
+// free in-run negative control.
 std::vector<AdasFunctionState> BuildManualAdasFunctionReport(const ManualAdasEnableFlags& flags,
                                                               bool                         owns_longitudinal_domain,
+                                                              bool                         owns_lateral_domain,
                                                               const ManualAdasDecision&    decision,
                                                               const PolicyDetail&          detail);
 

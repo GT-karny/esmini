@@ -118,7 +118,7 @@ ManualAdasFrameResult RunAebOnlyFrame(const ManualAdasStackConfig& cfg,
     const ManualAdasEnvironment env;
     AccLonController            acc_disabled{AccLonControllerConfig{}};  // .enabled defaults false
     ManualAdasRuntime           runtime;
-    return ComputeManualAdasFrame(cfg, owns_longitudinal, intervention, warning, no_acc_policy, env, driver_cmd,
+    return ComputeManualAdasFrame(cfg, owns_longitudinal, /*owns_lateral=*/false, intervention, warning, no_acc_policy, env, driver_cmd,
                                    ego_speed_mps, measured_decel_mps2, dt, kickdown, arbitrator, acc_disabled,
                                    runtime);
 }

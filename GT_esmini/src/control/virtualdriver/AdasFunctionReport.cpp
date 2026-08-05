@@ -111,11 +111,12 @@ std::vector<AdasFunctionState> BuildAdasFunctionReport(const VdPolicyEnableFlags
 // ============================================================================
 std::vector<AdasFunctionState> BuildManualAdasFunctionReport(const ManualAdasEnableFlags& flags,
                                                               bool                         owns_longitudinal_domain,
+                                                              bool                         owns_lateral_domain,
                                                               const ManualAdasDecision&    decision,
                                                               const PolicyDetail&          detail)
 {
     std::vector<AdasFunctionState> report;
-    report.reserve(4);  // AEB + FCW always; ACC / MSL when config-enabled (phase C)
+    report.reserve(6);  // AEB + FCW always; ACC / MSL / LKA / LDW when config-enabled
 
     // design §2-3 (slug md-split-no-double-equipment): not owning the
     // longitudinal domain collapses to the same UNAVAILABLE verdict as a
@@ -276,6 +277,86 @@ std::vector<AdasFunctionState> BuildManualAdasFunctionReport(const ManualAdasEna
     {
         stateful_row(osi_adas::NAME_SPEED_LIMIT_CONTROL, "gt.msl", "gt.msl.", decision.msl_state,
                      /*override_brake_reason=*/false, decision.msl_driver_override_accel);
+    }
+
+    // ---- phase D rows (req-vd-ad:REQ-AD-027) -------------------------------
+    // Gated by the LATERAL ownership flag, not the longitudinal one. See the
+    // header's PHASE D ROWS block for the state mapping and for why the LKA row
+    // survives warning_only as STANDBY instead of being withdrawn.
+    const bool lat_gate = owns_lateral_domain;
+
+    if (flags.lka)
+    {
+        AdasFunctionState f;
+        f.name        = osi_adas::NAME_LANE_KEEPING_ASSIST;
+        f.custom_name = "gt.lka";
+
+        const bool gate_open = flags.lka && lat_gate;
+
+        if (!gate_open)
+            f.state = osi_adas::STATE_UNAVAILABLE;
+        else if (decision.lka_correcting)
+            f.state = osi_adas::STATE_ACTIVE;
+        else
+            f.state = osi_adas::STATE_STANDBY;
+
+        // req-vd-ad:REQ-AD-028 段b, the STEERING half -- the producer that has
+        // been missing since phase B built the mechanism. `reasons` IS
+        // populated here (unlike the accelerator overrides, which have no OSI
+        // enum value and fall back to custom_state): REASON_STEERING_INPUT
+        // exists, so using it is what keeps this observation comparable across
+        // AD stacks instead of GT-private.
+        if (gate_open)
+        {
+            f.driver_override.reported = true;
+            f.driver_override.active   = decision.lka_driver_override_steering;
+            if (decision.lka_driver_override_steering)
+            {
+                f.driver_override.reasons.push_back(osi_adas::REASON_STEERING_INPUT);
+            }
+        }
+
+        for (const auto& kv : detail)
+            if (StartsWith(kv.first, "gt.lka.")) f.detail.push_back(kv);
+
+        report.push_back(std::move(f));
+    }
+
+    if (flags.ldw)
+    {
+        AdasFunctionState f;
+        f.name        = osi_adas::NAME_LANE_DEPARTURE_WARNING;
+        f.custom_name = "gt.ldw";
+
+        const bool gate_open = flags.ldw && lat_gate;
+
+        if (!gate_open)
+            f.state = osi_adas::STATE_UNAVAILABLE;
+        else if (decision.ldw_warning)
+            f.state = osi_adas::STATE_ACTIVE;
+        else
+            f.state = osi_adas::STATE_STANDBY;
+
+        // Evaluated, never active -- the same shape as the FCW row, and for the
+        // same reason: what the driver's steering overrides is the CORRECTION,
+        // not the warning. A driver hauling the wheel across a line without
+        // signalling is exactly who the warning is still for. This row is
+        // therefore also the in-run negative control for the steering override
+        // on the LKA row above (one frame, one run, one active and one not).
+        if (gate_open)
+        {
+            f.driver_override.reported = true;
+        }
+
+        // design §8-4 routes every gt.lka.* diagnostic to the LKA row by prefix
+        // (including gt.lka.warning, the LDW flag itself) -- exactly as
+        // gt.aeb.warning routes to the AEB row rather than the FCW one. Routing
+        // "gt.ldw." here anyway keeps the row symmetric and costs nothing
+        // today, since no caller emits such a key.
+        for (const auto& kv : detail)
+            if (StartsWith(kv.first, "gt.ldw.")) f.detail.push_back(kv);
+
+        report.push_back(std::move(f));
     }
 
     // No aggregate row here -- see BuildManualAdasFunctionReport's doc comment

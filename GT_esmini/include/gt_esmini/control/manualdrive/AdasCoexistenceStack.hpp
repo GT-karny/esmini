@@ -84,10 +84,23 @@
 //     ManualDrive pedals is phase C/D scope (design §4/§6).
 //
 // ============================================================================
-// DOMAIN OWNERSHIP (design §2-3)
+// DOMAIN OWNERSHIP (design §2-3) -- TWO INDEPENDENT GATES SINCE PHASE D
 // ============================================================================
+// The longitudinal functions (AEB / FCW / ACC / MSL) are gated by
+// `owns_longitudinal`; the lateral one (LKA / LDW) by `owns_lateral`. They are
+// separate parameters and neither is derived from the other, because a split
+// configuration is precisely the case where they differ: with lat=manual /
+// lon=VD, the longitudinal half of this stack must fall silent while LKA is
+// legitimately this controller's to run, and the reverse split is the mirror
+// image. Phase A-C could conflate them only because every function it
+// implemented lived in one domain.
+//
+// The longitudinal bypass below is therefore an early SECTION skip, not an
+// early RETURN from the function: a frame can bypass the pedals and still
+// produce a lateral correction, and vice versa.
+//
 // When `owns_longitudinal` is false, ComputeManualAdasFrame does not
-// arbitrate AT ALL: driver_cmd passes through untouched, no policy decision
+// arbitrate the PEDALS at all: driver_cmd passes through untouched, no policy decision
 // is honoured (even if the intervention/warning snapshots carry a firing
 // constraint -- a split-domain ManualDrive instance must not act on a domain
 // it does not own), and the returned decision is all-false
@@ -160,6 +173,7 @@
 #include "gt_esmini/control/common/VehicleCommand.hpp"
 #include "gt_esmini/control/manualdrive/AccLonController.hpp"
 #include "gt_esmini/control/manualdrive/KickdownDetector.hpp"
+#include "gt_esmini/control/manualdrive/LaneKeepAssist.hpp"
 #include "gt_esmini/control/manualdrive/PedalArbitrator.hpp"
 #include "gt_esmini/control/manualdrive/SpeedLimiter.hpp"
 #include "gt_esmini/control/virtualdriver/AdasFunctionReport.hpp"
@@ -220,6 +234,14 @@ struct ManualAdasStackConfig
     // the same trick would NOT be available for TrafficLightAware /
     // StopYieldSignAware, which carry cross-frame latches.
     LeadVehicleAwareConfig lead;
+
+    // ---- phase D (req-vd-ad:REQ-AD-027) ------------------------------------
+    // The LATERAL domain's only function (design §5). Gated by
+    // `owns_lateral`, NOT by `owns_longitudinal`: this is the first phase in
+    // which the two domains can disagree, and conflating them would make a
+    // lat=manual/lon=VD split either double-equip the longitudinal side or
+    // silence a lateral assist that is legitimately this controller's.
+    LaneKeepAssistConfig lka;
 };
 
 // Per-frame environment the stack cannot derive from the policy snapshots
@@ -238,6 +260,39 @@ struct ManualAdasEnvironment
     // when the object has a light extension, so an ADAS stalk decoded against
     // it would silently stop producing edges on an entity without one.
     std::uint32_t buttons         = 0;
+
+    // ---- phase D lateral geometry (req-vd-ad:REQ-AD-027) -------------------
+    // The lane-relative quantities LaneKeepAssist consumes, ALREADY CONVERTED to
+    // its VEHICLE-LEFT-POSITIVE convention by the caller (LaneKeepAssist.hpp's
+    // SIGN CHAIN block: roadmanager's Position::GetOffset() is road-t positive,
+    // which is vehicle-RIGHT for a vehicle driving against s, so the caller
+    // multiplies by the driving-direction sign -- the same conversion
+    // AutoLightController.cpp already performs for the same reason).
+    //
+    // Supplied by the caller rather than read here for the same reason
+    // speed_limit_mps is: they come from the esmini Object/Position, and this
+    // class deliberately does not reach into Position beyond the
+    // TrafficPolicyContext it is handed.
+    //
+    // lane_valid=false is a REAL observation ("no resolvable lane this frame"),
+    // never a licence to substitute zeros -- a fabricated 0.0 offset is
+    // indistinguishable from a perfectly centred vehicle, which is the most
+    // dangerous default this input could have.
+    bool          lane_valid           = false;
+    double        lane_offset_m        = 0.0;  // + = vehicle LEFT of the lane centre
+    double        lane_half_width_m    = 0.0;
+    double        vehicle_half_width_m = 0.0;
+    double        lateral_speed_mps    = 0.0;  // + = moving LEFT
+    // The OpenDRIVE lane the offset above is measured against. Reported (not
+    // consumed by the assist) because Position::GetOffset() RE-REFERENCES at a
+    // lane boundary, so |offset| SHRINKS on the frame a departure completes --
+    // an observer without the lane id sees its cleanest numbers on the run that
+    // left the lane. See RunLateralSection's gt.lka.lane_id emission.
+    int           lane_id              = 0;
+    // The indicator LAMP state (IndicatorFSM), not a button edge: an
+    // intentional lane change is signalled for its whole duration, while
+    // `buttons` above only carries momentary presses.
+    bool          indicator_active     = false;
 };
 
 // Cross-frame state of the phase-C functions that does NOT live inside
@@ -259,6 +314,14 @@ struct ManualAdasRuntime
     bool          acc_suspended     = false;  // demoted by MSL
     bool          msl_suspended     = false;  // demoted by ACC
     std::uint32_t prev_buttons      = 0;
+
+    // phase D: the lateral assist's cross-frame state (departure hysteresis,
+    // steering-rate suppression timer, envelope anchor). Lives here rather than
+    // as a separate by-reference parameter so ComputeManualAdasFrame's argument
+    // list does not grow again -- and because it is exactly the same KIND of
+    // thing this struct already holds: state the pure function must carry
+    // across frames but does not own.
+    LaneKeepAssistState lka;
 };
 
 // One frame's stack output.
@@ -274,6 +337,14 @@ struct ManualAdasFrameResult
     // vehicle are still `pedals` (the safety stage runs last, design §3-1).
     AccFrameOutput           acc;
     SpeedLimiterResult       msl;
+
+    // phase D (req-vd-ad:REQ-AD-027): the lateral assist's own output. The
+    // STEERING that must actually reach the vehicle is `lka.steer_out`, and the
+    // coordinator writes it into cmd.steering the same way it writes
+    // pedals.throttle_out / brake_out -- on a frame where LKA did not run,
+    // lka.steer_out is the driver's own value passed through unchanged, so the
+    // assignment is unconditional and needs no branch at the call site.
+    LkaFrameOutput           lka;
 };
 
 // Achieved deceleration from two consecutive speed samples, POSITIVE when
@@ -315,6 +386,15 @@ AebSafetyConfig DeriveFcwGateConfig(const ManualAdasStackConfig& cfg);
 //                         result for THIS controller, as decided by the
 //                         caller -- this function does not call the ledger
 //                         itself (design §2-3; the caller passes the bool).
+//   owns_lateral        : the same for OwnedDomain::LATERAL. SEPARATE from the
+//                         longitudinal flag and never inferred from it: phase D
+//                         is the first phase in which the two can differ, and
+//                         the whole point of md-split-no-double-equipment is
+//                         that a lat=manual/lon=VD split silences the
+//                         LONGITUDINAL functions while leaving LKA this
+//                         controller's to run -- and the reverse split silences
+//                         LKA while AEB/ACC/MSL keep going. One flag could
+//                         express neither.
 //   intervention        : this frame's TrafficPolicyManager::Evaluate(ctx)
 //                         result (the intervention-path AebSafety, plus any
 //                         later phase C/D policies once added to policies_).
@@ -357,6 +437,7 @@ AebSafetyConfig DeriveFcwGateConfig(const ManualAdasStackConfig& cfg);
 // already here, it just has one producer instead of three").
 ManualAdasFrameResult ComputeManualAdasFrame(const ManualAdasStackConfig& cfg,
                                               bool                         owns_longitudinal,
+                                              bool                         owns_lateral,
                                               const TrafficPolicySnapshot& intervention,
                                               const TrafficPolicySnapshot& warning,
                                               const TrafficPolicySnapshot& acc_policy,
@@ -402,6 +483,10 @@ public:
     //   owns_longitudinal : this controller's current LONGITUDINAL ownership
     //                       (DomainOwnershipLedger::OwnerOf), decided by the
     //                       caller (design §2-3).
+    //   owns_lateral      : the same for LATERAL (phase D). See
+    //                       ComputeManualAdasFrame's own parameter doc for why
+    //                       this is a second flag rather than a reuse of the
+    //                       first.
     //   driver_cmd        : this frame's pre-ADAS pedal/steer command.
     //   dt                : seconds since the last call.
     //   env               : this frame's speed limit + button mask
@@ -411,6 +496,7 @@ public:
     //                       beyond ctx.
     ManualAdasFrameResult Step(const TrafficPolicyContext&  ctx,
                                 bool                         owns_longitudinal,
+                                bool                         owns_lateral,
                                 const PedalSteerCommand&     driver_cmd,
                                 const ManualAdasEnvironment& env,
                                 double                       dt);

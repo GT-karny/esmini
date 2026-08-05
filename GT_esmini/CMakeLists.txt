@@ -157,7 +157,8 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ScriptedInputSource.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/AdasCoexistenceStack.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/AccLonController.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SpeedLimiter.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SpeedLimiter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/LaneKeepAssist.cpp)
 
 set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/AutoLightController.hpp
@@ -229,6 +230,7 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/KickdownDetector.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/AccLonController.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/SpeedLimiter.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/LaneKeepAssist.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/PedalArbitrator.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ManualDriveCoordinator.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/UdpTransport.hpp

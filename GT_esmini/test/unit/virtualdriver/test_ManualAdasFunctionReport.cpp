@@ -52,7 +52,7 @@ TEST(ManualAdasFunctionReport, BothRowsCarryTheirNativeOsiNameNeverOther)
     // named local: Find() returns a pointer INTO the vector; binding the call
     // result to a temporary would dangle once the full expression ends (see
     // test_AdasFunctionReport.cpp's same note re: MSVC Debug heap 0xDDDDDDDD).
-    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
 
     const auto* aeb = Find(report, "gt.aeb");
     ASSERT_NE(aeb, nullptr);
@@ -71,7 +71,7 @@ TEST(ManualAdasFunctionReport, AebDisabledInConfigIsUnavailable)
     ManualAdasDecision    decision;
     PolicyDetail           detail;
 
-    const auto  report = BuildManualAdasFunctionReport(flags, /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto  report = BuildManualAdasFunctionReport(flags, /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
     const auto* aeb     = Find(report, "gt.aeb");
 
     ASSERT_NE(aeb, nullptr);
@@ -83,7 +83,7 @@ TEST(ManualAdasFunctionReport, AebEnabledButQuietIsStandby)
     ManualAdasDecision decision;  // aeb_intervening = false (default)
     PolicyDetail        detail;
 
-    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
     const auto* aeb     = Find(report, "gt.aeb");
 
     ASSERT_NE(aeb, nullptr);
@@ -101,11 +101,11 @@ TEST(ManualAdasFunctionReport, StandbyAndUnavailableAreDistinguishableAndBothRea
     ManualAdasEnableFlags disabled;  // aeb = false
     ManualAdasEnableFlags enabled = AllEnabled();
 
-    const auto  report_off = BuildManualAdasFunctionReport(disabled, /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto  report_off = BuildManualAdasFunctionReport(disabled, /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
     const auto* aeb_off    = Find(report_off, "gt.aeb");
     ASSERT_NE(aeb_off, nullptr);
 
-    const auto  report_on = BuildManualAdasFunctionReport(enabled, /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto  report_on = BuildManualAdasFunctionReport(enabled, /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
     const auto* aeb_on    = Find(report_on, "gt.aeb");
     ASSERT_NE(aeb_on, nullptr);
 
@@ -120,7 +120,7 @@ TEST(ManualAdasFunctionReport, AebInterveningIsActive)
     decision.aeb_intervening = true;
     PolicyDetail detail;
 
-    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
     const auto* aeb     = Find(report, "gt.aeb");
 
     ASSERT_NE(aeb, nullptr);
@@ -137,7 +137,7 @@ TEST(ManualAdasFunctionReport, NotOwningLongitudinalDomainIsUnavailableEvenIfCon
     ManualAdasDecision decision;
     PolicyDetail        detail;
 
-    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/false, decision, detail);
+    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/false, /*owns_lateral_domain=*/false, decision, detail);
     const auto* aeb     = Find(report, "gt.aeb");
 
     ASSERT_NE(aeb, nullptr);
@@ -155,7 +155,7 @@ TEST(ManualAdasFunctionReport, FcwWarningActivatesFcwRowWhileAebRowStaysStandby)
     decision.fcw_warning = true;  // aeb_intervening stays false
     PolicyDetail detail;
 
-    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
 
     const auto* fcw = Find(report, "gt.fcw");
     ASSERT_NE(fcw, nullptr);
@@ -183,7 +183,7 @@ TEST(ManualAdasFunctionReport, AebDiagnosticsAreRoutedOnlyToTheAebRow)
     detail.emplace_back("gt.aeb.triggered", "false");
     detail.emplace_back("gt.aeb.warning", "true");
 
-    const auto report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
 
     const auto* aeb = Find(report, "gt.aeb");
     ASSERT_NE(aeb, nullptr);
@@ -206,7 +206,7 @@ TEST(ManualAdasFunctionReport, ReportHasNoAggregateRow)
     ManualAdasDecision decision;
     PolicyDetail        detail;
 
-    const auto report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
 
     for (const auto& f : report)
     {
@@ -236,7 +236,7 @@ TEST(ManualAdasFunctionReport, AccelOverrideSetsActiveAndCustomStateOnTheAebRow)
     decision.driver_override_accel = true;
     PolicyDetail detail;
 
-    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
     const auto* aeb     = Find(report, "gt.aeb");
 
     ASSERT_NE(aeb, nullptr);
@@ -260,7 +260,7 @@ TEST(ManualAdasFunctionReport, NoAccelOverrideStillReportsTheChannelAsInactive)
     ManualAdasDecision decision;  // driver_override_accel = false
     PolicyDetail        detail;
 
-    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto  report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
     const auto* aeb     = Find(report, "gt.aeb");
 
     ASSERT_NE(aeb, nullptr);
@@ -283,7 +283,7 @@ TEST(ManualAdasFunctionReport, ClosedGateLeavesTheOverrideChannelUnreported)
 
     ManualAdasEnableFlags disabled;  // aeb = fcw = false
 
-    const auto  report_off = BuildManualAdasFunctionReport(disabled, /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto  report_off = BuildManualAdasFunctionReport(disabled, /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
     const auto* aeb_off    = Find(report_off, "gt.aeb");
     ASSERT_NE(aeb_off, nullptr);
     ASSERT_EQ(aeb_off->state, osi_adas::STATE_UNAVAILABLE);
@@ -291,7 +291,7 @@ TEST(ManualAdasFunctionReport, ClosedGateLeavesTheOverrideChannelUnreported)
     EXPECT_FALSE(aeb_off->driver_override.active);
     EXPECT_TRUE(aeb_off->custom_state.empty());
 
-    const auto  report_split = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/false, decision, detail);
+    const auto  report_split = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/false, /*owns_lateral_domain=*/false, decision, detail);
     const auto* aeb_split    = Find(report_split, "gt.aeb");
     ASSERT_NE(aeb_split, nullptr);
     ASSERT_EQ(aeb_split->state, osi_adas::STATE_UNAVAILABLE);
@@ -312,7 +312,7 @@ TEST(ManualAdasFunctionReport, AccelOverrideMarksAebButNeverFcw)
     decision.driver_override_accel = true;
     PolicyDetail detail;
 
-    const auto report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
 
     const auto* aeb = Find(report, "gt.aeb");
     ASSERT_NE(aeb, nullptr);
@@ -339,11 +339,11 @@ TEST(ManualAdasFunctionReport, AccelOverrideDoesNotChangeTheAebState)
     ManualAdasDecision suppressed;
     suppressed.driver_override_accel = true;  // override, still no intervention
 
-    const auto  r_quiet = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, quiet, detail);
+    const auto  r_quiet = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, quiet, detail);
     const auto* a_quiet = Find(r_quiet, "gt.aeb");
     ASSERT_NE(a_quiet, nullptr);
 
-    const auto  r_supp = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, suppressed, detail);
+    const auto  r_supp = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, suppressed, detail);
     const auto* a_supp = Find(r_supp, "gt.aeb");
     ASSERT_NE(a_supp, nullptr);
 
@@ -362,7 +362,7 @@ TEST(ManualAdasFunctionReport, ReportContainsExactlyAebAndFcwRows)
     ManualAdasDecision decision;
     PolicyDetail        detail;
 
-    const auto report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, decision, detail);
+    const auto report = BuildManualAdasFunctionReport(AllEnabled(), /*owns_longitudinal_domain=*/true, /*owns_lateral_domain=*/false, decision, detail);
 
     ASSERT_EQ(report.size(), 2u);
 

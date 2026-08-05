@@ -255,4 +255,116 @@ TEST(ManualDriveAdasConfigTest, OverrideEnabledAndAdasAebEnabledDoNotAlias)
     std::filesystem::remove(path);
 }
 
+// --- phase D: LKA (req-vd-ad:REQ-AD-027, vd-func:FUNC-080) ------------------
+
+TEST(ManualDriveAdasConfigTest, LkaDefaultsAreOffAndMirrorLaneKeepAssistConfig)
+{
+    // The values here must equal LaneKeepAssistConfig's own member
+    // initializers, which are the C++-side single source of truth. The mirror
+    // is maintained BY HAND (ManualDriveConfig deliberately does not include a
+    // manualdrive/ component header), so this test is what catches the two
+    // drifting apart -- exactly the relationship brake_control has with
+    // PedalArbitratorConfig.
+    const auto path = WriteTempConfig("gt_mdadas_lka_defaults.json", R"({
+        "input_type": "sdl2_wheel"
+    })");
+
+    ManualDriveConfig cfg;
+    ASSERT_TRUE(cfg.LoadFromFile(path.string()));
+
+    EXPECT_FALSE(cfg.adas.lka.enabled);
+    EXPECT_FALSE(cfg.adas.lka.warning_only);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.min_speed_mps, 0.0);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.max_speed_mps, 0.0);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.tlc_threshold_s, 1.5);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.margin_threshold_m, 0.15);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.release_margin_m, 0.30);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.kp_offset, 0.012);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.kd_lateral, 0.020);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.correction_max, 0.03);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.correction_rate_max, 0.10);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.steer_override_rate, 0.03);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.steer_override_hold_s, 2.0);
+
+    std::filesystem::remove(path);
+}
+
+TEST(ManualDriveAdasConfigTest, EveryLkaKeyParsesToTheFileValue)
+{
+    // Every value is deliberately DIFFERENT from its compiled-in default, so a
+    // key that silently fails to parse leaves the default behind and shows up
+    // here rather than as a scenario that quietly runs with the assist tuned
+    // for someone else's road.
+    const auto path = WriteTempConfig("gt_mdadas_lka_full.json", R"({
+        "adas": {
+            "adas_lka_enabled": true,
+            "adas_lka_warning_only": true,
+            "adas_lka_min_speed_mps": 16.7,
+            "adas_lka_max_speed_mps": 33.3,
+            "adas_lka_tlc_threshold_s": 2.25,
+            "adas_lka_margin_threshold_m": 0.42,
+            "adas_lka_release_margin_m": 0.66,
+            "adas_lka_kp_offset": 0.09,
+            "adas_lka_kd_lateral": 0.31,
+            "adas_lka_correction_max": 0.12,
+            "adas_lka_correction_rate_max": 0.55,
+            "adas_lka_steer_override_rate": 0.48,
+            "adas_lka_steer_override_hold_s": 1.75
+        }
+    })");
+
+    ManualDriveConfig cfg;
+    ASSERT_TRUE(cfg.LoadFromFile(path.string()));
+
+    EXPECT_TRUE(cfg.adas.lka.enabled);
+    EXPECT_TRUE(cfg.adas.lka.warning_only);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.min_speed_mps, 16.7);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.max_speed_mps, 33.3);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.tlc_threshold_s, 2.25);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.margin_threshold_m, 0.42);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.release_margin_m, 0.66);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.kp_offset, 0.09);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.kd_lateral, 0.31);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.correction_max, 0.12);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.correction_rate_max, 0.55);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.steer_override_rate, 0.48);
+    EXPECT_DOUBLE_EQ(cfg.adas.lka.steer_override_hold_s, 1.75);
+
+    std::filesystem::remove(path);
+}
+
+// The same alias hazard the AEB guard above covers, for the pair phase D
+// introduces: "adas_lka_enabled" must not collide with "adas_acc_enabled" /
+// "adas_msl_enabled" / override's bare "enabled". The scanner is scope-blind
+// and matches on the quoted token, so a prefix that was a SUBSTRING of another
+// key would be the failure mode -- each field is given a value opposite to its
+// own default so an alias shows up as two fields ending in the same state.
+TEST(ManualDriveAdasConfigTest, LkaEnabledDoesNotAliasWithTheOtherAdasEnables)
+{
+    const auto path = WriteTempConfig("gt_mdadas_lka_alias_guard.json", R"({
+        "override": {
+            "enabled": false
+        },
+        "adas": {
+            "adas_aeb_enabled": true,
+            "adas_acc_enabled": false,
+            "adas_msl_enabled": true,
+            "adas_lka_enabled": true,
+            "adas_lka_warning_only": true
+        }
+    })");
+
+    ManualDriveConfig cfg;
+    ASSERT_TRUE(cfg.LoadFromFile(path.string()));
+
+    EXPECT_FALSE(cfg.override_cfg.enabled);
+    EXPECT_TRUE(cfg.adas.aeb.enabled);
+    EXPECT_FALSE(cfg.adas.acc.enabled);
+    EXPECT_TRUE(cfg.adas.msl.enabled);
+    EXPECT_TRUE(cfg.adas.lka.enabled);
+    EXPECT_TRUE(cfg.adas.lka.warning_only);
+
+    std::filesystem::remove(path);
+}
+
 }  // namespace gt_esmini

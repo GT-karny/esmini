@@ -793,6 +793,59 @@ struct ManualDriveConfig
             bool   speed_limit_linked = false;  // REQ-AD-030 step c
             double taper_band_mps     = 2.0;    // REQUIRES CALIBRATION
         } msl;
+
+        // ==================================================================
+        // PHASE D -- LKA / LDW (req-vd-ad:REQ-AD-027, vd-func:FUNC-080)
+        // ==================================================================
+        // Mirrors LaneKeepAssistConfig, which stays the C++-side single source
+        // of truth for the DEFAULTS (same relationship acc/msl above have with
+        // their own controller configs); these exist only so the config FILE
+        // can override them. A recalibration must update both places by hand.
+        //
+        // On-disk keys are flat and prefixed (adas_lka_*) for the PARSER NOTE's
+        // reason. `adas_lka_enabled` in particular, never a bare "enabled".
+        //
+        // NOTE ON warning_only: it is a MODE of this one block, not a second
+        // function with its own enable. Setting warning_only=true keeps the
+        // departure judgement (and therefore the gt.ldw row and every
+        // gt.lka.* diagnostic) running and suppresses only the correction --
+        // which is what makes REQ-AD-027 step f's two configurations differ in
+        // exactly one observable (see LaneKeepAssist.hpp).
+        struct
+        {
+            bool   enabled      = false;
+            bool   warning_only = false;
+
+            // REQ-AD-027 step e. Same key vocabulary as ACC (REQ-AD-026 step f)
+            // by the shared decision on those two requirements. max <= 0 means
+            // no upper bound. REQUIRES CALIBRATION -- the customary production
+            // figure of ~60 km/h for the lower bound is second-hand, and the
+            // shipped default is 0 so that enabling the function never silently
+            // does nothing on a slower scenario.
+            double min_speed_mps = 0.0;
+            double max_speed_mps = 0.0;
+
+            // Departure judgement (design §5-1). REQUIRES CALIBRATION.
+            double tlc_threshold_s     = 1.5;
+            double margin_threshold_m  = 0.15;
+            double release_margin_m    = 0.30;
+
+            // Correction law + the lateral envelope (design §5-2).
+            // REQUIRES CALIBRATION. See LaneKeepAssistConfig for the arithmetic
+            // these were sized from -- in particular why the gains are ~0.01
+            // and not ~0.1 (a normalized correction of 0.0024 already nulls a
+            // 0.3 m/s drift at 25 m/s).
+            double kp_offset          = 0.012;
+            double kd_lateral         = 0.020;
+            double correction_max     = 0.03;
+            double correction_rate_max = 0.10;
+
+            // Human steering priority (design §5-3). REQUIRES CALIBRATION;
+            // the real-wheel figure is a G29 item
+            // (test_results/f7_realmachine_checklist.md).
+            double steer_override_rate   = 0.03;
+            double steer_override_hold_s = 2.0;
+        } lka;
     } adas;
 
     // ADAS operating controls (req-vd-ad:REQ-AD-026 step e/h, REQ-AD-030).

@@ -140,7 +140,21 @@
         "adas_acc_stop_speed_eps_mps": 0.5,
         "adas_msl_enabled": false,
         "adas_msl_speed_limit_linked": false,
-        "adas_msl_taper_band_mps": 2.0
+        "adas_msl_taper_band_mps": 2.0,
+        "_note_lka": "req-vd-ad:REQ-AD-027 / vd-func:FUNC-080 (phase D). adas_lka_warning_only is the LDW MODE of this same function, not a second enable: it keeps the departure judgement (and every gt.lka.* diagnostic) running and suppresses only the correction, which is what makes step f's two configurations differ in exactly one observable. Every threshold below REQUIRES CALIBRATION (verification plan section 5); LaneKeepAssistConfig's own member initializers are the C++-side single source of truth and these values mirror them.",
+        "adas_lka_enabled": false,
+        "adas_lka_warning_only": false,
+        "adas_lka_min_speed_mps": 0.0,
+        "adas_lka_max_speed_mps": 0.0,
+        "adas_lka_tlc_threshold_s": 1.5,
+        "adas_lka_margin_threshold_m": 0.15,
+        "adas_lka_release_margin_m": 0.3,
+        "adas_lka_kp_offset": 0.012,
+        "adas_lka_kd_lateral": 0.02,
+        "adas_lka_correction_max": 0.03,
+        "adas_lka_correction_rate_max": 0.1,
+        "adas_lka_steer_override_rate": 0.03,
+        "adas_lka_steer_override_hold_s": 2.0
     },
     "adas_buttons": {
         "acc_toggle_button": -1,

@@ -111,6 +111,11 @@ private:
     // bool argument (not part of ManualAdasFrameResult) -- see design §2-3.
     ManualAdasFrameResult adas_last_result_;
     bool                  adas_last_owns_longitudinal_ = false;
+    // req-vd-ad:REQ-AD-027 (phase D): the LATERAL half of the same cache. A
+    // SECOND flag, not a reuse of the one above -- a split configuration is
+    // exactly the case where the two differ, and that case is what
+    // md-split-no-double-equipment is about (design §2-3).
+    bool                  adas_last_owns_lateral_      = false;
 
     // TrafficPolicyContext::sim_time source (design §2-1). NOT an upstream
     // scenarioengine::Controller base-class member -- see
