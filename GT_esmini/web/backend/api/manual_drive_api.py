@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from GT_esmini.web.backend.config import CONFIG_DIR, load_settings, save_settings
 from GT_esmini.web.backend.models.simulation import (
+    SDL2_AXIS_KEY_MAP,
     SDL2_BUTTON_KEY_MAP,
     ManualDriveControllerConfig,
 )
@@ -136,6 +137,15 @@ def _wire_to_flat_shape(wire: dict[str, Any]) -> dict[str, Any]:
                 cpp_key = SDL2_BUTTON_KEY_MAP.get(field)
                 if cpp_key is not None:
                     input_block.setdefault(cpp_key, value)
+        # feature:F8 -- axis mapping, same translation rule as the buttons above
+        # (flat keys under "input", derived from the shared table so the key
+        # names cannot drift from the model's).
+        axis_mapping = sdl2.get("axis_mapping")
+        if isinstance(axis_mapping, dict):
+            for field, value in axis_mapping.items():
+                cpp_key = SDL2_AXIS_KEY_MAP.get(field)
+                if cpp_key is not None:
+                    input_block.setdefault(cpp_key, value)
         for passthrough in ("device_index", "deadzone"):
             if passthrough in sdl2:
                 input_block.setdefault(passthrough, sdl2[passthrough])
@@ -189,13 +199,14 @@ def _flat_to_wire_shape(flat: dict[str, Any]) -> dict[str, Any]:
     round trip.
 
     Every key currently in "input"/"physics"/"override" is covered by the
-    translation below (device_index/deadzone/10 buttons/transport_type/port/
-    level for "input"; vehicle_params_file/host/cmd_port/state_port for
-    "physics"; all 6 override keys copied verbatim). If a key is EVER added
-    to one of those on-disk blocks that isn't one of the names below, add it
-    to the matching translation here too -- silently dropping it from the
-    wire shape would be exactly the "saved but the GUI can't see it" failure
-    this function exists to prevent, just moved one level over.
+    translation below (device_index/deadzone/10 buttons/13 axis keys
+    (feature:F8)/transport_type/port/level for "input";
+    vehicle_params_file/host/cmd_port/state_port for "physics"; all 6 override
+    keys copied verbatim). If a key is EVER added to one of those on-disk blocks
+    that isn't one of the names below, add it to the matching translation here
+    too -- silently dropping it from the wire shape would be exactly the "saved
+    but the GUI can't see it" failure this function exists to prevent, just
+    moved one level over.
     """
     out = {k: v for k, v in flat.items() if k not in ("input", "physics", "override")}
 
@@ -213,6 +224,17 @@ def _flat_to_wire_shape(flat: dict[str, Any]) -> dict[str, Any]:
         }
         if button_mapping:
             sdl2["button_mapping"] = button_mapping
+        # feature:F8 -- inverse of the axis translation in _wire_to_flat_shape.
+        # Omitted entirely when the on-disk file predates F8, so the GUI falls
+        # back to the model defaults (which are the G29 layout C++ also defaults
+        # to) rather than showing a half-populated block.
+        axis_mapping = {
+            field: input_block[cpp_key]
+            for field, cpp_key in SDL2_AXIS_KEY_MAP.items()
+            if cpp_key in input_block
+        }
+        if axis_mapping:
+            sdl2["axis_mapping"] = axis_mapping
         if sdl2:
             out["sdl2"] = sdl2
 

@@ -198,6 +198,84 @@ export interface ScriptInfo {
   recommended: boolean;
 }
 
+/**
+ * feature:F8 -- wheel axis assignment + raw-range calibration.
+ *
+ * Pedals carry no invert flag: (raw_released, raw_full) already encodes
+ * polarity, so released > full IS an inverted pedal (the G29 case). `steer_invert`
+ * is a switch for "the wheel turns the wrong way" and ALSO flips the FFB force
+ * direction on the C++ side -- the two must move together, or the F7 target
+ * servo would push away from its target.
+ *
+ * An axis index of -1 marks the function unassigned (e.g. a wheel with no
+ * clutch pedal).
+ */
+export interface WheelAxisMapping {
+  steer_axis: number;
+  steer_invert: boolean;
+  steer_raw_center: number;
+  steer_raw_full: number;
+  throttle_axis: number;
+  throttle_raw_released: number;
+  throttle_raw_full: number;
+  brake_axis: number;
+  brake_raw_released: number;
+  brake_raw_full: number;
+  clutch_axis: number;
+  clutch_raw_released: number;
+  clutch_raw_full: number;
+}
+
+/** One frame from GT_WheelProbe (feature:F8). */
+export interface WheelProbeFrame {
+  type: 'frame';
+  t: number;
+  axes: number[];
+  /**
+   * Per axis: has it ever reported a non-zero value since the probe opened the
+   * device? A wheel can enumerate correctly and still report raw=0 on every
+   * axis (measured on a real G29), and with the G29 pedal convention raw=0
+   * normalizes to ~0.5 -- so without this flag the panel would draw
+   * half-pressed pedals for a wheel that is saying nothing at all.
+   */
+  reported: boolean[];
+  buttons: number[];
+  norm: { steering: number; throttle: number; brake: number; clutch: number };
+}
+
+export interface WheelProbeMeta {
+  type: 'meta';
+  index: number;
+  name: string;
+  num_axes: number;
+  num_buttons: number;
+  num_hats: number;
+  hz: number;
+  /** Human-readable mapping problems, e.g. an axis index this device lacks. */
+  problems: string[];
+}
+
+export interface WheelProbeError {
+  type: 'error';
+  message: string;
+}
+
+export type WheelProbeMessage = WheelProbeFrame | WheelProbeMeta | WheelProbeError;
+
+export interface WheelProbeDevice {
+  index: number;
+  name: string;
+  num_axes: number;
+  num_buttons: number;
+  num_hats: number;
+}
+
+export interface WheelProbeStatus {
+  available: boolean;
+  path: string;
+  message: string | null;
+}
+
 export interface ManualDriveConfig {
   input_type: string;
   physics_type: string;
@@ -223,6 +301,12 @@ export interface ManualDriveConfig {
       // gap #5 fixed the backend path.
       auto_resume: number;
     };
+    // feature:F8 -- per-device axis assignment + raw-range calibration.
+    // Optional: a config file predating F8 has no axis block at all, and the
+    // backend omits it entirely rather than sending a partially-filled one, so
+    // the panel falls back to DEFAULT_CONFIG's G29 layout (which is also what
+    // C++ defaults to).
+    axis_mapping?: WheelAxisMapping;
   };
   keyboard: {
     steer_left: string;
@@ -1125,6 +1209,15 @@ export const api = {
 
   getManualDrivePresets: () =>
     request<ManualDrivePreset[]>('/api/manual-drive/presets'),
+
+  // feature:F8 -- wheel axis probe. `status` exists so the panel can tell
+  // "no wheel connected" from "this build has no probe binary"
+  // (GT_ENABLE_SDL2 defaults OFF) instead of showing one confusing failure.
+  getWheelProbeStatus: () =>
+    request<WheelProbeStatus>('/api/wheel-probe/status'),
+
+  getWheelProbeDevices: () =>
+    request<{ devices: WheelProbeDevice[] }>('/api/wheel-probe/devices'),
 
   saveManualDrivePreset: (name: string, config: ManualDriveConfig) =>
     request<ManualDrivePreset>('/api/manual-drive/presets', {

@@ -190,6 +190,7 @@ const BoolField kBoolFields[] = {
     {"lane_change_initiation_enabled", &VirtualDriverConfig::lane_change_initiation_enabled},  // vd-func:FUNC-055
     {"overtake_enabled", &VirtualDriverConfig::overtake_enabled},  // vd-func:FUNC-056
     {"overtake_use_opposing_lane_enabled", &VirtualDriverConfig::overtake_use_opposing_lane_enabled},  // vd-func:FUNC-056
+    {"sdl2_steer_invert", &VirtualDriverConfig::sdl2_steer_invert},  // feature:F8
 };
 
 const IntField kIntFields[] = {
@@ -205,6 +206,19 @@ const IntField kIntFields[] = {
     {"sdl2_fog_light_button",       &VirtualDriverConfig::sdl2_fog_light_button},
     {"sdl2_hazard_button",          &VirtualDriverConfig::sdl2_hazard_button},
     {"sdl2_auto_resume_button",     &VirtualDriverConfig::sdl2_auto_resume_button},  // feature:F7
+    // feature:F8 — wheel axis assignment + raw-range calibration.
+    {"sdl2_steer_axis",             &VirtualDriverConfig::sdl2_steer_axis},
+    {"sdl2_steer_raw_center",       &VirtualDriverConfig::sdl2_steer_raw_center},
+    {"sdl2_steer_raw_full",         &VirtualDriverConfig::sdl2_steer_raw_full},
+    {"sdl2_throttle_axis",          &VirtualDriverConfig::sdl2_throttle_axis},
+    {"sdl2_throttle_raw_released",  &VirtualDriverConfig::sdl2_throttle_raw_released},
+    {"sdl2_throttle_raw_full",      &VirtualDriverConfig::sdl2_throttle_raw_full},
+    {"sdl2_brake_axis",             &VirtualDriverConfig::sdl2_brake_axis},
+    {"sdl2_brake_raw_released",     &VirtualDriverConfig::sdl2_brake_raw_released},
+    {"sdl2_brake_raw_full",         &VirtualDriverConfig::sdl2_brake_raw_full},
+    {"sdl2_clutch_axis",            &VirtualDriverConfig::sdl2_clutch_axis},
+    {"sdl2_clutch_raw_released",    &VirtualDriverConfig::sdl2_clutch_raw_released},
+    {"sdl2_clutch_raw_full",        &VirtualDriverConfig::sdl2_clutch_raw_full},
 };
 
 void WarnIfWrongType(const simplejson::Value& root, const char* key, const char* expected_type)

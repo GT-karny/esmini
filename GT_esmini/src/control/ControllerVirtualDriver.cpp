@@ -110,6 +110,22 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     io_config_.sdl2.fog_light_button       = vd_config_.sdl2_fog_light_button;
     io_config_.sdl2.hazard_button          = vd_config_.sdl2_hazard_button;
     io_config_.sdl2.auto_resume_button     = vd_config_.sdl2_auto_resume_button;  // feature:F7
+    // feature:F8 — the VD drives the same SDL2WheelInput, so the axis mapping
+    // has to be threaded here too; otherwise a wheel with a non-G29 pedal order
+    // would be read correctly under ManualDrive and wrongly under VD.
+    io_config_.sdl2.axes.steer.index             = vd_config_.sdl2_steer_axis;
+    io_config_.sdl2.axes.steer.invert            = vd_config_.sdl2_steer_invert;
+    io_config_.sdl2.axes.steer.raw_center        = vd_config_.sdl2_steer_raw_center;
+    io_config_.sdl2.axes.steer.raw_full          = vd_config_.sdl2_steer_raw_full;
+    io_config_.sdl2.axes.throttle.index          = vd_config_.sdl2_throttle_axis;
+    io_config_.sdl2.axes.throttle.raw_released   = vd_config_.sdl2_throttle_raw_released;
+    io_config_.sdl2.axes.throttle.raw_full       = vd_config_.sdl2_throttle_raw_full;
+    io_config_.sdl2.axes.brake.index             = vd_config_.sdl2_brake_axis;
+    io_config_.sdl2.axes.brake.raw_released      = vd_config_.sdl2_brake_raw_released;
+    io_config_.sdl2.axes.brake.raw_full          = vd_config_.sdl2_brake_raw_full;
+    io_config_.sdl2.axes.clutch.index            = vd_config_.sdl2_clutch_axis;
+    io_config_.sdl2.axes.clutch.raw_released     = vd_config_.sdl2_clutch_raw_released;
+    io_config_.sdl2.axes.clutch.raw_full         = vd_config_.sdl2_clutch_raw_full;
 
     // feature:F7 (F7b) — FFB target-track config propagates from VD flat keys
     // into the shared ManualDriveConfig struct that SDLFFBSink + OverrideManager

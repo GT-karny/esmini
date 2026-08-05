@@ -108,7 +108,7 @@ if (-not $SkipCMake) {
 
     Write-Step "1" "C++ Build (Release)"
     Invoke-Checked "cmake build" {
-        cmake --build $BuildDir --config Release --target GT_Sim GT_esminiLib esminiRMLib GT_RoadGen
+        cmake --build $BuildDir --config Release --target GT_Sim GT_esminiLib esminiRMLib GT_RoadGen GT_WheelProbe
     }
 } else {
     Write-Host "`n  -- Skipping CMake configure + C++ build --" -ForegroundColor Yellow
@@ -128,6 +128,16 @@ if (Test-Path "$BuildRelease\GT_RoadGen.exe") {
     Copy-Item "$BuildRelease\GT_RoadGen.exe" $DriverBin -Force -ErrorAction SilentlyContinue
 } else {
     Write-Host "  !! WARNING: GT_RoadGen.exe not found at $BuildRelease — large OpenDRIVE road generation will be slow / may hang" -ForegroundColor Yellow
+}
+# GT_WheelProbe.exe (feature:F8): the web UI's axis-assignment panel spawns it to
+# show live axis values. Without it the panel can still edit the mapping by hand
+# but has no way to tell the user WHICH axis is which on their wheel — the whole
+# point of the feature. Named in the --target list above for the same reason
+# GT_RoadGen is: this script builds specific targets, not ALL_BUILD.
+if (Test-Path "$BuildRelease\GT_WheelProbe.exe") {
+    Copy-Item "$BuildRelease\GT_WheelProbe.exe" $DriverBin -Force -ErrorAction SilentlyContinue
+} else {
+    Write-Host "  !! WARNING: GT_WheelProbe.exe not found at $BuildRelease — the wheel axis mapping panel will have no live axis readout" -ForegroundColor Yellow
 }
 # esminiRMLib.dll lives under EnvironmentSimulator/Libraries/esminiRMLib/Release
 # — stage into $BuildRelease so build_package.py's *.dll glob picks it up.

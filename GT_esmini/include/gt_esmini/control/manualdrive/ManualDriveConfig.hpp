@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gt_esmini/control/manualdrive/WheelAxisMapping.hpp"
+
 #include <string>
 
 namespace gt_esmini
@@ -40,6 +42,20 @@ struct ManualDriveConfig
         int    fog_light_button     = -1;
         int    hazard_button        = -1;
         int    auto_resume_button   = -1;  // feature:F7 — resume AD after manual override
+
+        // feature:F8 — per-device axis assignment + raw-range calibration.
+        // Defaults reproduce the pre-F8 hardcoded G29 layout (0=steer,
+        // 1=throttle, 2=brake, 3=clutch, pedals inverted with released=+32767),
+        // so every existing config file behaves exactly as before.
+        //
+        // On-disk keys are FLAT and live in the same "input" block as the
+        // button mapping (steer_axis / throttle_axis / throttle_raw_released
+        // / ...). See the PARSER NOTE on the `adas` member below for why they
+        // must be flat and globally unique regardless of JSON nesting; the
+        // keyboard block's own "throttle"/"brake"/"clutch" keys do NOT alias
+        // with these because the scanner matches the quoted key including its
+        // closing quote.
+        WheelAxisMapping axes;
     } sdl2;
 
     // Input: SDL2 keyboard

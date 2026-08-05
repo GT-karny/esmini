@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:ee998858a61dc815 -->
+<!-- generated-from: sha256:efc069f98d01b316 -->
 
-ノード 237・辺 291（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 238・辺 293（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -28,11 +28,12 @@ flowchart LR
     n_proposal_P17["P17"]
     n_proposal_P18["P18"]
   end
-  subgraph sg_feature["feature｜機能ロードマップ F1-F7"]
+  subgraph sg_feature["feature｜機能ロードマップ F1-F8"]
     n_feature_F2["F2"]
     n_feature_F3["F3"]
     n_feature_F6["F6"]
     n_feature_F7["F7"]
+    n_feature_F8["F8"]
   end
   subgraph sg_debt_phase["debt-phase｜負債返済ロードマップ R0-R5（R5はU1-U4に細分）"]
     n_debt_phase_R5_U4["R5-U4"]
@@ -520,6 +521,8 @@ flowchart LR
   n_proposal_P18 -->|depends-on| n_feature_F7
   n_feature_F7 -->|complements| n_vd_func_FUNC_075
   n_feature_F7 -->|sustained-by| n_gate_unit_ctest
+  n_feature_F8 -->|shares-design-with| n_feature_F7
+  n_feature_F8 -->|sustained-by| n_gate_unit_ctest
   n_vd_func_FUNC_056 -->|realizes| n_req_vd_ad_REQ_AD_023
   n_vd_func_FUNC_056 -->|realizes| n_req_vd_ad_REQ_AD_024
   n_vd_component_overtake_maneuver -->|realizes| n_vd_func_FUNC_056
@@ -789,12 +792,13 @@ flowchart LR
 | `vd-component:overtake-maneuver` | `vd-func:FUNC-061` | 追い越しの往路・復路それぞれに方向指示器を同期させる（req-vd-ad:REQ-AD-018 段 d の **追い越しぶん**）。既存の lc_signal_dir_ に同じ契約で書き込むだけで、 DetectManeuverDir の段構造は変えていない。 **FUNC-055 の前進予測形は流用していない** — あれは dist_to_connection と n_remaining を 引数に取る締切専用の述語で、追い越しには対応する量が存在しない。 追い越しには締切が無いので「合図してから T 秒待って発起する」タイマ形で足り、 法定リードは近似ではなく設計上ちょうど T になる（実測 往路 2.95 s / 復路 3.00 s）。 |
 | `vd-component:lane-keep-assist` | `vd-func:FUNC-080` | レーン中心偏差→補正操舵の本体。**FUNC-080 は既存部品からの流用がゼロだった唯一の 手動運転中ADAS機能**で（設計 §5-1 の調査どおり、PIDPurePursuit はトラジェクトリ preview 点列への追従でレーン中心を追わない）、AEB/ACC/Stop&Go が ITrafficPolicy 実装を 無改修で載せ替えるだけだったのに対し、こちらは判定も出力も新規に書いた。 実現範囲は補正と警報の判定・出力まで。FFB 反力として実ハンドルに伝わるか（段d）は このユニットの外＝IFFBSink 側であり、headless では代替できない G29 実機限定観点。 |
 
-### shares-design-with (2)
+### shares-design-with (3)
 
 | from | to | note |
 | :--- | :--- | :--- |
 | `proposal:P5` | `proposal:P40` | ReplayInputSource機構の一本化必須 |
 | `proposal:P1` | `proposal:P23` | 外部制御注入の二重資産回避のため設計共有必須 |
+| `feature:F8` | `feature:F7` | 軸の極性(steer_invert)はF7のターゲット追従サーボの力の符号と同一でなければならない。 読み戻しだけ反転して出力を反転しないと目標から遠ざかる方向に押す＝正のフィードバックに なるため、SignFactor()1か所からの読み出しを両者で共有する設計上の拘束。 depends-on ではない（F8はF7の着地を前提にしない・F7既定OFFでも成立する） |
 
 ### stimulated-by (14)
 
@@ -821,7 +825,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (47)
+### sustained-by (48)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -868,6 +872,7 @@ flowchart LR
 | `matcher:no_constraint_kind` | `gate:anticipation-driving-regression` | cross_straight_junction。直進通過の接続路で junction 制約を上げない（面2 midlong.constraints）。 |
 | `feature:F6` | `gate:integration-ctest` | F6 環境ヘッドライト 5本＋AutoLight/LightStateAction 6本の per-test アサーション（run_gt_tests.ps1 -IncludeIntegration、opt-in＝既定ゲート外）。 「ビューワー目視未」は残る（アサーションは灯火状態変化のみ）。 |
 | `feature:F7` | `gate:unit-ctest` | OverrideManagerTest 10ケースが傘バイナリ常設（片方向ラッチ仕様の固定＋RESUMEエッジ復帰）。フルサイクルsmoke(scripts/vd_override_smoke.py)はCI未統合＝手動のため計上しない |
+| `feature:F8` | `gate:unit-ctest` | test_WheelAxisMapping 16ケースが傘バイナリ常設（G29既定値の回帰錨・非G29規約・invert両極性・ 解放センチネル両極性・範囲外indexの報告と負の対照・keyboardキーとのエイリアス回帰）。 GT_ENABLE_SDL2 非依存に置いてある＝既定OFF/CI OFFでも走る。実機G923でのレイアウト確認は 常設化できない（機器依存）ため計上しない |
 | `vd-func:FUNC-079` | `gate:unit-ctest` | test_AccLonController.cpp / test_ManualAdasPhaseC.cpp が傘バイナリ常設 （**731/731緑**、2026-08-05 フェーズC実測。フェーズB時点は673件）。 matcher 側の赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py （フェーズCで6 matcher分を追加、計77テスト緑）。 |
 | `vd-func:FUNC-081` | `gate:unit-ctest` | MSL（SpeedLimiter）の単体は test_ManualAdasPhaseC.cpp に同居する（ACC と段の順序を 共有し、順序こそが「リミッターが安全段を拒否できない」を決めるため、別ファイルに 分けると順序のテストが宙に浮く）。 |
 | `vd-func:FUNC-075` | `gate:unit-ctest` | test_ManualAdasFunctionReport.cpp / test_KickdownDetector.cpp / test_PedalArbitrator.cpp / test_ManualDriveAdasConfig.cpp / test_AdasCoexistenceStack.cpp / test_ScriptedInputSource.cpp が傘バイナリ常設（ManualDrive ADAS 関連 81ケース、**673/673緑**の内数、2026-08-05 フェーズB実測。フェーズA時点は69ケース/661件で、フェーズBが上書きチャネル5件・ accel producer 5件・FCWゲート config 2件を追加した）。 matcher実装自体の赤実証（Python側）は GT_esmini/scripts/verification/test_manualdrive_matchers.py（50テスト）が別途担うが、 これは gt_sim_test 検証ハーネス側であり ctest 傘バイナリの外＝この辺には含めない。 |

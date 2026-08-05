@@ -1688,6 +1688,28 @@ edges:
     source: GT_esmini/test/CMakeLists.txt
     note: OverrideManagerTest 10ケースが傘バイナリ常設（片方向ラッチ仕様の固定＋RESUMEエッジ復帰）。フルサイクルsmoke(scripts/vd_override_smoke.py)はCI未統合＝手動のため計上しない
 
+  # ---- feature:F8 ハンコン軸割り当て設定（2026-08-06） ----
+  # 定義: GT_esmini/docs/features/wheel_axis_mapping.md（ロードマップ外の後発機能。
+  # namespaces.yaml の feature エントリ notes も参照）
+  - from: feature:F8
+    to: feature:F7
+    type: shares-design-with
+    source: GT_esmini/docs/features/wheel_axis_mapping.md
+    note: >-
+      軸の極性(steer_invert)はF7のターゲット追従サーボの力の符号と同一でなければならない。
+      読み戻しだけ反転して出力を反転しないと目標から遠ざかる方向に押す＝正のフィードバックに
+      なるため、SignFactor()1か所からの読み出しを両者で共有する設計上の拘束。
+      depends-on ではない（F8はF7の着地を前提にしない・F7既定OFFでも成立する）
+  - from: feature:F8
+    to: gate:unit-ctest
+    type: sustained-by
+    source: GT_esmini/test/CMakeLists.txt
+    note: >-
+      test_WheelAxisMapping 16ケースが傘バイナリ常設（G29既定値の回帰錨・非G29規約・invert両極性・
+      解放センチネル両極性・範囲外indexの報告と負の対照・keyboardキーとのエイリアス回帰）。
+      GT_ENABLE_SDL2 非依存に置いてある＝既定OFF/CI OFFでも走る。実機G923でのレイアウト確認は
+      常設化できない（機器依存）ため計上しない
+
   # ---- 引けなかった辺: RouteLanePlan (vd-func:FUNC-050, 2026-08) ----
   # 縦串3辺の結線時に検討したが張らなかった2辺と、その理由（一次記録）。
   #

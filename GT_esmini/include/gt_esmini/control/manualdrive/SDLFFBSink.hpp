@@ -4,6 +4,7 @@
 
 #include "gt_esmini/control/manualdrive/FfbTargetServo.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
+#include "gt_esmini/control/manualdrive/WheelAxisMapping.hpp"
 
 #include <SDL.h>
 
@@ -142,6 +143,23 @@ private:
     double assist_low_speed_    = 0.90;
     double assist_high_speed_   = 0.20;
     double max_force_           = 1.0;
+
+    // feature:F8 — which axis the steering readback comes from, and its
+    // polarity. Read from config at Init.
+    //
+    // WHY THE SINK NEEDS THIS AND NOT JUST THE INPUT SOURCE. Two independent
+    // consumers of the same physical axis:
+    //   1. ReadPhysicalWheelNorm() — the servo's `actual`, which must live in
+    //      the same unit space as the target it is compared against.
+    //   2. The DIRECTION of the CONSTANT force. The force sign convention is
+    //      tied to the axis polarity (positive force pushes the wheel LEFT,
+    //      toward negative raw). On a wheel whose axis is inverted relative to
+    //      that, a servo that flipped (1) but not (2) would push AWAY from its
+    //      target: positive feedback on a powered actuator.
+    // Both therefore multiply by steer_axis_.SignFactor(), and it is read from
+    // exactly one place (UpdateConstantEffect for the force, Normalize for the
+    // readback) so the two cannot drift apart.
+    SteerAxisSpec steer_axis_;
 
     // State for emulation
     double prev_steering_ = 0.0;

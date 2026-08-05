@@ -141,6 +141,11 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/ShiftLogic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/common/RealVehicleBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/ManualDriveConfig.cpp
+    # feature:F8 wheel axis mapping. UNCONDITIONAL on purpose (not in the
+    # GT_ENABLE_SDL2 block below): the normalize arithmetic is SDL-free, and
+    # SDL2 defaults OFF -- including in CI -- so compiling it conditionally
+    # would take its unit tests out of every CI run silently.
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/WheelAxisMapping.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/OverrideManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/FfbTargetServo.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/HeadlessFfbInput.cpp
@@ -238,7 +243,8 @@ set(GT_CONTROL_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkInputBridge.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/ScriptedInputSource.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/AdasCoexistenceStack.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/AdasCoexistenceStack.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/manualdrive/WheelAxisMapping.hpp)
 
 # Embedded Python controller sources (conditional on GT_ENABLE_EMBEDDED_PYTHON)
 if(GT_ENABLE_EMBEDDED_PYTHON)
@@ -546,6 +552,40 @@ if(USE_OSG)
     install(
         TARGETS ${GT_ROADGEN_TARGET}
         DESTINATION "${INSTALL_PATH}")
+endif()
+
+# ############################### GT_WheelProbe (feature:F8) #######################################################################################
+# Read-only SDL2 axis/button probe. Answers "which axis is the brake on THIS
+# wheel?", which is a per-device fact the axis mapping cannot be configured
+# without — and it must answer it in the SAME SDL index space SDL2WheelInput
+# reads at runtime (a browser Gamepad API probe has its own index space and
+# would hand back the wrong number with total confidence).
+#
+# Isolated target, like GT_RoadGen above: it links SDL2 and compiles
+# WheelAxisMapping.cpp directly, and deliberately does NOT link CommonMini or
+# the GT libs. esmini's logger writes to stdout, and this tool's stdout is a
+# JSON stream the web backend parses — one log line would corrupt it. The
+# mapping arrives via CLI flags instead of via ManualDriveConfig, which is also
+# what lets the GUI preview an edited-but-unsaved mapping through the real
+# normalizer.
+if(GT_ENABLE_SDL2)
+    set(GT_WHEELPROBE_TARGET GT_WheelProbe)
+    add_executable(${GT_WHEELPROBE_TARGET}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/tools/GT_WheelProbe_main.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/WheelAxisMapping.cpp)
+
+    set_target_properties(${GT_WHEELPROBE_TARGET} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    target_compile_definitions(${GT_WHEELPROBE_TARGET} PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_include_directories(${GT_WHEELPROBE_TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(${GT_WHEELPROBE_TARGET} PRIVATE SDL2::SDL2)
+
+    disable_iwyu(${GT_WHEELPROBE_TARGET})
+
+    install(
+        TARGETS ${GT_WHEELPROBE_TARGET}
+        DESTINATION "${INSTALL_PATH}")
+
+    message(STATUS "GT_esmini: Added ${GT_WHEELPROBE_TARGET} (feature:F8 wheel axis probe)")
 endif()
 
 # ############################### Config Copy (dev build) ##########################################################################################

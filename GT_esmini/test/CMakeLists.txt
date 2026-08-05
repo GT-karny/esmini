@@ -55,6 +55,10 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_AccLonController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_ManualAdasPhaseC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_LaneKeepAssist.cpp
+    # feature:F8 — wheel axis mapping. Registered unconditionally: the mapping
+    # itself is SDL-free for exactly this reason (GT_ENABLE_SDL2 is OFF by
+    # default and OFF in CI, so a wheel-gated test would never run there).
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_WheelAxisMapping.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)

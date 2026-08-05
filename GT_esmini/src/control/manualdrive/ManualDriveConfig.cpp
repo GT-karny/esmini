@@ -126,6 +126,33 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         parse_int("hazard_button", sdl2.hazard_button);
         parse_int("auto_resume_button", sdl2.auto_resume_button);
 
+        // feature:F8 -- wheel axis assignment + raw-range calibration.
+        // Flat, globally-unique on-disk keys, same discipline as every other
+        // block in this file (see the PARSER NOTE in ManualDriveConfig.hpp).
+        //
+        // NOT ALIASED, verified rather than assumed: the keyboard block below
+        // parses "throttle"/"brake"/"clutch", and key_matches searches for the
+        // key WITH its closing quote ("throttle"), so the line
+        // `"throttle_axis": 1` cannot match it and vice versa.
+        //
+        // steer_invert is the only bool here, and it is a bool ONLY because its
+        // value is always true/false: parse_bool treats any value containing
+        // "1" as true, so a key whose value can be -1 (every *_axis key) must
+        // never be parsed as a bool.
+        parse_int ("steer_axis",             sdl2.axes.steer.index);
+        parse_bool("steer_invert",           sdl2.axes.steer.invert);
+        parse_int ("steer_raw_center",       sdl2.axes.steer.raw_center);
+        parse_int ("steer_raw_full",         sdl2.axes.steer.raw_full);
+        parse_int ("throttle_axis",          sdl2.axes.throttle.index);
+        parse_int ("throttle_raw_released",  sdl2.axes.throttle.raw_released);
+        parse_int ("throttle_raw_full",      sdl2.axes.throttle.raw_full);
+        parse_int ("brake_axis",             sdl2.axes.brake.index);
+        parse_int ("brake_raw_released",     sdl2.axes.brake.raw_released);
+        parse_int ("brake_raw_full",         sdl2.axes.brake.raw_full);
+        parse_int ("clutch_axis",            sdl2.axes.clutch.index);
+        parse_int ("clutch_raw_released",    sdl2.axes.clutch.raw_released);
+        parse_int ("clutch_raw_full",        sdl2.axes.clutch.raw_full);
+
         // SDL2 keyboard input (key names are SDL scancode names)
         parse_string("steer_left",      keyboard.steer_left);
         parse_string("steer_right",     keyboard.steer_right);
@@ -318,6 +345,16 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
              ffb.target_track.enabled, ffb.target_track.kp, ffb.target_track.kd,
              ffb.target_track.max_force, ffb.target_track.override_steer_force_threshold,
              ffb.target_track.override_steer_dev_threshold, ffb.target_track.override_sustain_time);
+    // feature:F8 -- logged unconditionally: when a wheel misbehaves, "which
+    // axis was this build actually reading?" is the first question, and the
+    // answer must be in the log of the run that misbehaved.
+    LOG_INFO("ManualDriveConfig: axes steer=a{}{} (center={} full={}) throttle=a{} ({}..{}) "
+             "brake=a{} ({}..{}) clutch=a{} ({}..{})",
+             sdl2.axes.steer.index, sdl2.axes.steer.invert ? " inverted" : "",
+             sdl2.axes.steer.raw_center, sdl2.axes.steer.raw_full,
+             sdl2.axes.throttle.index, sdl2.axes.throttle.raw_released, sdl2.axes.throttle.raw_full,
+             sdl2.axes.brake.index, sdl2.axes.brake.raw_released, sdl2.axes.brake.raw_full,
+             sdl2.axes.clutch.index, sdl2.axes.clutch.raw_released, sdl2.axes.clutch.raw_full);
 
     return true;
 }

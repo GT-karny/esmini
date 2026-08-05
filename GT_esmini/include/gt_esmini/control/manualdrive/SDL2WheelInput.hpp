@@ -4,6 +4,7 @@
 
 #include "gt_esmini/control/manualdrive/IInputSource.hpp"
 #include "gt_esmini/control/manualdrive/SDLFFBSink.hpp"
+#include "gt_esmini/control/manualdrive/WheelAxisMapping.hpp"
 
 #include <SDL.h>
 #include <vector>
@@ -24,8 +25,10 @@ public:
     IFFBSink* GetFFBSink() override;
 
 private:
-    double NormalizeAxis(int raw) const;
-    double NormalizePedal(int raw) const;
+    // feature:F8 -- reads one pedal axis through its spec, applying the
+    // "no HID report yet" sentinel described on axis_seen_live_ below.
+    // Unassigned (index < 0) reads as 0.0 = released.
+    double ReadPedal(const PedalAxisSpec& spec);
 
     struct GearTracker
     {
@@ -59,11 +62,19 @@ private:
     int           acc_thw_cycle_button_  = -1;
     int           msl_toggle_button_     = -1;
     bool          sdl_initialized_        = false;
+    // feature:F8 -- which SDL axis carries which function, and how each one's
+    // raw range maps to [0,1] / [-1,+1]. Loaded from config; Init() disables
+    // any spec naming an axis this device does not have (and says so in the
+    // log) rather than silently falling back to axis 0.
+    WheelAxisMapping axes_;
     // Per-axis "has reported a non-zero value since open" latch. Used by the
-    // pedal read guard to treat raw=0 as "released" (32767) until we've seen
-    // a real HID report — Windows/DirectInput can return raw=0 for pedals
-    // for hundreds of ms after JoystickOpen, and phantom NormalizePedal(0)=0.5
-    // would spuriously trip OverrideManager's throttle_threshold.
+    // pedal read guard to treat raw=0 as "released" until we've seen a real
+    // HID report — Windows/DirectInput can return raw=0 for pedals for
+    // hundreds of ms after JoystickOpen, and on a G29 (released = +32767) a
+    // phantom normalized 0.5 would spuriously trip OverrideManager's
+    // throttle_threshold. The substituted value is the axis's OWN configured
+    // raw_released, and the guard is skipped entirely for an axis whose
+    // released reading IS 0 (see PedalAxisSpec::NeedsReleasedSentinel).
     std::vector<bool> axis_seen_live_;
 
     GearTracker gear_tracker_;

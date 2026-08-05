@@ -332,6 +332,30 @@ struct VirtualDriverConfig
     int         sdl2_hazard_button          = -1;
     int         sdl2_auto_resume_button     = -1;
 
+    // feature:F8 — wheel axis assignment + raw-range calibration, mirroring
+    // ManualDriveConfig::sdl2::axes. Present here for the same reason the button
+    // bindings are: when the VD holds a real wheel, it goes through the SAME
+    // SDL2WheelInput, so a wheel whose pedals are in a non-G29 order would be
+    // misread under VD even after ManualDrive was fixed. Defaults mirror
+    // WheelAxisMapping's, so a virtual_driver.json with none of these keys
+    // behaves exactly as before.
+    //
+    // Prefixed sdl2_* like the buttons above, and flat because this file's
+    // loader is a field table keyed by flat name.
+    int         sdl2_steer_axis             = 0;
+    bool        sdl2_steer_invert           = false;
+    int         sdl2_steer_raw_center       = 0;
+    int         sdl2_steer_raw_full         = 32767;
+    int         sdl2_throttle_axis          = 1;
+    int         sdl2_throttle_raw_released  = 32767;
+    int         sdl2_throttle_raw_full      = -32768;
+    int         sdl2_brake_axis             = 2;
+    int         sdl2_brake_raw_released     = 32767;
+    int         sdl2_brake_raw_full         = -32768;
+    int         sdl2_clutch_axis            = 3;
+    int         sdl2_clutch_raw_released    = 32767;
+    int         sdl2_clutch_raw_full        = -32768;
+
     bool LoadFromFile(const std::string& filepath);
 
     // Convenience accessors for the sub-configs of the pluggable components.
