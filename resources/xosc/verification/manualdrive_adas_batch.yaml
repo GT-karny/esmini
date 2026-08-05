@@ -292,6 +292,45 @@ scenarios:
       adas_msl_enabled: true
       adas_aeb_enabled: true
     osi: true
+  # ---- 両極性ペア / REQ-AD-030 段c: 実効キャップの出どころ(道路の制限速度 / 運転者の設定) ----
+  # フェーズCで実装済み・刺激だけが無かった行(フェーズD着手時のウォームアップで追加)。
+  # 8m/s で ON → 設定は 8m/s、道路(50km/h区間)の制限は 13.889m/s。連動側だけが
+  # 設定を超えて加速できる。両極とも「キャップ未満から加速して当たる」構成にしてある —
+  # リミッターはブレーキを出さないので、キャップ超過から入る構成では惰性減速を
+  # 測ることになり、リミッターを測ったことにならない(xosc冒頭の注記)。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_msl_speed_limit_linked.xosc
+    variant: linked
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_msl_speed_limit_linked.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/msl_ops_steady_throttle.json
+      adas_msl_enabled: true
+      adas_msl_speed_limit_linked: true
+    osi: true
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_msl_speed_limit_linked.xosc
+    variant: set_speed_only
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_msl_speed_limit_linked_set_speed_only.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/msl_ops_steady_throttle.json
+      adas_msl_enabled: true
+      adas_msl_speed_limit_linked: false   # ← 上の行との唯一の差分
+    osi: true
+  # ---- 正例 / REQ-AD-031 段b(信号側): 赤信号の停止線手前で停止・保持 ----
+  # 同上のウォームアップ行。フェーズCが射程外と明記した2点(TrafficLightAware本体、
+  # および分岐路での CopyRoute 起点歩行)をここで実走する。RoutingAction を
+  # 意図的に持たせていない — 経路を与えると測ろうとしている当のものが消える。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_sng_traffic_light.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_sng_traffic_light.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_engage.json
+      adas_acc_enabled: true
+      adas_acc_stop_at_traffic_light: true
+    osi: true
   # ---- 正例 / 設計§6: ACCとMSLの排他(後からONにした側が先の側をSTANDBYへ) ----
   - scenario: resources/xosc/verification/10_manualdrive_adas/md_acc_msl_exclusion.xosc
     expectations: resources/xosc/verification/10_manualdrive_adas/md_acc_msl_exclusion.expectations.yaml

@@ -522,7 +522,17 @@ ACC の加減速上限は ACC 自身の config に持ち、VD の `comfort_decel
 ManualDrive の ego は Route を**持たない**——だから問いは「Route が無いとき、その歩行が何か
 見つけるのか」だった。`MoveAlongS(..., HEADING_DIRECTION, true)` が Route 不在では straight-most で
 進むため直線路では到達する、というのが答えである。
-**射程は限定する**: 確認したのは StopYieldSignAware × 直線路 1 本。`TrafficLightAware` 本体と、
-分岐のある道路（Route があれば経路側を選ぶが、無ければ straight-most で「たまたま」選ばれた
-接続路を見る）は射程外で、交差点構成を作るときに再確認が要る。
-一次記録: `GT_esmini/docs/virtualdriver/measurements/manualdrive_creep_stop_hold_2026-08-05.md`。
+~~**射程は限定する**~~ → **★2026-08-05（フェーズD着手時）に射程を埋めた**。
+フェーズC時点で確認できていたのは StopYieldSignAware × 直線路 1 本だけで、`TrafficLightAware`
+本体と分岐路（Route があれば経路側を選ぶが、無ければ straight-most で「たまたま」選ばれた
+接続路を見る）が残っていた。`md_sng_traffic_light`（`fabriksgatan_traffic_lights.xodr`、
+赤固定、**RoutingAction を意図的に持たせない**）で両方を同時に実走した。
+road 3 は junction 4 へ接続路 11 / 12 / 13 の**3本**で入るので、歩行は実際に選ぶ必要がある。
+実測: `gt.acc.stop_requested` が 600 フレーム中 574、停止保持 299 フレーム連続で変位 0.024 m、
+t=18–25 s の速度は 0.00。
+**恒久事実**: 経路を持たない ego に対する `RouteSignalScan` の straight-most フォールバックは、
+直線路だけでなく**分岐路でも**目的の標識・信号へ到達する。policy 本体（AebSafety /
+StopYieldSignAware / TrafficLightAware の 3 つ）はいずれもコントローラ非依存であることが
+実走で確定した。
+一次記録: `GT_esmini/docs/virtualdriver/measurements/manualdrive_creep_stop_hold_2026-08-05.md`
+（フェーズC分）、`test_results/mdadas_warmup`（本件）。

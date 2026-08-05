@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ManualDrive ADAS verification scenario 10_manualdrive_adas / md_msl_speed_limit_linked
+  (req-vd-ad:REQ-AD-030 step c, vd-func:FUNC-081; slug md-msl-speed-limit-linked).
+  Added 2026-08-05 (phase D warm-up: the one phase-C slug whose implementation was
+  already complete and whose only missing piece was a stimulus).
+
+  Road: straight_500m_speed_limit_step.xodr (MDA-XODR-01), 90 -> 50 km/h at s=250.
+  The ego starts at s=255, i.e. ALREADY INSIDE the 50 km/h section, and stays there
+  for the whole run. That is deliberate and it is the difference between this
+  scenario and md_acc_speed_limit_cap: the step itself is NOT what this run tests.
+
+  WHY THE EGO STARTS SLOW AND ACCELERATES INTO ITS CAP. A limiter clamps THROTTLE
+  and never brakes (SpeedLimiter.hpp: "A LIMITER IS NOT A CONTROLLER"). So a run
+  that starts ABOVE the cap can only reach it by coasting, and what the run would
+  then measure is the powertrain's drag, not the limiter. Both poles here start at
+  8 m/s BELOW their own cap and are driven at a steady heavy throttle, so in both
+  configurations the cap is reached by the clamp actually biting - the condition
+  step c is about. (md_acc_speed_limit_cap can start above its cap because ACC
+  brakes; the limiter cannot borrow that.)
+
+  ONE FILE, TWO CONFIGURATIONS (manifest `variant`, the phase-B mechanism):
+    * variant: linked        - adas_msl_speed_limit_linked = true.  Cap = the
+      ROAD's posted 13.889 m/s, so the ego accelerates past its own 8 m/s setting.
+    * variant: set_speed_only - adas_msl_speed_limit_linked = false. Cap = the
+      SETTING, taken from the vehicle's speed when the stalk was pressed (8 m/s),
+      so the ego stays pinned at 8.
+  Neither row asserts anything alone: step c's claim is that ONE SWITCH changes
+  which number becomes the cap, and one configuration cannot show that. Running
+  only the linked pole would pass on an implementation that always reads the road;
+  running only the other would pass on one that never reads it. Do not delete
+  either row.
+
+  THROTTLE 0.85, NOT 1.0 (msl_ops_steady_throttle.json's own note): 1.0 is above
+  kickdown_threshold=0.95 and would RELEASE the limiter this run exists to measure,
+  while still looking plausible from outside.
+
+  Distance budget: 16 s at the linked pole's 13.889 m/s ceiling is at most ~220 m
+  from s=255, i.e. s<=475 on a 500 m road, so neither pole runs off the end (which
+  would end the run early and silently shorten the judged window).
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="3" date="2026-08-05T00:00:00"
+               description="ManualDrive ADAS verification: MSL effective cap from the road limit vs the driver setting (two configurations)" author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="8.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_500m_speed_limit_step.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="ManualDriveController">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_headless_stub.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-1" offset="0" s="255"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="ManualDriveController" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="MslSpeedLimitLinkedStory">
+         <Act name="MslSpeedLimitLinkedAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition><SimulationTimeCondition value="16" rule="greaterThan"/></ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

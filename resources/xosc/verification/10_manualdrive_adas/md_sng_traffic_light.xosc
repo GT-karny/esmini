@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ManualDrive ADAS verification scenario 10_manualdrive_adas / md_sng_traffic_light
+  (req-vd-ad:REQ-AD-031 step b, vd-func:FUNC-079; slug md-sng-traffic-light-stop).
+  Added 2026-08-05 (phase D warm-up: the second phase-C slug whose implementation
+  was complete and whose only missing piece was a stimulus).
+
+  Road: fabriksgatan_traffic_lights.xodr, the SAME road and the SAME persistent-red
+  signal controller the VirtualDriver's own red_hold asset uses (03_traffic_signals).
+  Reusing it is the point: step b specifies the manual stop as "the same stop-line
+  basis as the VD case", and comparability is what makes that claim checkable rather
+  than merely asserted.
+
+  ============================================================================
+  WHAT THIS RUN CLOSES, AND WHY IT NEEDED A **JUNCTION** ROAD
+  ============================================================================
+  Phase C confirmed StopYieldSignAware works for a routeless ManualDrive ego, but
+  recorded the confirmation's scope honestly (design §12): ONE policy, on ONE
+  STRAIGHT road. Two things were left untested and both are here.
+
+  (1) TrafficLightAware itself. It is a different policy with its own cross-frame
+      latches; "the other one worked" is not evidence about it.
+
+  (2) THE BRANCH. Both policies find their signal by walking forward from the ego's
+      own Position via RouteSignalScan's `pos.CopyRoute(ego->pos_)`, and a
+      ManualDrive ego has NO Route to copy. On a straight road that is invisible -
+      there is only one way forward, so route-following and straight-most walking
+      agree. Road 3 here feeds junction 4 through THREE connecting roads (11 / 12 /
+      13), so the walk has to actually choose, and the choice is made by
+      MoveAlongS(..., HEADING_DIRECTION, true) picking the straight-most connection
+      rather than by any route. That is the untested behaviour, and this is the
+      geometry that exercises it.
+
+  Deliberately NO RoutingAction, unlike red_hold.xosc. Adding one would hand the
+  scan a route to copy and destroy the very thing this scenario exists to measure.
+  A human driver has no assigned route, so its absence is also the honest model.
+
+  Ego drives itself: steering stays 0 for the whole run (profiles/acc_ops_engage.json)
+  and road 3's planView is a paramPoly3 whose curvature coefficients are ~1e-18,
+  i.e. a straight line - so zero steering keeps the ego in lane -1 all the way to
+  the signal. This scenario would NOT be sound on a curved approach: the ego would
+  drift out of its lane and the stop would be measured somewhere the road never
+  put it.
+
+  Signal at s=109 on road 3, ego released at s=11 -> ~98 m of approach at 13.889 m/s
+  (~7 s), inside a 25 s run with room for the stop AND the hold to be measured as
+  settled values. The light never turns green, so the hold is the terminal state and
+  nothing has to be timed against a phase change.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="3" date="2026-08-05T00:00:00"
+               description="ManualDrive ADAS verification: ACC Stop-and-Go stops at a red light when the traffic light is a configured target" author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/fabriksgatan_traffic_lights.xodr"/>
+      <TrafficSignals>
+         <TrafficSignalController name="MainController" delay="0">
+            <Phase name="red" duration="60">
+               <TrafficSignalState trafficSignalId="1" state="on;off;off"/>
+               <TrafficSignalState trafficSignalId="2" state="off;on"/>
+               <TrafficSignalState trafficSignalId="3" state="off;on"/>
+            </Phase>
+         </TrafficSignalController>
+      </TrafficSignals>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="ManualDriveController">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_headless_stub.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="3" laneId="-1" offset="0" s="11"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="ManualDriveController" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="SngTrafficLightStory">
+         <Act name="SngTrafficLightAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition><SimulationTimeCondition value="25" rule="greaterThan"/></ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

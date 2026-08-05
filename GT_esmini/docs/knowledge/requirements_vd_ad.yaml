@@ -1184,11 +1184,13 @@ requirements:
     acceptance_ladder:
       - { step: a, claim: 設定速度を超えないようスロットルがキャップされる（追従なし・ブレーキ介入なし）,        met: true,  verified_by: [matcher:speed_capped_at, matcher:no_brake_output] }
       - { step: b, claim: アクセル全踏み（キックダウン相当・閾値要校正）で一時解除し、離すと復帰する,            met: true,  verified_by: [matcher:adas_state_sequence, matcher:driver_override_reported] }
-      # 段 c は実装済み（adas_msl_speed_limit_linked、SpeedLimiter.hpp の cap 選択）だが、
-      # 有効/無効の2構成比較を回す E2E 行がまだ無い＝「設定可能」を実行で示していない。
-      # 実装があることと、構成が効くことを実測で示したことは別の主張なので met は上げない
-      # （同じ規律で REQ-AD-026 段g は2構成を回してから met にした）。
-      - { step: c, claim: 制限速度連動モード（設定値でなく道路の制限速度をキャップ値に使う）の有無が設定可能,    met: false, verified_by: [] }
+      # 段 c 達成（2026-08-05、フェーズD着手時）: md_msl_speed_limit_linked.xosc を
+      # variant で2構成（linked / set_speed_only）回した。実測は同一 xosc・同一運転者で
+      # gt.msl.cap_mps が 13.889（道路の 50km/h）と 7.431（ストーク押下時の自車速）に
+      # 分かれ、到達速度も 13.77 対 7.31。判別は「非連動側が 9.0m/s を超えない」
+      # （設定側キャップ 7.43 と道路側 13.889 の間に引いた線）で、道路を読む実装なら
+      # 突き抜ける。実装自体はフェーズCで入っており、欠けていたのは刺激だけだった。
+      - { step: c, claim: 制限速度連動モード（設定値でなく道路の制限速度をキャップ値に使う）の有無が設定可能,    met: true,  verified_by: [matcher:speed_capped_at, matcher:min_speed_above] }
       - { step: d, claim: 状態と実効キャップが HVD に出る（gt.msl.* 規約）,                                      met: true,  verified_by: [matcher:adas_state_matches, matcher:speed_capped_at] }
     acceptance: >-
       段 a はスロットルのみのキャップであること＝下り坂で設定速度を超えてもブレーキが
@@ -1219,11 +1221,15 @@ requirements:
       再発進トリガは合成入力のアクセルパルスで与える。
     acceptance_ladder:
       - { step: a, claim: 先行車に対して v=0 まで追従減速・停止保持し、人間のアクセル操作で追従を再開する（再発進判断はしない）,                       met: true,  verified_by: [matcher:stop_hold_stationary, matcher:restart_after_trigger] }
-      # 段 b は claim が「信号・一時停止標識」の**両方**を挙げる。実証したのは一時停止標識の
-      # 側だけで（md_sng_stop_sign の2構成）、信号側は刺激資産が無い。TrafficLightAware を
-      # Add する経路は実装済みで、非依存性の実走確認も StopYieldSignAware で取れているので
-      # 動く見込みは高い——が、見込みで met は上げない。信号交差点の刺激を1本足せば閉じる。
-      - { step: b, claim: 信号・一時停止標識も停止対象に構成でき、停止線手前で停止する。再発進は段 a と同じ人間トリガ,                                 met: false, verified_by: [] }
+      # 段 b 達成（2026-08-05、フェーズD着手時）: claim が挙げる「信号・一時停止標識」の
+      # 両方が揃った。一時停止標識側は md_sng_stop_sign の2構成（フェーズC）、信号側は
+      # md_sng_traffic_light（本追加、赤固定の fabriksgatan 交差点）。信号側の実測は
+      # gt.acc.stop_requested が 600 フレーム中 574、停止保持 299 フレーム連続で変位
+      # 0.024m。**この1本は設計§12が射程外と明記していた2点を同時に閉じている**——
+      # TrafficLightAware 本体（StopYieldSignAware で取れた確認は別 policy の話）と、
+      # 分岐路（road 3 → 接続路 11/12/13）での CopyRoute 起点歩行。経路を持たない ego でも
+      # straight-most フォールバックで到達することが直線路だけでなく分岐でも成り立つ。
+      - { step: b, claim: 信号・一時停止標識も停止対象に構成でき、停止線手前で停止する。再発進は段 a と同じ人間トリガ,                                 met: true,  verified_by: [matcher:stop_hold_stationary, matcher:adas_state_matches] }
       - { step: c, claim: 短時間停止（実車標準の約3秒相当・要校正）に限る時限自動再発進が構成可能（将来段・本要求の受入対象外）,                       met: false, verified_by: [] }
       - { step: d, claim: 発進判断（先行車発進・信号青・横断クリアの複合確認）による完全自動再発進（将来段・vd-func:FUNC-058 依存・本要求の受入対象外）, met: false, verified_by: [] }
     acceptance: >-

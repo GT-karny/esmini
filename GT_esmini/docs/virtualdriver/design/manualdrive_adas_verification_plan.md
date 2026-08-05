@@ -21,10 +21,16 @@
 > **MDA-XODR-02（下り勾配）は作らなかった**——理由は §3-1 の追記を参照。
 > §2-2 の `md-driver-override-brake-reason` はフェーズCで**実証可能になり、実証した**
 > （ACC のブレーキ解除が REASON_BRAKE_PEDAL の初の producer）。
-> 未実装のまま残る §2-3 の 4 slug は `md-acc-cruise-no-lead` / `md-sng-traffic-light-stop` /
-> `md-msl-speed-limit-linked` / `md-kickdown-shared-consistency`（最後の1つは
-> `md_msl_kickdown` で gt.aeb / gt.msl 両行を同一窓で見る形で**実質的に実証済み**だが、
-> 専用 slug としては起こしていない）。
+> ~~未実装のまま残る §2-3 の 4 slug~~ → **★2026-08-05（フェーズD着手時のウォームアップ）で
+> 2 slug を実装・実行した**: `md-sng-traffic-light-stop`（`md_sng_traffic_light`、赤固定の
+> fabriksgatan 交差点。実測: `gt.acc.stop_requested` 574/600 フレーム、停止保持 299 フレーム
+> 連続・変位 0.024 m。**この1本が設計§12の残射程＝TrafficLightAware 本体と分岐路での
+> CopyRoute 起点歩行を同時に閉じた**）と `md-msl-speed-limit-linked`
+> （`md_msl_speed_limit_linked` を `variant` で2構成。実測: `gt.msl.cap_mps` が 13.889
+> 対 7.431、到達速度 13.77 対 7.31）。どちらも実装はフェーズCで入っており、欠けていたのは
+> 刺激だけだった。残るのは `md-acc-cruise-no-lead` と `md-kickdown-shared-consistency`
+> （後者は `md_msl_kickdown` で gt.aeb / gt.msl 両行を同一窓で見る形で**実質的に実証済み**
+> だが、専用 slug としては起こしていない）。
 > **§2-4（LKA・LDW・HMI、フェーズD）と§3-4の常設化（フェーズE）は未実装（計画のみ）**。方式は
 > [manualdrive_adas_design.md](manualdrive_adas_design.md) が真実源であり、本文書はその §10 の
 > フェーズ完了条件（対応する負 matcher が緑）を満たすために何を作るかを定める。

@@ -1,0 +1,44 @@
+scenario: md_msl_speed_limit_linked
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-030 step c (vd-func:FUNC-081), slug md-msl-speed-limit-linked.
+# THE speed_limit_linked=TRUE half of the two-configuration pair; the other half
+# is md_msl_speed_limit_linked_set_speed_only.expectations.yaml, run from the
+# SAME xosc through the manifest's `variant` key. Neither file asserts anything
+# on its own - step c's claim is that one switch decides WHICH number becomes
+# the cap.
+#
+# min_speed_above is the load-bearing row here. The driver's own setting is the
+# vehicle's speed at the instant the stalk was pressed (~7.4 m/s), so exceeding
+# 11 m/s is something this run simply cannot do if the setting is the cap. The
+# other rows are consistency checks; this one is the discriminator.
+#
+# speed_capped_at reads the cap PER FRAME from gt.msl.cap_mps rather than
+# hard-coding 13.889: in linked mode the cap is a property of the road, and a
+# literal would silently stop meaning anything if this scenario were ever
+# re-pointed at a different section.
+#
+# MEASURED (test_results/mdadas_warmup, 2026-08-05): gt.msl.cap_mps == 13.889
+# (the road's posted 50 km/h) on every reported frame, the ego settles at 13.77
+# m/s, and gt.msl reaches ACTIVE at t=3.25. The OTHER pole, same file, same
+# driver, reports cap 7.431 and peaks at 7.31 - the two caps come from visibly
+# different sources, which is the whole claim.
+must:
+  - event: speed_capped_at
+    function: gt.msl
+    cap_key: gt.msl.cap_mps
+    tolerance: 0.6
+    after: { sim_time: 3.0 }
+    before: { sim_time: 15.0 }
+    reason: "連動モードでは道路の制限速度が毎フレームの実効キャップになり、それを超えないこと（REQ-AD-030段c）"
+  - event: min_speed_above
+    threshold: 11.0
+    after: { sim_time: 10.0 }
+    before: { sim_time: 15.0 }
+    reason: "運転者の設定（ON時の約7.4m/s）ではなく道路側（13.889m/s）がキャップであること＝設定がキャップなら原理的に到達できない速度に達することで示す（REQ-AD-030段c。非連動側の実測7.31m/sとの差が両極性）"
+  - event: adas_state_matches
+    function: gt.msl
+    expect: active
+    mode: any
+    after: { sim_time: 3.0 }
+    before: { sim_time: 15.0 }
+    reason: "「有効だが届いていない」(STANDBY)ではなく実際にクランプしている(ACTIVE)フレームがあること"
