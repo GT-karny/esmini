@@ -65,6 +65,7 @@
 | AEB の Car-to-Car グリッド採点 | [measurements/aeb_c2c_grid_matrix.md](measurements/aeb_c2c_grid_matrix.md) |
 | 実機ホイールで移管を測った一次記録 | [measurements/realwheel_handover_results_2026-07.md](measurements/realwheel_handover_results_2026-07.md) |
 | 手動運転中 ADAS の回帰ベースラインを凍結してよいと判断した根拠 | [measurements/manualdrive_adas_determinism_2026-08-06.md](measurements/manualdrive_adas_determinism_2026-08-06.md) |
+| 手動運転中 ADAS が運転席 UI にどう出るか（実走スクリーンショット） | [measurements/manualdrive_adas_hmi_2026-08-06.md](measurements/manualdrive_adas_hmi_2026-08-06.md) |
 
 ## 経緯をたどる
 

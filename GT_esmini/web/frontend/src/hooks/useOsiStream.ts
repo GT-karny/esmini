@@ -18,6 +18,31 @@ export interface OsiObject {
   width: number;
 }
 
+/** One row of HostVehicleData.vehicle_automated_driving_function[].
+ *
+ * Mirrors the backend projection in api/osi_stream.py `_adas_functions_to_json`,
+ * which in turn mirrors the verification harness's own projection -- face 3 and
+ * the dashboard read the same thing under the same names.
+ */
+export interface AdasFunction {
+  /** custom_name, e.g. "gt.aeb" -- the ManualDrive stack's row identity. */
+  key: string;
+  /** OSI Name enum value (3=FCW, 4=LDW, 7=AEB, 10=ACC, 11=LKA, 25=MSL). */
+  name: number;
+  state: number;
+  /** "unavailable" | "standby" | "active" | "errored" | ... */
+  state_name: string;
+  /** gt.* custom_detail key-value pairs; values are pre-formatted strings. */
+  detail: Record<string, string>;
+  driver_override: {
+    /** Whether the channel was written at all -- NOT the same as `active`. */
+    present: boolean;
+    active: boolean;
+    reasons: string[];
+  };
+  custom_state: string;
+}
+
 export interface HvdData {
   sim_time: number;
   throttle: number;
@@ -27,6 +52,8 @@ export interface HvdData {
   rpm: number;
   torque: number;
   speed: number;
+  /** Absent on older/partial frames; the panel treats undefined as []. */
+  adas_functions?: AdasFunction[];
 }
 
 export interface TrafficLight {

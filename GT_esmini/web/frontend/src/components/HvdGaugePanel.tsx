@@ -1,4 +1,5 @@
 import type { HvdMessage, EgoLights } from './OsiLivePanel';
+import type { AdasFunction } from '../hooks/useOsiStream';
 
 /* ---------- SVG arc helpers ---------- */
 
@@ -199,6 +200,149 @@ function LightIndicators({ lights }: { lights: EgoLights }) {
   );
 }
 
+/* ---------- Driver assistance (req-vd-ad:REQ-AD-029) ---------- */
+
+/* Short driver-facing labels for the rows the ManualDrive ADAS stack reports
+ * (design manualdrive_adas_design.md sec8-2). Anything else falls back to its
+ * own custom_name, so a controller that reports rows we do not know about
+ * still shows up honestly instead of vanishing. */
+const ADAS_LABELS: Record<string, string> = {
+  'gt.aeb': 'AEB',
+  'gt.fcw': 'FCW',
+  'gt.acc': 'ACC',
+  'gt.lka': 'LKA',
+  'gt.ldw': 'LDW',
+  'gt.msl': 'Limiter',
+};
+
+function adasLabel(fn: AdasFunction): string {
+  return ADAS_LABELS[fn.key] ?? fn.key.replace(/^gt\./, '') ?? '?';
+}
+
+/* State -> dot colour. The three-value discipline (design sec8-2) has to stay
+ * READABLE here, not just present in the data: "off / not owned"
+ * (unavailable), "watching, has not fired" (standby) and "intervening"
+ * (active) are three different things to a driver. Only ACTIVE gets the accent
+ * colour, so a lit dot always means "this function is doing something to the
+ * car right now". */
+const ADAS_STATE_STYLE: Record<string, { dot: string; text: string }> = {
+  active: { dot: 'bg-cyan-400', text: 'text-foreground' },
+  standby: { dot: 'bg-glass-edge-active', text: 'text-text-secondary' },
+  available: { dot: 'bg-glass-edge-active', text: 'text-text-secondary' },
+  unavailable: { dot: 'bg-glass-edge', text: 'text-text-tertiary' },
+  errored: { dot: 'bg-destructive', text: 'text-foreground' },
+};
+
+/** Numeric gt.* detail value, or null when absent/unparseable. */
+function detailNum(fn: AdasFunction, key: string): number | null {
+  const raw = fn.detail[key];
+  if (raw === undefined) return null;
+  const v = Number(raw);
+  return Number.isFinite(v) ? v : null;
+}
+
+function detailFlag(fn: AdasFunction, key: string): boolean {
+  return fn.detail[key] === 'true';
+}
+
+/** The settings a driver acts on, in the units a driver reads them in.
+ *
+ * Deliberately NOT every gt.* key: the stack emits ~40 of them and they are
+ * diagnostics, not dashboard content. Face 3 keeps all of them (they are in
+ * the telemetry either way); this line carries only what REQ-AD-026 steps e/h
+ * and REQ-AD-030 make the driver responsible for -- if the set speed, the gap
+ * setting and the limiter cap are not visible, changing them while driving is
+ * not a usable feature.
+ */
+function adasSettings(fn: AdasFunction): string | null {
+  const parts: string[] = [];
+  const set = detailNum(fn, 'gt.acc.set_speed_mps');
+  const cap = detailNum(fn, 'gt.acc.effective_cap_mps');
+  const thw = detailNum(fn, 'gt.acc.thw_setting_s');
+  const msl = detailNum(fn, 'gt.msl.cap_mps');
+  if (set !== null) parts.push(`set ${(set * 3.6).toFixed(0)} km/h`);
+  // Only worth the pixels when the road's limit actually pulled the set speed
+  // down -- otherwise it repeats the number to its left.
+  if (cap !== null && set !== null && Math.abs(cap - set) > 0.05) {
+    parts.push(`capped ${(cap * 3.6).toFixed(0)}`);
+  }
+  if (thw !== null) parts.push(`gap ${thw.toFixed(1)} s`);
+  if (msl !== null) parts.push(`max ${(msl * 3.6).toFixed(0)} km/h`);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/** Active warnings, named after the WARNING rather than the row carrying it.
+ *
+ * design sec8-4 puts the flags on the intervening function's row: FCW (forward
+ * collision) rides on gt.aeb.warning and LDW (lane departure) on
+ * gt.lka.warning. Labelling the banner "AEB" or "LKA" would tell the driver
+ * which module raised it instead of what is wrong -- the opposite of what a
+ * warning is for. */
+function adasWarnings(functions: AdasFunction[]): string[] {
+  const out: string[] = [];
+  for (const fn of functions) {
+    if (detailFlag(fn, 'gt.aeb.warning')) out.push('Forward collision');
+    if (detailFlag(fn, 'gt.lka.warning')) out.push('Lane departure');
+  }
+  return out;
+}
+
+function AdasFunctionRow({ fn }: { fn: AdasFunction }) {
+  const style = ADAS_STATE_STYLE[fn.state_name] ?? ADAS_STATE_STYLE.unavailable;
+  const settings = adasSettings(fn);
+  // The driver overrode this function (brake / steering per OSI's Reason enum,
+  // accelerator via custom_state -- the enum has no value for it, design
+  // sec8-3). Shown because "the function is not acting" and "you are holding it
+  // off" are different situations for the person holding the wheel.
+  const overridden =
+    fn.driver_override.active || fn.custom_state.startsWith('DRIVER_OVERRIDE');
+
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${style.dot}`} />
+      <span className={`text-xs font-medium shrink-0 ${style.text}`}>{adasLabel(fn)}</span>
+      {settings && (
+        <span className="text-[10px] font-mono text-text-secondary truncate">{settings}</span>
+      )}
+      {overridden && (
+        <span className="text-[10px] text-warning shrink-0">override</span>
+      )}
+    </div>
+  );
+}
+
+function AdasFunctions({ functions }: { functions: AdasFunction[] }) {
+  if (functions.length === 0) return null;
+
+  const warnings = adasWarnings(functions);
+
+  return (
+    <div className="mt-4">
+      <div className="text-xs text-text-secondary">Driver Assistance</div>
+
+      {/* Warnings first and on their own line. A driver should not have to
+          decode which chip is lit to find out that something is warning them,
+          which is the whole point of REQ-AD-027 step f / REQ-AD-025 step e. */}
+      {warnings.length > 0 && (
+        <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 border border-warning/40 bg-warning/10">
+          <span className="inline-block w-2 h-2 rounded-full bg-warning shrink-0" />
+          <span className="text-xs font-medium text-warning">{warnings.join(' · ')}</span>
+        </div>
+      )}
+
+      {/* Packed left with wrapping rather than an even grid: the settings text
+          varies in width, so equal columns leave the row looking half-empty.
+          Same flow as the Lights row directly above, which keeps the two
+          status groups reading as siblings. */}
+      <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-2">
+        {functions.map((fn) => (
+          <AdasFunctionRow key={fn.key} fn={fn} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Main panel ---------- */
 
 interface HvdGaugePanelProps {
@@ -233,6 +377,8 @@ export function HvdGaugePanel({ hvd, lights }: HvdGaugePanelProps) {
           <LightIndicators lights={lights} />
         </div>
       )}
+
+      {hvd && <AdasFunctions functions={hvd.adas_functions ?? []} />}
     </div>
   );
 }

@@ -57,6 +57,27 @@ _TL_MODE_MAP = {
     5: "counting",
 }
 
+# --- HostVehicleData.VehicleAutomatedDrivingFunction.State enum (osi3) ---
+#
+# req-vd-ad:REQ-AD-029 (driver-facing HMI). The three-value discipline the
+# ManualDrive ADAS stack reports on (design manualdrive_adas_design.md sec8-2)
+# is UNAVAILABLE / STANDBY / ACTIVE: "switched off or not owned", "watching but
+# not triggered" and "intervening". The remaining values are carried through
+# rather than folded into "unknown" -- collapsing them here would make a
+# reporting bug (ERRORED) look like a quiet function on the dashboard.
+_ADAS_STATE_MAP = {
+    0: "unknown",
+    1: "other",
+    2: "errored",
+    3: "unavailable",
+    4: "available",
+    5: "standby",
+    6: "active",
+}
+
+# --- ...DriverOverride.Reason enum (osi3; only two values exist) ---
+_ADAS_OVERRIDE_REASON_MAP = {0: "brake_pedal", 1: "steering_input"}
+
 # --- VehicleClassification.Type enum ---
 _VEHICLE_CLASS_MAP = {
     0: "unknown",
@@ -192,6 +213,57 @@ def _gt_to_json(raw: bytes) -> dict | None:
     return result
 
 
+def _adas_functions_to_json(hvd: HostVehicleData) -> list[dict]:
+    """Project vehicle_automated_driving_function[] for the driver-facing HMI.
+
+    req-vd-ad:REQ-AD-029 steps a/b (state, settings, warnings) and step c (the
+    supply is the EXISTING HVD wiring -- UDP 48199 -> OSIBridge -> this
+    projection -> the /ws/osi WebSocket; no display-only channel is dug).
+
+    The shape deliberately MIRRORS the verification harness's own projection
+    (gt_sim_test.py `_hvd_to_dict`, verification plan sec7-3) -- same keys, same
+    enum spellings -- so face 3 (matchers) and the dashboard are reading the
+    same thing under the same names. A row is emitted for every function the
+    vehicle reports, in report order; the ManualDrive stack writes
+    gt.aeb / gt.fcw / gt.acc / gt.lka / gt.ldw / gt.msl (design sec8-2), other
+    controllers write their own rows and are unaffected.
+
+    `driver_override.present` is kept distinct from `active` for the same
+    reason face 3 keeps it (design sec8-3): an absent submessage means "nobody
+    wrote this channel", an explicit active=false means "evaluated, no
+    override". Rendering them the same would make a dead populate path look
+    like a driver who is not overriding anything.
+    """
+    rows: list[dict] = []
+    for func in hvd.vehicle_automated_driving_function:
+        override_present = func.HasField("driver_override")
+        rows.append(
+            {
+                "key": func.custom_name,
+                "name": func.name,
+                "state": func.state,
+                "state_name": _ADAS_STATE_MAP.get(func.state, "unknown"),
+                "detail": {kv.key: kv.value for kv in func.custom_detail},
+                "driver_override": {
+                    "present": override_present,
+                    "active": (
+                        bool(func.driver_override.active) if override_present else False
+                    ),
+                    "reasons": (
+                        [
+                            _ADAS_OVERRIDE_REASON_MAP.get(r, "unknown")
+                            for r in func.driver_override.override_reason
+                        ]
+                        if override_present
+                        else []
+                    ),
+                },
+                "custom_state": func.custom_state,
+            }
+        )
+    return rows
+
+
 def _hvd_to_json(raw: bytes) -> dict | None:
     """Convert raw HostVehicleData protobuf to a lightweight JSON dict for the frontend."""
     hvd = HostVehicleData()
@@ -250,6 +322,7 @@ def _hvd_to_json(raw: bytes) -> dict | None:
         "rpm": round(rpm, 1),
         "torque": round(torque, 1),
         "speed": round(speed, 3),
+        "adas_functions": _adas_functions_to_json(hvd),
     }
 
 
