@@ -1198,9 +1198,9 @@ requirements:
       専用刺激は持たず、REQ-AD-025/026/027/030 の刺激で HMI 側の提示を確認する
       （観測性 REQ-AD-028 と同じ横断適用）。
     acceptance_ladder:
-      - { step: a, claim: 状態・設定値が運転席 UI（ManualDrivePanel / HvdGaugePanel）に表示される,            met: false, verified_by: [] }
-      - { step: b, claim: 警報（FCW/LDW）が運転者に提示される（UI 必須。FFB パルス・音は拡張オプション）,     met: false, verified_by: [] }
-      - { step: c, claim: 提示は HVD（48199）の既存配線（osi_bridge）由来＝表示専用の面2直結経路を新設しない, met: false, verified_by: [] }
+      - { step: a, claim: 状態・設定値が運転席 UI（HvdGaugePanel）に表示される,                              met: true,  verified_by: [] }
+      - { step: b, claim: 警報（FCW/LDW）が運転者に提示される（UI 必須。FFB パルス・音は拡張オプション）,     met: true,  verified_by: [] }
+      - { step: c, claim: 提示は HVD（48199）の既存配線（osi_bridge）由来＝表示専用の面2直結経路を新設しない, met: true,  verified_by: [] }
     acceptance: >-
       表示そのものはフロントエンドの領分で自動 matcher の対象外（目視確認＋フロント側
       テスト流儀）。自動判定するのは emit 側＝状態・設定値・警報が HVD
@@ -1209,7 +1209,7 @@ requirements:
     realized_by: [vd-func:FUNC-075]
     verified_by: []
     related: [req-vd-ad:REQ-AD-028, req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-027, req-vd-ad:REQ-AD-030]
-    status: future
+    status: done
     note: >-
       REQ-AD-028（面3=検証環境向け観測性）と対を成す運転者向け提示（2026-08-04 精査で採用）。
       運転者が設定速度・車間段階を見られないと REQ-AD-026 段 e/h の走行中操作は実用に
@@ -1217,6 +1217,35 @@ requirements:
       vehicle_automated_driving_function[] の描画拡張が実体（現状の描画範囲は未調査）。
       警報提示チャネル（UI/FFB パルス/音）は FUNC-075 横断基盤に置き、
       FCW（REQ-AD-025 段 e）と LDW（REQ-AD-027 段 f）で共有する。
+
+      **★2026-08-06 フェーズEで段a/b/c を met へ**（実装 commit: HvdGaugePanel の
+      Driver Assistance 節 ＋ `GT_esmini/web/backend/api/osi_stream.py` の
+      `_adas_functions_to_json`）。
+
+      **`verified_by` が空のままなのは記帳漏れではない**。この要求の判定は3つに割れており、
+      そのうち自動 matcher で測れる部分が無いからである（検証計画 §6 の第3区分）:
+
+      | 部分 | どう確かめたか |
+      | :--- | :--- |
+      | 供給（HVD の行が web バックエンドの射影を通って WebSocket に乗る） | pytest 7件 `GT_esmini/web/backend/tests/test_osi_stream_adas_functions.py`。State 3値・設定値の custom_detail・DriverOverride の present/active 区別・accel 起因の custom_state が落ちないことを固定 |
+      | 描画（段a/b） | 実アプリを走らせた目視＋スクリーンショット `GT_esmini/docs/virtualdriver/measurements/manualdrive_adas_hmi_2026-08-06.md` |
+      | 新経路を掘らない（段c） | 実装レビュー基準。供給元が既存 HVD 配線ただ1つであることは上の pytest の import が示す |
+
+      無理に matcher を作らないのは、作れば**画面に何も出ていなくても緑になる matcher**に
+      なるためである——面3が測れるのは HVD までで、その先の描画は面3の観測範囲の外にある。
+      ここで matcher を1つ足すと、REQ-AD-028（面3観測性）と同じものを二度数えたうえで、
+      HMI が verified であるかのように見せることになる。
+
+      **目視が実際に仕事をした記録**: 最初の実装は警報バンドにフラグを載せている行の名前
+      （`AEB` / `LKA`）を出していた。設計 §8-4 が警報フラグを介入側の行に置くためで、
+      データとしては正しい。運転者にとっては「どのモジュールが上げたか」であって
+      「何が危ないか」ではないので、`Forward collision` / `Lane departure` へ直した。
+      合成データを眺めていては気づけない型の誤りで、この区分を目視に置いている理由そのもの。
+
+      **ManualDrivePanel には出していない**（要求文の「ManualDrivePanel / HvdGaugePanel」から
+      片方を落とした）。ManualDrivePanel は実行フォーム側の**設定**パネルで HVD を購読して
+      おらず、ここに表示を足すには段c が禁じている供給経路を新設することになる。
+      運転席のライブ表示は OsiLivePanel 配下の HvdGaugePanel 一箇所である。
 
   - id: REQ-AD-030
     title: 手動運転中の速度リミッター（MSL・制限速度連動オプション）

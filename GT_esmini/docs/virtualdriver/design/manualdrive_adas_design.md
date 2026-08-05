@@ -38,7 +38,17 @@
 > 既存回帰ベースライン5本（計31シナリオ）は deviations=0 で不動、ODR 適合 quick 緑。
 > **§5-1 の「オフセットの直接閾値」は実装で margin 次元へ置き換えた**（§5-1 の★訂正）。
 > **要校正閾値のうち3つは当初値が到達不能で、走らせる前に算術で直した**（§12 の★追記）。
-> **フェーズE（常設化）は未実装（設計のみ）**。
+> **フェーズE（常設化、2026-08-06）完了 — 本設計の全フェーズが閉じた**:
+> `manualdrive_adas_batch`（30 シナリオ・82 matcher）を常設ゲート
+> `gate:manualdrive-adas-regression` として配線（`run_regression_gate.ps1` Step 2.10、
+> CI は既存 `vd-behavioral-regression` job へ相乗り。AEB 前例どおり**非ブロッキング開始**）、
+> committed baseline を凍結、REQ-AD-029（HMI）を HvdGaugePanel へ実装。
+> フェーズE実測: 同一ビルドで**3回連続実行し 30/30 pass・error=0・決定フィールドが
+> 20,400 フレーム全一致**（自己決定論性コントロール）を確認してからベースラインを凍結。
+> 既存回帰5本は不動、C++ ユニット 771/771 緑、web バックエンド pytest 400/400 緑
+> （REQ-AD-029 供給側の新規7件を含む）。
+> **§10 の完了条件で残るのは G29 実機限定の観点のみ**（§12 と
+> `field-test/realmachine_open_items.md` R-5〜R-8）。
 > 検証資産は別文書（manualdrive_adas_verification_plan.md）が扱う。
 > 知識グラフ: `req-vd-ad:REQ-AD-025`（手動AEB）/ `REQ-AD-026`（手動ACC）/ `REQ-AD-027`（手動LKA）/
 > `REQ-AD-028`（面3観測性）/ `REQ-AD-029`（HMI提示）/ `REQ-AD-030`（速度リミッター）/ `REQ-AD-031`（Stop&Go）、
@@ -460,7 +470,7 @@ FCW の発火点は2値のペアで決まる以上、片方だけが config か�
 | **B**（済 2026-08-05） | 観測列: DriverOverride populate（§8-3）、custom_state、状態機械の 3 値規律、REQ-AD-028 の matcher、＋フェーズA残債の `warning_min_a_req_mps2` config 化（§9） | 上書き検出の正負 matcher 緑 → **達成**（正=`md_aeb_kickdown_suppress` のキックダウン窓、負=`md_aeb_unresponsive`、対照=同 run の `gt.fcw` 行）。3値規律は同一 xosc を `adas_aeb_enabled` の true/false 2構成で回す対（バッチの `variant` キー）で示す。**ただし段b claim のうち brake/steer 経路は producer が C/D にしか無いため未実証** |
 | **C**（済 2026-08-05） | ACC 列: AccLonController、操作系（ボタン、set/resume、速度と THW の走行中変更）、速度域ゲート、制限速度キャップ、Stop&Go 段a/b、MSL（§6。ACC と部品を共有するため同フェーズ） | 追従、解除と復帰、設定変更反映、停止と人間再発進、構成両極性のバッチ緑 → **達成**（20/20 シナリオ・51 matcher 緑、正負同居。両極性は同一 xosc の `variant` 2構成＝制限速度キャップ有無・停止対象構成。ACC作動中の AEB 独立発火も `md_acc_aeb_independence` で実証） |
 | **D**（済 2026-08-05） | LKA 列: LaneKeepAssist 新設、TLC 判定、人間操舵優先、LDW、警報チャネルの UI 配線（REQ-AD-029） | 補正と非介入の正負バッチ緑 → **達成**（30/30 シナリオ・82 matcher 緑。1本の xosc `md_lka_drift` を `variant` で 5 構成＝左右対・warning_only・速度域の域外/域内、＋ `md_lka_human_steer` / `md_lka_lane_change_with_indicator`。REQ-AD-028 段b のステア経路もここで閉じた）。**REQ-AD-029 の UI 配線は未着手**——emit 側（HVD の gt.lka/gt.ldw 行）は揃ったが、HvdGaugePanel への描画とその目視確認はフェーズE の「HvdGaugePanel の目視確認」と同じ作業なのでそちらへ寄せた |
-| **E** | 常設化: `manualdrive_adas_batch` の回帰ゲート組み込み（非ブロッキング開始 → 昇格は AEB 前例）、CI 相乗り、HvdGaugePanel の目視確認、docs | ゲート常設とベースライン commit |
+| **E**（済 2026-08-06） | 常設化: `manualdrive_adas_batch` の回帰ゲート組み込み（非ブロッキング開始 → 昇格は AEB 前例）、CI 相乗り、HvdGaugePanel の目視確認、docs | ゲート常設とベースライン commit → **達成**（`gate:manualdrive-adas-regression`＝Step 2.10 ＋ CI 相乗り ＋ `GT_esmini/test/regression_baseline/manualdrive_adas_expected.yaml`。凍結前に3回連続実行の自己決定論性コントロールを通した＝`measurements/manualdrive_adas_determinism_2026-08-06.md`。REQ-AD-029 は HvdGaugePanel の Driver Assistance 節として実装し、実走スクリーンショットを `measurements/manualdrive_adas_hmi_2026-08-06.md` に一次記録）。**CI 上での初回実走は未観測**——同 job は PR / dev_v* / master / 手動 dispatch でしか起動しないため、非ブロッキングで開始する理由もそこにある |
 
 フェーズ A に検証ハーネスの ManualDrive 対応を含めるのは、これが無いと A の完了条件自体が判定できないためである（gt_sim_test は現状 VD テレメトリ必須で、ManualDrive 走行は frames=0 で即エラーになる）。
 
@@ -490,6 +500,17 @@ FCW の発火点は `warning_ttc_threshold_s` と `warning_min_a_req_mps2` の�
 FCW ゲートと AEB 介入ゲートは候補**選定**パラメータ（lookahead・lateral_tol・stop_margin）を共有しており、両者とも `AebSafety` の3フレーム侵入デバウンスが候補を認識するまで発火できない。
 cut-in のように候補が突発的に出現する遭遇では、デバウンスが解けた瞬間に両ゲートの閾値をほぼ同時に跨ぐためリードが潰れる（実測: リード0.000s、`md_aeb_unresponsive`）。
 段eの≥0.8sリードは、候補が徐々に閾値へ近づく遭遇（同一車線上の先行車・停止車接近）でのみ成立する。この制約自体を仕様として認めるか、候補選定パラメータをFCW側だけ緩めて先出しできるようにする改修が必要かは、フェーズB以降の判断課題として残る。
+
+**★2026-08-06 追加（フェーズE）: 語彙外の値は「間違い」ではなく「数え落とし」として出る**。
+`function_catalog_vd_ad.yaml` の `status` は `built|partial|none|oos` が語彙だが、
+フェーズDが `implemented` という**もっともらしい綴り**を入れており、以後フェーズE までに4件へ増えていた。
+YAML として妥当・lint も黙る・しかし `--spine-matrix` の ③実装 のどのカウンタにも入らないので、
+実装済みの機能が行列の上では未実装のまま居座る——実際 `req実装 built` を 11/28 と報告しており
+（正しくは 18/28）、「未実装req」に実装済みの要求が7件並んでいた。
+**症状が「増えない」なので目視では気づけない**（数字は毎回もっともらしい）。
+語彙を lint で機械的に閉じ、意図的な違反データで両極性を実証した
+（`scripts/test_check_knowledge_graph.py`）。
+一般化: **統制語彙のフィールドに検査が無いと、typo ではなく「別の妥当な語」で壊れる**。
 
 **RealVehicleBackend の HVD ハンドル角欄**。
 RealVehicleBackend.cpp:133-134 は内部 `current_hvd_` のハンドル角欄にタイヤ角を書いており、FFB / Coordinator / VD が一貫してタイヤ角として読むことで内部整合が取れている。

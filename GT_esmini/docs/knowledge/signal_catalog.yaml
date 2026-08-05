@@ -448,6 +448,14 @@ signals:
       → **2026-08-05 のフェーズBで消費者が実在したため新設した**（下記
       `manualdrive_driver_override`）。上の②「OSI DriverOverride populate ゼロ」も同時に解消。
 
+      **★2026-08-06（フェーズE / req-vd-ad:REQ-AD-029）: 消費者が面3だけではなくなった**。
+      運転席 UI（`GT_esmini/web/frontend/src/components/HvdGaugePanel.tsx`）が、
+      web バックエンドの射影（`api/osi_stream.py` の `_adas_functions_to_json`）を通して
+      同じ HVD 行を読む。matcher と HMI が**同じ経路・同じ綴り**を読むのは意図的で
+      （表示専用の面2直結経路を新設しないのが REQ-AD-029 段c）、代償として
+      **gt.* キー名の改名は matcher だけでなく運転席の表示も同時に壊す**。HMI が名前で読むのは State 列と `gt.aeb.warning`（FCW 警報）である。
+
+
   - id: manualdrive_driver_override
     title: ManualDrive の運転者上書き事象（DriverOverride / custom_state）
     exposure: [hvd, frame]
@@ -515,6 +523,14 @@ signals:
       run と、設定を保存して適用しない実装は、どちらも定数列を作る。区別できないまま緑に
       するくらいなら赤にする、という判断を matcher 側が実装している。
 
+      **★2026-08-06（フェーズE / req-vd-ad:REQ-AD-029）: 消費者が面3だけではなくなった**。
+      運転席 UI（`GT_esmini/web/frontend/src/components/HvdGaugePanel.tsx`）が、
+      web バックエンドの射影（`api/osi_stream.py` の `_adas_functions_to_json`）を通して
+      同じ HVD 行を読む。matcher と HMI が**同じ経路・同じ綴り**を読むのは意図的で
+      （表示専用の面2直結経路を新設しないのが REQ-AD-029 段c）、代償として
+      **gt.* キー名の改名は matcher だけでなく運転席の表示も同時に壊す**。HMI が名前で読むのは `set_speed_mps` / `effective_cap_mps` / `thw_setting_s` の3つ。
+
+
   - id: manualdrive_msl_cap
     title: 手動運転中 速度リミッター（MSL）の実効キャップとクランプ状態
     exposure: [hvd, frame]
@@ -575,6 +591,14 @@ signals:
       消費者: matcher:lane_kept_within（`offset_m` + `lane_id`）、matcher:steer_output_absent
       （`correction`）、matcher:adas_state_matches（状態列は manualdrive_adas_states 側）、
       matcher:driver_override_reported（上書き欄は manualdrive_driver_override 側）。
+
+      **★2026-08-06（フェーズE / req-vd-ad:REQ-AD-029）: 消費者が面3だけではなくなった**。
+      運転席 UI（`GT_esmini/web/frontend/src/components/HvdGaugePanel.tsx`）が、
+      web バックエンドの射影（`api/osi_stream.py` の `_adas_functions_to_json`）を通して
+      同じ HVD 行を読む。matcher と HMI が**同じ経路・同じ綴り**を読むのは意図的で
+      （表示専用の面2直結経路を新設しないのが REQ-AD-029 段c）、代償として
+      **gt.* キー名の改名は matcher だけでなく運転席の表示も同時に壊す**。HMI が名前で読むのは `gt.lka.warning`（LDW 警報）である。
+
 
   - id: override_domain_state
     title: 操作権限ドメイン（lat/lon が manual か scenario か）

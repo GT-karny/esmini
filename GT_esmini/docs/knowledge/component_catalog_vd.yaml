@@ -128,6 +128,44 @@ components:
   # LaneKeepAssist も同じ性格（純ロジック・エンジン非依存・単体テスト可能）である。
   # 置き場所を分けるより、cross-cutting として同居させる方が「実装側ノード」の語彙が
   # 割れずに済む。
+  - id: adas-coexistence-stack
+    title: 手動運転中 ADAS の並行稼働スタック
+    layer: cross-cutting
+    interface: '-'
+    path: GT_esmini/src/control/manualdrive/AdasCoexistenceStack.cpp
+    note: >-
+      ManualDriveCoordinator の cmd 確定後・バス publish 前という一点で、AEB / FCW / ACC /
+      LKA / LDW / MSL を人間の入力の上に重ねる。ここが持つのは**調停の順序と報告**であって
+      個々の判断ではない——判断は AebSafety（既存 policy、ゼロ改修で流用）や
+      AccLonController / LaneKeepAssist / SpeedLimiter が持つ。
+      PedalArbitrator（縦の合成規則＝安全段は max 合成で上乗せしない）と
+      KickdownDetector（アクセル全踏みのラッチ、AEB 抑制と MSL 一時解除が共有）も
+      このユニットの内側にある。段の順序こそが「リミッターが安全段を拒否できない」を
+      決めるので、順序を持つ場所を1つにしてある。
+
+  - id: acc-lon-controller
+    title: 手動運転中の ACC（Stop&Go 含む）
+    layer: operational
+    interface: '-'
+    path: GT_esmini/src/control/manualdrive/AccLonController.cpp
+    note: >-
+      設定速度を上限とし THW を維持する縦制御を、人間がステアを握ったまま重ねる。
+      速度ループは**加速度領域**で回して envelope で clamp してからペダル参照値で割る
+      ——ペダル領域で作ると誤差が大きい瞬間に指令が飽和し、快適上限の config が
+      何も制限しない飾りになる（設計 §12 の一般化: 上限はそれが定義されている次元で掛ける）。
+      停止保持の判定しきい値は AT クリープの実測床より上に置く必要がある（同）。
+
+  - id: speed-limiter
+    title: 手動運転中の速度リミッター（MSL）
+    layer: operational
+    interface: '-'
+    path: GT_esmini/src/control/manualdrive/SpeedLimiter.cpp
+    note: >-
+      人間のスロットルを設定速度で片側クランプするだけの縮退版 envelope。ブレーキは
+      出さない（`gt.msl.brake_out` が恒等的に 0 なのはそのため）。キックダウンによる
+      一時解除は AEB 抑制と同じ KickdownDetector を共有する＝2つの機能が同じ入力事象を
+      別々に解釈しないことを部品の共有で保証している。
+
   - id: lane-keep-assist
     title: 手動運転中のレーンキープ補助（LKA / LDW）
     layer: cross-cutting

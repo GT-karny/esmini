@@ -376,7 +376,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/component_catalog_vd.yaml
     status: active
-    count: 12
+    count: 15
     notes: >-
       2026-08-02 新設。**動機**: 3段チェーン（実装 -> realizes -> vd-func -> realizes -> req）の
       実装側ノードは `policy`（ITrafficPolicy 実装）しか登録されておらず、プランナー・

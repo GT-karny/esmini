@@ -95,6 +95,17 @@ EXPOSURE_VALUES = {"osi", "hvd", "frame", "derived", "debug"}
 # （表記ゆれで倒すのは検査の目的ではない。正準は ASCII 側）。
 STATE_VALUES = {"(a)", "(b)", "(b')", "●", "(-)", "(–)"}
 FACE_VALUES = {"1", "2", "3", "cross"}
+# vd-func の実装状況。function_catalog_vd_ad.yaml のヘッダが定義する語彙で、
+# --spine-matrix の ③実装 セル（built/partial/none/oos の内訳と「未実装req」の導出）が
+# これを直接数える。
+#
+# hard にした理由（2026-08-06）: 語彙外の 'implemented' が 4件混入していた。
+# YAML としては妥当、lint も黙る、しかし **どのカウンタにも入らない**ので、
+# 実装済みの機能が行列の上では未実装のまま居座る——実際に req実装 built を 11/28 と
+# 報告しており（正しくは 18/28）、「未実装req」に 7件の実装済み要求が並んでいた。
+# 値が間違っているのではなく **数え落とされる** 型の欠陥で、症状が「増えない」なので
+# 目視では気づけない。語彙を機械で閉じる。
+FUNC_STATUS_VALUES = {"built", "partial", "none", "oos"}
 # 面1が面3に対して負う唯一の観測IF（§0.2）。exposure がこの集合と交わらない
 # signal を verdict に使う経路は結合負債。
 CANONICAL_EXPOSURE = {"osi", "hvd"}
@@ -307,6 +318,13 @@ def check_catalog_values(catalogs: dict, namespaces: dict, err) -> None:
     component_ids = {c.get("id") for c in catalogs["vd-component"]}
     policy_re = _ns_re(namespaces.get("policy", {}))
     for i, f in enumerate(catalogs["vd-func"]):
+        # status は --spine-matrix の ③実装 が直接数える語彙（FUNC_STATUS_VALUES の
+        # コメント参照）。語彙外は「間違った値」ではなく「数え落とされる値」になる。
+        status = f.get("status")
+        if status not in FUNC_STATUS_VALUES:
+            err(f"function_catalog_vd_ad.yaml functions[{i}] ({f.get('id', '?')}): "
+                f"未知の status '{status}' (許容: {'/'.join(sorted(FUNC_STATUS_VALUES))})"
+                " — 語彙外の値は --spine-matrix の ③実装 のどのカウンタにも入らない")
         by = f.get("by")
         if by is None or by == "" or by == "road":
             continue

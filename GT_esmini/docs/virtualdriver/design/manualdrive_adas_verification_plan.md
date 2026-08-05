@@ -349,6 +349,25 @@ ManualDrive の決定フィールドは、ADAS 調停後の実効ペダル/操�
 - 既存 matcher（THW 系など telemetry 併用のもの）の流用可否の最終確定（§4-2。ハーネス改修後）
 - TrafficLightAware / StopYieldSignAware の非依存性の実走確認（設計書 §12）。結果次第で §3-2 の Stop&Go 資産の構成が変わる
 - キックダウン、TLC、速度域の各閾値の校正値（拡張バッチで校正してから常設バッチの期待値を固定する）
-- HMI フロントテストの粒度（029a/b。フロント側のテスト流儀に合わせてフェーズ D で確定）
-- 常設ゲートの Step 番号と CI 配線（フェーズ E。非ブロッキング開始 → 昇格は AEB 前例に従う）
+- ~~HMI フロントテストの粒度（029a/b）~~ → **★2026-08-06 フェーズEで確定**。
+  `GT_esmini/web/frontend` には**テストランナーが1つも無い**（`build`＝tsc と `lint`＝eslint だけ）。
+  「フロント側のテスト流儀に合わせる」を字義どおり取れば、合わせる先が無い。
+  そこで新しいテストスタックを導入せず、**web バックエンドの pytest 流儀**
+  （`backend/tests/test_osi_bridge_reassembly.py` と同型）に載せた:
+  自動判定するのは**供給**＝HVD の行が `api/osi_stream.py` の射影を通って WebSocket に乗ること
+  （`test_osi_stream_adas_functions.py`、7件）。描画そのものは目視＋スクリーンショット、
+  段c は実装レビュー基準——§6 の3区分をそのまま実行しただけである。
+  **粒度をここに置いた理由**: 描画を自動判定しようとすると面3の観測範囲の外へ出る。
+  一方で「射影がキーを落とす／`driver_override.present` を `active` に潰す／state を改名する」は
+  画面を黙らせる or 嘘をつかせる欠陥で、**良い日に撮ったスクリーンショットでは後から捕まらない**。
+  機械が守るべきはそこだけで、その線を越えると「画面に何も出ていなくても緑の matcher」ができる。
+- ~~常設ゲートの Step 番号と CI 配線（フェーズ E）~~ → **★2026-08-06 フェーズEで確定**。
+  ローカルは `run_regression_gate.ps1` **Step 2.10**（2.6-2.9 と同じ族＝共有関数
+  `Invoke-BehavioralBatch`・別マニフェスト・別ベースライン・`-SkipManualAdas`・既定 WARN。
+  番号は連番ラベルで小数ではない）、CI は既存 `vd-behavioral-regression` job へ相乗り
+  （独立 job にすると Release ビルドが二重化する＝AEB 前例）＋別 artifact。
+  非ブロッキング開始。**CI 上での初回実走は未観測**で、それ自体が非ブロッキングの理由である
+  ——本バッチは ManualDriveController 配下で OSI scene ＋ in-process HVD からフレームを取る
+  唯一のバッチであり、その経路が CI ランナーで同じに振る舞うかが示されていない。
+  昇格手順は `gate_catalog.yaml` の note に。
 - FFB パルス / 音の警報チャネル拡張が実装された場合の検証形（現計画では口だけ切って既定 OFF）
