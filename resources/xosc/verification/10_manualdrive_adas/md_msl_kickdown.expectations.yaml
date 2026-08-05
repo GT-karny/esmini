@@ -1,0 +1,52 @@
+scenario: md_msl_kickdown
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-030 step b (vd-func:FUNC-081), slugs md-msl-kickdown-release
+# and md-kickdown-shared-consistency (design §3-3).
+#
+# MEASURED (test_results/mdadas_measure, 2026-08-05): gt.msl walks
+# unavailable -> standby@1.00 -> active@1.25 -> standby@8.00 (kickdown releases
+# the cap) -> active@16.15 (the cap returns). gt.msl.kickdown and
+# gt.aeb.kickdown are true/false together on every sampled frame.
+#
+# THE THREE PHASES ARE THE TEST. Without the first clamped phase, "not
+# limiting" during the kickdown could not be told apart from "the cap was never
+# reached"; without the third, a limiter that released PERMANENTLY would pass.
+must:
+  - event: adas_state_sequence
+    function: gt.msl
+    expect: [unavailable, standby, active, standby, active]
+    after: { sim_time: 0.0 }
+    before: { sim_time: 22.0 }
+    reason: "全踏みで一時解除され、離すと復帰すること＝解除が temporary であること（REQ-AD-030段b）"
+
+  - event: driver_override_reported
+    function: gt.msl
+    expect_active: true
+    expect_custom_state: DRIVER_OVERRIDE_ACCEL
+    mode: all
+    after: { sim_time: 8.5 }
+    before: { sim_time: 15.5 }
+    reason: "解除がアクセル起因の運転者上書きとして custom_state に出ること（REQ-AD-030段b / REQ-AD-028段b）"
+
+  # design §3-3: AEB suppression and MSL release must be the SAME edge from ONE
+  # shared detector. The only way to observe "the same" from outside is to have
+  # both functions reporting in one run -- so AEB is enabled here with nothing
+  # to fire at, and its override channel is asserted over the identical window.
+  # A refactor that gave either function its own threshold shows up as these
+  # two rows disagreeing.
+  - event: driver_override_reported
+    function: gt.aeb
+    expect_active: true
+    expect_custom_state: DRIVER_OVERRIDE_ACCEL
+    mode: all
+    after: { sim_time: 8.5 }
+    before: { sim_time: 15.5 }
+    reason: "同一のキックダウン検出でAEB抑制とMSL解除が同時に立つこと（設計§3-3、md-kickdown-shared-consistency）。閾値が分岐すると片方だけ赤になる"
+
+  - event: driver_override_reported
+    function: gt.msl
+    expect_active: false
+    mode: all
+    after: { sim_time: 17.0 }
+    before: { sim_time: 22.0 }
+    reason: "アクセルを戻した後は上書きが終わっていること（永続解除でないことの負の対照）"

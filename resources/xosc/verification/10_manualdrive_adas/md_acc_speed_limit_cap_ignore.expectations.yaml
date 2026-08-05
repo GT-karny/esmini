@@ -1,0 +1,27 @@
+scenario: md_acc_speed_limit_cap
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-026 step g, the respect_speed_limit=FALSE pole. Same xosc,
+# same road, same driver as md_acc_speed_limit_cap.expectations.yaml -- the ONLY
+# difference is the config switch (manifest `variant: ignore_limit`).
+#
+# WHY THIS ROW EXISTS. Without it the positive row would pass just as happily on
+# an implementation that ALWAYS honours the road limit and never reads the
+# config at all. Step g's claim is about configurability, so the evidence has to
+# be a difference between two runs, not a value in one. Do not delete either
+# row: each is meaningless alone.
+#
+# MEASURED: with the switch off the ego holds 22.7-23.0 m/s straight through the
+# 50 km/h section -- i.e. the road limit is visibly NOT applied.
+must:
+  - event: min_speed_above
+    threshold: 20.0
+    after: { sim_time: 16.0 }
+    before: { sim_time: 20.0 }
+    reason: "respect_speed_limit無効時は制限速度区間でも設定速度付近（>20m/s）を維持すること＝有効時（13.9m/s）との差が構成の両極性（REQ-AD-026段g）"
+  - event: adas_state_matches
+    function: gt.acc
+    expect: active
+    mode: all
+    after: { sim_time: 2.0 }
+    before: { sim_time: 20.0 }
+    reason: "両極性の対照として、状態は有効時と同じACTIVEであること（違いは実効上限だけ）"

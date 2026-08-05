@@ -3,8 +3,11 @@
   phase A (req-vd-ad:REQ-AD-025): manual_aeb_fires, no_intervention_in_window,
       brake_not_stacked, fcw_leads_intervention, adas_state_matches
   phase B (req-vd-ad:REQ-AD-028 step b): driver_override_reported
+  phase C (req-vd-ad:REQ-AD-026 / 030 / 031): adas_state_sequence,
+      setting_reflected, speed_capped_at, no_brake_output,
+      stop_hold_stationary, restart_after_trigger
 
-This module IS the red-proof asset for these six matchers. Per
+This module IS the red-proof asset for these twelve matchers. Per
 docs/virtualdriver/design/manualdrive_adas_verification_plan.md §4-1, a new
 matcher needs a red-proof asset before it can go on a standing gate; an E2E
 red is impractical here because the ManualDrive/HVD producing side is not in
@@ -841,3 +844,475 @@ def test_driver_override_reported_fcw_row_is_the_in_run_negative_control():
         _kickdown_frames(),
     )
     assert r["status"] == "pass", r["detail"]
+
+
+# ===========================================================================
+# PHASE C (req-vd-ad:REQ-AD-026 / REQ-AD-030 / REQ-AD-031)
+#
+# Red proofs for the six matchers phase C adds: adas_state_sequence,
+# setting_reflected, speed_capped_at, no_brake_output, stop_hold_stationary
+# and restart_after_trigger. Same discipline as the phase A/B blocks above --
+# every green has a red sibling that perturbs exactly one thing, every red
+# asserts on the specific quantity in `detail`, and every vacuous-pass route
+# (empty window, unwritten channel, stimulus that never happened) is pinned to
+# skip or fail rather than pass.
+#
+# Unlike phase A/B, these six ALSO have live E2E greens in
+# manualdrive_adas_batch.yaml (20/20 as of 2026-08-05). The unit reds are still
+# the red-proof asset of record: an E2E red for, say, "the setting was stored
+# but never applied" would need a deliberately broken build.
+# ===========================================================================
+
+
+def _acc_rec(state_name: str, detail: dict | None = None) -> dict:
+    rec = _adas_rec(state_name, detail)
+    rec["name"] = 10  # NAME_ADAPTIVE_CRUISE_CONTROL
+    return rec
+
+
+def _ego_frame(t: float, *, x: float = 0.0, speed: float = 0.0, adas=None) -> dict:
+    fr = _frame(t, adas)
+    fr["ego"] = {"x": x, "y": 0.0, "h": 0.0, "speed": speed}
+    return fr
+
+
+# ---------------------------------------------------------------------------
+# adas_state_sequence
+# ---------------------------------------------------------------------------
+
+
+def _sequence_frames(states: list[str]) -> list[dict]:
+    return [_frame(i * 0.5, {"gt.acc": _acc_rec(s)}) for i, s in enumerate(states)]
+
+
+def test_adas_state_sequence_green_on_the_expected_order():
+    frames = _sequence_frames(
+        ["unavailable"] * 2 + ["standby"] * 3 + ["active"] * 4 + ["standby"] * 2
+    )
+    r = eval_must(
+        {
+            "event": "adas_state_sequence",
+            "function": "gt.acc",
+            "expect": ["unavailable", "standby", "active", "standby"],
+        },
+        frames,
+    )
+    assert r["status"] == "pass", r["detail"]
+    assert "in order" in r["detail"]
+
+
+def test_adas_state_sequence_red_when_a_transition_never_happens():
+    """The cancel never arrives: the run stays ACTIVE to the end. This is the
+    shape of a broken brake-cancel, and it must FAIL rather than pass on a
+    subsequence that quietly matched the first three entries."""
+    frames = _sequence_frames(["unavailable"] * 2 + ["standby"] * 2 + ["active"] * 6)
+    r = eval_must(
+        {
+            "event": "adas_state_sequence",
+            "function": "gt.acc",
+            "expect": ["unavailable", "standby", "active", "standby"],
+        },
+        frames,
+    )
+    assert r["status"] == "fail", r["detail"]
+    assert "stopped at 'standby'" in r["detail"]
+    assert "matched 3/4" in r["detail"]
+
+
+def test_adas_state_sequence_red_when_the_order_is_reversed():
+    """Right states, wrong order. A matcher that only checked membership would
+    pass this, which is exactly the failure a SEQUENCE claim exists to catch."""
+    frames = _sequence_frames(["unavailable"] * 2 + ["active"] * 3 + ["standby"] * 3)
+    r = eval_must(
+        {
+            "event": "adas_state_sequence",
+            "function": "gt.acc",
+            "expect": ["unavailable", "standby", "active"],
+        },
+        frames,
+    )
+    assert r["status"] == "fail", r["detail"]
+    assert "matched 2/3" in r["detail"]
+
+
+def test_adas_state_sequence_skip_on_a_single_element_expectation():
+    """A one-element subsequence is just "this state occurred", which
+    adas_state_matches says better. Refusing it keeps a degenerate expectation
+    from reading as a satisfied sequence claim."""
+    r = eval_must(
+        {"event": "adas_state_sequence", "function": "gt.acc", "expect": ["active"]},
+        _sequence_frames(["active"] * 4),
+    )
+    assert r["status"] == "skip", r["detail"]
+    assert ">= 2 state names" in r["detail"]
+
+
+def test_adas_state_sequence_skip_on_adjacent_duplicates():
+    """After run-length compression an expectation with two identical adjacent
+    entries can never match. Accepting it silently would turn an authoring
+    mistake into a permanent skip nobody reads."""
+    r = eval_must(
+        {
+            "event": "adas_state_sequence",
+            "function": "gt.acc",
+            "expect": ["standby", "standby", "active"],
+        },
+        _sequence_frames(["standby"] * 3 + ["active"] * 3),
+    )
+    assert r["status"] == "skip", r["detail"]
+    assert "repeats a state" in r["detail"]
+
+
+def test_adas_state_sequence_skip_when_function_never_reported():
+    r = eval_must(
+        {
+            "event": "adas_state_sequence",
+            "function": "gt.acc",
+            "expect": ["standby", "active"],
+        },
+        [_frame(0.0, {}), _frame(0.5, {})],
+    )
+    assert r["status"] == "skip", r["detail"]
+    assert "never reported" in r["detail"]
+
+
+# ---------------------------------------------------------------------------
+# setting_reflected
+# ---------------------------------------------------------------------------
+
+
+def _setting_frames(pairs) -> list[dict]:
+    """pairs -> [(set_speed, effective_cap), ...] at 0.5 s spacing."""
+    return [
+        _frame(
+            i * 0.5,
+            {
+                "gt.acc": _acc_rec(
+                    "active",
+                    {
+                        "gt.acc.set_speed_mps": "%.3f" % s,
+                        "gt.acc.effective_cap_mps": "%.3f" % e,
+                    },
+                )
+            },
+        )
+        for i, (s, e) in enumerate(pairs)
+    ]
+
+
+def test_setting_reflected_green_when_the_effective_value_follows():
+    frames = _setting_frames([(20.0, 20.0)] * 3 + [(22.0, 22.0)] * 5)
+    r = eval_must(
+        {
+            "event": "setting_reflected",
+            "function": "gt.acc",
+            "setting_key": "gt.acc.set_speed_mps",
+            "effective_key": "gt.acc.effective_cap_mps",
+            "min_step": 1.0,
+        },
+        frames,
+    )
+    assert r["status"] == "pass", r["detail"]
+    assert "1 gt.acc.set_speed_mps change(s)" in r["detail"]
+
+
+def test_setting_reflected_red_when_the_setting_is_stored_but_not_applied():
+    """THE motivating defect: the setting moves, the effective value does not.
+    A matcher that only read the setting back would be green on this."""
+    frames = _setting_frames([(20.0, 20.0)] * 3 + [(22.0, 20.0)] * 5)
+    r = eval_must(
+        {
+            "event": "setting_reflected",
+            "function": "gt.acc",
+            "setting_key": "gt.acc.set_speed_mps",
+            "effective_key": "gt.acc.effective_cap_mps",
+            "min_step": 1.0,
+        },
+        frames,
+    )
+    assert r["status"] == "fail", r["detail"]
+    assert "stored but not applied" in r["detail"]
+
+
+def test_setting_reflected_red_when_the_effective_value_moves_the_wrong_way():
+    frames = _setting_frames([(20.0, 20.0)] * 3 + [(22.0, 18.0)] * 5)
+    r = eval_must(
+        {
+            "event": "setting_reflected",
+            "function": "gt.acc",
+            "setting_key": "gt.acc.set_speed_mps",
+            "effective_key": "gt.acc.effective_cap_mps",
+            "min_step": 1.0,
+        },
+        frames,
+    )
+    assert r["status"] == "fail", r["detail"]
+
+
+def test_setting_reflected_red_when_no_setting_change_ever_happened():
+    """THE VACUOUS-PASS GUARD, and the reason this matcher fails rather than
+    skips here. A run whose ops profile silently stopped working produces the
+    same constant columns as a controller that stores the setting and ignores
+    it. If that passed, the instrument's own failure would be reported as the
+    system's success."""
+    frames = _setting_frames([(20.0, 20.0)] * 8)
+    r = eval_must(
+        {
+            "event": "setting_reflected",
+            "function": "gt.acc",
+            "setting_key": "gt.acc.set_speed_mps",
+            "effective_key": "gt.acc.effective_cap_mps",
+            "min_step": 1.0,
+        },
+        frames,
+    )
+    assert r["status"] == "fail", r["detail"]
+    assert "never changed" in r["detail"]
+    assert "check the ops profile" in r["detail"]
+
+
+def test_setting_reflected_skip_when_the_keys_are_absent():
+    """A missing detail key is 'unmeasured', never a fabricated 0.0 that would
+    read as a giant setting step."""
+    frames = [_frame(i * 0.5, {"gt.acc": _acc_rec("active", {})}) for i in range(6)]
+    r = eval_must(
+        {
+            "event": "setting_reflected",
+            "function": "gt.acc",
+            "setting_key": "gt.acc.set_speed_mps",
+            "effective_key": "gt.acc.effective_cap_mps",
+        },
+        frames,
+    )
+    assert r["status"] == "skip", r["detail"]
+    assert "time series" in r["detail"]
+
+
+# ---------------------------------------------------------------------------
+# speed_capped_at
+# ---------------------------------------------------------------------------
+
+
+def test_speed_capped_at_green_below_a_literal_cap():
+    frames = [_ego_frame(i * 0.5, speed=19.5) for i in range(6)]
+    r = eval_must({"event": "speed_capped_at", "cap": 20.0}, frames)
+    assert r["status"] == "pass", r["detail"]
+
+
+def test_speed_capped_at_red_when_the_cap_is_exceeded():
+    frames = [_ego_frame(i * 0.5, speed=19.5) for i in range(4)] + [
+        _ego_frame(2.0, speed=24.0)
+    ]
+    r = eval_must({"event": "speed_capped_at", "cap": 20.0, "tolerance": 0.5}, frames)
+    assert r["status"] == "fail", r["detail"]
+    assert "exceeded cap" in r["detail"]
+
+
+def test_speed_capped_at_green_against_a_per_frame_cap_key():
+    """The speed-limit-linked shape: the cap itself moves, so it is read from
+    the function's own detail rather than written into the expectation."""
+    frames = [
+        _ego_frame(
+            i * 0.5,
+            speed=13.5,
+            adas={"gt.msl": _acc_rec("active", {"gt.msl.cap_mps": "13.889"})},
+        )
+        for i in range(6)
+    ]
+    r = eval_must(
+        {"event": "speed_capped_at", "function": "gt.msl", "cap_key": "gt.msl.cap_mps"},
+        frames,
+    )
+    assert r["status"] == "pass", r["detail"]
+
+
+def test_speed_capped_at_skip_when_the_cap_key_is_never_written():
+    """An unreported cap is not a cap of zero. A matcher that read it as 0.0
+    would fail every frame and blame the vehicle for the instrument."""
+    frames = [
+        _ego_frame(i * 0.5, speed=13.5, adas={"gt.msl": _acc_rec("active", {})})
+        for i in range(6)
+    ]
+    r = eval_must(
+        {"event": "speed_capped_at", "function": "gt.msl", "cap_key": "gt.msl.cap_mps"},
+        frames,
+    )
+    assert r["status"] == "skip", r["detail"]
+    assert "usable cap" in r["detail"]
+
+
+def test_speed_capped_at_skip_without_a_cap():
+    r = eval_must({"event": "speed_capped_at"}, [_ego_frame(0.0, speed=1.0)])
+    assert r["status"] == "skip", r["detail"]
+
+
+# ---------------------------------------------------------------------------
+# no_brake_output
+# ---------------------------------------------------------------------------
+
+
+def _msl_frames(brakes: list) -> list:
+    return [
+        _frame(i * 0.5, {"gt.msl": _acc_rec("active", {"gt.msl.brake_out": b})})
+        for i, b in enumerate(brakes)
+    ]
+
+
+def test_no_brake_output_green_when_the_function_never_brakes():
+    r = eval_must(
+        {"event": "no_brake_output", "function": "gt.msl"}, _msl_frames(["0.000"] * 6)
+    )
+    assert r["status"] == "pass", r["detail"]
+
+
+def test_no_brake_output_red_when_the_limiter_brakes():
+    """The misconfiguration this negative exists for: AEB's decel-to-brake
+    conversion wired onto the limiter, which turns a limiter into a speed
+    controller. Invisible on flat ground in every other observable."""
+    r = eval_must(
+        {"event": "no_brake_output", "function": "gt.msl"},
+        _msl_frames(["0.000", "0.000", "0.180", "0.000"]),
+    )
+    assert r["status"] == "fail", r["detail"]
+    assert "the function braked" in r["detail"]
+
+
+def test_no_brake_output_skip_when_the_channel_was_never_written():
+    """An unwritten channel cannot evidence 'no brake was produced' -- the same
+    argument no_intervention_in_window makes about STANDBY vs UNAVAILABLE."""
+    frames = [_frame(i * 0.5, {"gt.msl": _acc_rec("active", {})}) for i in range(4)]
+    r = eval_must({"event": "no_brake_output", "function": "gt.msl"}, frames)
+    assert r["status"] == "skip", r["detail"]
+    assert "never reported" in r["detail"]
+
+
+# ---------------------------------------------------------------------------
+# stop_hold_stationary
+# ---------------------------------------------------------------------------
+
+
+def _hold_frames(xs: list, holds: list) -> list:
+    return [
+        _ego_frame(
+            i * 0.5,
+            x=x,
+            speed=0.0,
+            adas={
+                "gt.acc": _acc_rec(
+                    "active", {"gt.acc.stop_hold": "true" if h else "false"}
+                )
+            },
+        )
+        for i, (x, h) in enumerate(zip(xs, holds))
+    ]
+
+
+def test_stop_hold_stationary_green_when_the_vehicle_does_not_move():
+    frames = _hold_frames([0.0, 0.01, 0.02, 0.02, 0.03], [True] * 5)
+    r = eval_must(
+        {
+            "event": "stop_hold_stationary",
+            "function": "gt.acc",
+            "hold_key": "gt.acc.stop_hold",
+            "max_displacement_m": 0.5,
+        },
+        frames,
+    )
+    assert r["status"] == "pass", r["detail"]
+
+
+def test_stop_hold_stationary_red_on_creep():
+    """The automatic-transmission creep this matcher exists for: a hold brake
+    too small to stop the car, so it rolls slowly forward."""
+    frames = _hold_frames([0.0, 0.3, 0.7, 1.1, 1.6], [True] * 5)
+    r = eval_must(
+        {
+            "event": "stop_hold_stationary",
+            "function": "gt.acc",
+            "hold_key": "gt.acc.stop_hold",
+            "max_displacement_m": 0.5,
+        },
+        frames,
+    )
+    assert r["status"] == "fail", r["detail"]
+    assert "creep" in r["detail"]
+
+
+def test_stop_hold_stationary_measures_each_hold_separately():
+    """A run can hold, restart, and hold again (a queue that stops twice).
+    Measuring displacement across the UNION of held frames would count the
+    travel BETWEEN the two holds as creep and fail a correct run."""
+    frames = _hold_frames([0.0, 0.02, 40.0, 40.01, 40.03], [True] * 5)
+    frames[2]["hvd"]["adas"]["gt.acc"]["detail"]["gt.acc.stop_hold"] = "false"
+    r = eval_must(
+        {
+            "event": "stop_hold_stationary",
+            "function": "gt.acc",
+            "hold_key": "gt.acc.stop_hold",
+            "max_displacement_m": 0.5,
+        },
+        frames,
+    )
+    assert r["status"] == "pass", r["detail"]
+    assert "2 hold(s)" in r["detail"]
+
+
+def test_stop_hold_stationary_skip_when_the_run_never_held():
+    """'The car did not move' is also true of a car nobody was holding.
+    Anchoring on the function's own flag is what makes this a claim about the
+    HOLD; a run that never engaged it must skip, never pass."""
+    frames = _hold_frames([0.0, 0.0, 0.0, 0.0], [False] * 4)
+    r = eval_must(
+        {
+            "event": "stop_hold_stationary",
+            "function": "gt.acc",
+            "hold_key": "gt.acc.stop_hold",
+        },
+        frames,
+    )
+    assert r["status"] == "skip", r["detail"]
+    assert "never held a stop" in r["detail"]
+
+
+# ---------------------------------------------------------------------------
+# restart_after_trigger
+# ---------------------------------------------------------------------------
+
+
+def test_restart_after_trigger_green_when_the_vehicle_moves_off():
+    frames = [_ego_frame(i * 0.5, speed=0.0) for i in range(4)] + [
+        _ego_frame(2.0 + i * 0.5, speed=v) for i, v in enumerate([0.3, 1.4, 2.4])
+    ]
+    r = eval_must(
+        {"event": "restart_after_trigger", "trigger_after": 2.0, "min_speed": 1.0},
+        frames,
+    )
+    assert r["status"] == "pass", r["detail"]
+
+
+def test_restart_after_trigger_red_when_the_hold_never_releases():
+    """A restart threshold set too high, or a hold only the system can release:
+    both leave the car parked through the trigger window."""
+    frames = [_ego_frame(i * 0.5, speed=0.0) for i in range(4)] + [
+        _ego_frame(2.0 + i * 0.5, speed=0.05) for i in range(4)
+    ]
+    r = eval_must(
+        {"event": "restart_after_trigger", "trigger_after": 2.0, "min_speed": 1.0},
+        frames,
+    )
+    assert r["status"] == "fail", r["detail"]
+    assert "did not restart" in r["detail"]
+
+
+def test_restart_after_trigger_skip_when_the_run_ends_before_the_window():
+    r = eval_must(
+        {"event": "restart_after_trigger", "trigger_after": 20.0},
+        [_ego_frame(i * 0.5, speed=0.0) for i in range(4)],
+    )
+    assert r["status"] == "skip", r["detail"]
+    assert "ended before the restart window" in r["detail"]
+
+
+def test_restart_after_trigger_skip_without_a_trigger_time():
+    r = eval_must({"event": "restart_after_trigger"}, [_ego_frame(0.0, speed=5.0)])
+    assert r["status"] == "skip", r["detail"]

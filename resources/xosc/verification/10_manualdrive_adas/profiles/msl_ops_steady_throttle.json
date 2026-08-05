@@ -1,0 +1,11 @@
+{
+  "name": "msl_ops_steady_throttle",
+  "description": "req-vd-ad:REQ-AD-030 step a. MSL_TOGGLE (bit 16384) at t=1.0 -- which SETS the cap to whatever the vehicle is doing at that instant, the same way a real limiter's stalk does -- then a steady, heavy throttle from t=2.0 to the end of the run.\n\nTHROTTLE 0.85, NOT 1.0, AND THAT IS LOAD-BEARING. kickdown_threshold is 0.95, and a floored accelerator is REQ-AD-030 step b's temporary RELEASE. A cap scenario written with throttle=1.0 would release the very limiter it is trying to measure, and would still look plausible from the outside (the vehicle accelerates past the cap, which is what an unlimited vehicle does) -- the run would be internally consistent and testing nothing. 0.85 asks for more acceleration than the cap allows while staying clear of the release. The kickdown path has its own profile (msl_ops_kickdown.json) precisely so the two never share a run.",
+  "keyframes": [
+    { "t": 0.0,   "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 1.00,  "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 16384 },
+    { "t": 1.15,  "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 2.00,  "throttle": 0.85, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 30.00, "throttle": 0.85, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 }
+  ]
+}

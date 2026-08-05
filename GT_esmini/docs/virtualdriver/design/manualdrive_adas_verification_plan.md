@@ -12,8 +12,20 @@
 > `md-driver-override-steering-reason` は producer が ACC（フェーズC）/LKA（フェーズD）に
 > しか無いため本フェーズでは実証不能**、`md-adas-native-name-enum` / `md-harness-hvd-readback`
 > はフェーズAで達成済み（REQ-AD-028 段a/段c）。
-> **§2-3〜§2-4（ACC・Stop&Go・MSL / LKA・LDW・HMI、フェーズC-D）と§3-4の常設化
-> （フェーズE）は未実装（計画のみ）**。方式は
+> **フェーズC（ACC・Stop&Go・MSL列、2026-08-05）実行済み**: §2-3 の 21 slug のうち 17 を
+> `manualdrive_adas_batch.yaml` の 13 行（7 → 20 シナリオ）として実装し、新 matcher 6 件
+> （`adas_state_sequence` / `setting_reflected` / `speed_capped_at` / `no_brake_output` /
+> `stop_hold_stationary` / `restart_after_trigger`）を新設して **20/20 シナリオ・51 matcher が
+> pass=51/fail=0/skip=0**。§3-1 の MDA-XODR-01（制限速度が途中で変わる直線）は
+> `straight_500m_speed_limit_step.xodr` として作成し ODR 適合 quick 緑。
+> **MDA-XODR-02（下り勾配）は作らなかった**——理由は §3-1 の追記を参照。
+> §2-2 の `md-driver-override-brake-reason` はフェーズCで**実証可能になり、実証した**
+> （ACC のブレーキ解除が REASON_BRAKE_PEDAL の初の producer）。
+> 未実装のまま残る §2-3 の 4 slug は `md-acc-cruise-no-lead` / `md-sng-traffic-light-stop` /
+> `md-msl-speed-limit-linked` / `md-kickdown-shared-consistency`（最後の1つは
+> `md_msl_kickdown` で gt.aeb / gt.msl 両行を同一窓で見る形で**実質的に実証済み**だが、
+> 専用 slug としては起こしていない）。
+> **§2-4（LKA・LDW・HMI、フェーズD）と§3-4の常設化（フェーズE）は未実装（計画のみ）**。方式は
 > [manualdrive_adas_design.md](manualdrive_adas_design.md) が真実源であり、本文書はその §10 の
 > フェーズ完了条件（対応する負 matcher が緑）を満たすために何を作るかを定める。
 > 知識グラフ: `req-vd-ad:REQ-AD-025`〜`REQ-AD-031`、`vd-func:FUNC-075`/`FUNC-079`/`FUNC-080`/`FUNC-081`。
@@ -121,8 +133,25 @@
 | :--- | :--- |
 | （既存流用） | 直線 2 車線（07_aeb の straight_500m_2lane）: AEB / ACC / LKA / MSL の大半 |
 | （既存流用） | 信号交差点（03_traffic_signals 系）と一時停止交差点（04_traffic_signs 系）: Stop&Go 段b |
-| `MDA-XODR-01` | 制限速度が途中で変わる直線（`md-acc-speed-limit-cap` / `md-msl-speed-limit-linked` 用。速度変化点の前後で実効上限の追従を見る） |
-| `MDA-XODR-02` | 下り勾配区間つき直線（`md-msl-no-brake-downhill` 用） |
+| `MDA-XODR-01` | 制限速度が途中で変わる直線 → **作成済み: `straight_500m_speed_limit_step.xodr`**（90→50 km/h @ s=250、ODR 適合 quick 緑） |
+| ~~`MDA-XODR-02`~~ | ~~下り勾配区間つき直線（`md-msl-no-brake-downhill` 用）~~ → **★2026-08-05 作らないと決定** |
+
+**★2026-08-05: MDA-XODR-02（下り勾配）を作らない決定と、その理由**。
+
+この資産の狙いは REQ-AD-030 段a の**負系**——リミッターはスロットルを絞るだけでブレーキを
+出さない——を、重力で設定速度を超えさせて撃つことだった。
+ところが `RealVehicle` は道路ピッチを**姿勢にしか使っていない**: `terrain_pitch_` は
+`GetCombinedAttitude` に入るだけで、縦方向の加速度には一切寄与しない。
+つまり勾配路は「下り坂に**見えて**平地のように**振る舞う**」。
+
+作れば、実行でき、フレームも出て、matcher も緑になる。そして何も測っていない。
+**起こせない現象の名前を持つ資産は、無いより悪い**——名前が主張になってしまうので、読んだ人は
+測られたと思う。
+
+同じ主張は別の刺激で取れる。リミッターのキャップが現在速度に対して**低すぎる**構成
+（`md_msl_throttle_cap`: 20 m/s で ON にしてから 0.85 スロットルを踏み続ける）でも、車両は
+キャップ以上を要求され、スロットルは 0 近くまで絞られ、そこでブレーキが出るか出ないかが問われる。
+勾配は要らない。実測: `gt.msl.brake_out` は全フレーム 0.000。
 
 全 xodr は ODR 適合 quick を通し、全 xosc は waypoint 規律（`check_route_waypoints.py`）に準拠する。
 
@@ -190,7 +219,7 @@ E2E で赤実証を作りにくいものは C++ 単体テストで赤実証し�
 | matcher | 状態 | 概要 | 赤実証資産 |
 | :--- | :--- | :--- | :--- |
 | `adas_state_matches` | 実装済み（フェーズA） | 窓内の機能別 State 列（ACTIVE/STANDBY/UNAVAILABLE）が期待と一致。REQ-AD-026 段c と 028a の主判定 | **実績（2026-08-05）**: Python 両極性ユニットテスト `test_manualdrive_matchers.py`（35テスト、§4-1のunit-level許容を適用）。E2E（`10_manualdrive_adas/`）は正例の緑担保のみで、当初計画の「同一資産を config OFF で回す」E2E 赤実証は未実施のまま置き換え |
-| `adas_state_sequence` | 新規（未着手） | State 遷移の部分列一致（overtake の expect_phases と同型） | 操作列の順序を崩したプロファイル |
+| `adas_state_sequence` | 実装済み（フェーズC） | State 遷移の部分列一致（overtake の expect_phases と同型）。ラン長圧縮した列に対する**部分列**一致＝順序だけを主張し滞在時間は主張しない | **実績（2026-08-05）**: `test_manualdrive_matchers.py` の単体赤3件（遷移が起きない／順序が逆／`expect` が2要素未満・隣接重複で skip）。E2E は `md_acc_cancel_resume` / `md_acc_speed_range_gate` / `md_msl_kickdown` / `md_acc_msl_exclusion` で緑担保 |
 | `min_obb_separation_above` | 既存流用 | 衝突分離。OSI scene 駆動で運転主体非依存 | （既存の赤実証を継承） |
 | `impact_speed_below` | 既存流用 | 衝突速度低減（緩和域） | 同上 |
 | `manual_aeb_fires` | 実装済み（フェーズA） | HVD の AEB 行が窓内で ACTIVE になり、gt.aeb.* に発火量が出る | **実績（2026-08-05）**: `test_manualdrive_matchers.py` の単体テスト。E2E（`md_aeb_unresponsive.xosc`）は正例の緑担保（実測: t=2.00 で ACTIVE）のみで、当初計画の「AEB を config OFF にした同一資産」でのE2E赤実証は未実施のまま置き換え |
@@ -198,11 +227,11 @@ E2E で赤実証を作りにくいものは C++ 単体テストで赤実証し�
 | `brake_not_stacked` | 実装済み（フェーズA） | 人間ブレーキ ≥ AEB 要求の窓で実効ブレーキ＝人間値 | E2E 赤実証は困難（計画時点の想定どおり）。**実績**: max 合成を `test_manualdrive_matchers.py` の単体テストで赤実証し、E2E（`md_aeb_strong_brake_driver.xosc`）は緑担保のみ——ただし当該 E2E 資産は閾値未校正で needs-review（実行はできるが判定が確定しない、`test_results/mdadas_run1/batch_summary.md`） |
 | `fcw_leads_intervention` | 実装済み（フェーズA） | 警報立ち上がりが介入立ち上がりに先行し、リード ≥ min_lead_s | **実績（2026-08-05）**: `test_manualdrive_matchers.py` の単体テスト。当初計画の「警報閾値を介入閾値と同値にした config」でのE2E赤実証は未実施のまま置き換え。**副産物として E2E 側（`md_aeb_unresponsive.xosc`、cut-in 幾何）が実際に fail した**（リード 0.000s、design §3-2 訂正参照）——想定していた「config を壊して赤」ではなく「現状の想定どおりの入力で赤」という、計画時点で想定していなかった種類の赤である |
 | `driver_override_reported` | 実装済み（フェーズB） | 上書き入力の窓と DriverOverride/custom_state の一致。`function` 必須、`expect_active`（既定 true）/ `expect_reason` / `expect_custom_state` / `mode`（all/any） | **実績（2026-08-05）**: 計画どおり2つの赤を `test_manualdrive_matchers.py` に置いた —— ① populate を止めた（行は出るが submessage が書かれない）→ fail、② 入力プロファイル時刻ずらし（窓が上書き区間から外れる）→ fail。加えて custom_state トークン違い・存在しない Reason 要求・負方向への迷い込みも赤で固定。E2E は正負とも緑担保（正=`md_aeb_kickdown_suppress` 293フレーム、負=`md_aeb_unresponsive` 391フレーム） |
-| `setting_reflected` | 新規 | 設定値（set_speed / thw_setting）の変化が実効値（effective_cap / thw_actual）に段差として現れる。**切替が 1 回も起きなければ赤**（定数フィールドの偽 PASS 防止） | 設定変更を含まないプロファイルで回す（構造的に赤） |
-| `speed_capped_at` | 新規 | 窓内の最大速度がキャップ値＋許容差以下 | respect_speed_limit / MSL を OFF にした同一資産 |
-| `no_brake_output` | 新規（負） | 窓内でシステム由来のブレーキ出力が無い（MSL 下り坂） | AEB 用ブレーキ変換を MSL に誤結線した場合を単体で赤実証 |
-| `stop_hold_stationary` | 新規 | v=0 到達後、再発進トリガまで変位が閾値以下 | 保持ブレーキを 0 にした config |
-| `restart_after_trigger` | 新規 | アクセルパルス後に発進し追従へ戻る | パルス無しプロファイル（発進しない＝正の裏）＋トリガ閾値を超大にした config（赤） |
+| `setting_reflected` | 実装済み（フェーズC） | 設定値の変化が実効値に段差として現れる。**切替が 1 回も起きなければ赤**（定数フィールドの偽 PASS 防止）。等値でなく**同方向**を見る（実効値は min 合成なので新設定に届かないことが正当にありうる） | **実績**: 単体赤4件（保存したが適用しない／逆方向へ動く／変更が1回も無い＝fail／キー欠落で skip）。E2E は `md_acc_setting_changes`（set_speed）と `md_acc_follow_lead`（thw、mid→long→short の2回切替）で緑 |
+| `speed_capped_at` | 実装済み（フェーズC） | 窓内の最大速度がキャップ値＋許容差以下。`cap_key` で**毎フレームのキャップを signal から読む**形も取れる（連動モードではキャップ自体が道路に沿って動くため） | **実績**: 単体赤2件（キャップ超過／`cap_key` 未記録で skip＝0 と読まない）。E2E は計画どおり「OFF にした同一資産」を `variant` で並走させて両極性（`md_acc_speed_limit_cap` ×2） |
+| `no_brake_output` | 実装済み（フェーズC・負） | 窓内で**その機能自身の**ブレーキ寄与が無い（車両の実効ブレーキではない——人間のブレーキは主張と無関係に非零になりうる） | **実績**: 計画どおり単体で赤実証（`gt.msl.brake_out` が非零＝AEB のブレーキ変換を誤結線した形／チャネル未記録で skip）。E2E は下り坂ではなく平坦路の `md_msl_throttle_cap`（§3-1 の決定を参照） |
+| `stop_hold_stationary` | 実装済み（フェーズC） | 保持中の変位が閾値以下。保持区間は**機能自身の `gt.acc.stop_hold`** でアンカーし、**連続区間ごとに**測る（1 run で停止→再発進→再停止が起きうるため） | **実績**: 単体赤2件（クリープ／保持が一度も起きない run は pass でなく skip）。E2E は `md_sng_lead_stop_restart` / `md_sng_stop_sign` で緑（実測変位 0.015-0.032 m、閾値 0.5 m） |
+| `restart_after_trigger` | 実装済み（フェーズC） | アクセルパルス後、`within_s` 以内に `min_speed` へ達する。**パルス前の「動かなかった」は担当しない**（`stop_hold_stationary` の領分）——分けておくと、停止しなかった run が正しい方の matcher で赤くなる | **実績**: 単体赤1件（保持が解除されない）＋ skip 2件。E2E は `md_sng_lead_stop_restart` で緑（パルス t=21.0、到達 2.43 m/s） |
 | `lane_kept_within` | 新規 | 窓内の \|offset\| が車線内閾値以下（LKA 正例） | LKA OFF の同一資産（ドリフトで逸脱し赤） |
 | `steer_output_absent` | 新規（負） | 窓内で補正操舵の出力が無い（LDW モード、人間優先、域外） | warning_only を外した同一資産 |
 | `stopped_at_stop_line` 系 | 既存流用 | 停止線手前停止（REQ-AD-003/004 の判定を Stop&Go 段b に転用） | （既存の赤実証を継承） |
@@ -221,6 +250,9 @@ OSI scene 駆動のもの（OBB 分離、衝突速度）は主体非依存で流
 流用可否の最終確定はハーネス改修後に行い、本表の「既存流用」行は現時点の見込みである。
 
 ### 4-3. 運用コスト
+
+フェーズCで 6 件を実装し、`namespaces.yaml` の matcher `id_pattern` は 27 → 33 件になった。
+残る新規 matcher は LKA/LDW 列（`lane_kept_within` / `steer_output_absent`）の 2 件である。
 
 新規 matcher は約 14 件で、追加のたびに `namespaces.yaml` の matcher `id_pattern`（enum 形式、source_of_truth: vd_metrics.py）への追記が要る。
 駐車と同じく、フェーズごとに繰り返し発生する運用コストとして織り込む。

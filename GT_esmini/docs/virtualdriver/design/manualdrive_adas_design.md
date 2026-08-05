@@ -19,7 +19,17 @@
 > 新規 12）、`manualdrive_adas_batch` は 7 シナリオ・16 matcher が pass=16/fail=0/skip=0、
 > 既存回帰ベースライン5本（car_following_traffic_control / aeb_safety / anticipation_driving /
 > scenario_handoff / stop_line_pairing、計31シナリオ）は deviations=0 で不動。
-> **フェーズC（ACC/Stop&Go/MSL）〜E（LKA/常設化）は未実装（設計のみ）**。
+> **フェーズC（ACC/Stop&Go/MSL、2026-08-05）実装済み**: AccLonController（§4、状態機械・
+> 一点評価の policy 天井・加速度領域の速度ループ・Stop&Go 保持）、SpeedLimiter（§6、
+> スロットル片側クランプ）、ACC/MSL 排他（§6）、DriverOverride の新 producer 2つ
+> （§8-3 の brake 理由と ACC の accel 一時上書き）、gt.acc / gt.msl の HVD 行（§8-2）。
+> フェーズC実測: C++ ユニット **731/731 緑**（フェーズC新規58）、`manualdrive_adas_batch`
+> は **20 シナリオ・51 matcher が pass=51/fail=0/skip=0**、matcher 単体（Python）77 緑、
+> 既存回帰ベースライン5本（計31シナリオ）は deviations=0 で不動、ODR 適合 quick 緑。
+> **§4-3/§12 の残確認事項（TrafficLightAware / StopYieldSignAware のコントローラ非依存性）は
+> 実走で確認済み**（§12 参照）。**§12 が要求していたクリープ×停止保持の実測も完了し、
+> 閾値2つを実測から確定した**（同）。
+> **フェーズD（LKA/LDW）〜E（常設化）は未実装（設計のみ）**。
 > 検証資産は別文書（manualdrive_adas_verification_plan.md）が扱う。
 > 知識グラフ: `req-vd-ad:REQ-AD-025`（手動AEB）/ `REQ-AD-026`（手動ACC）/ `REQ-AD-027`（手動LKA）/
 > `REQ-AD-028`（面3観測性）/ `REQ-AD-029`（HMI提示）/ `REQ-AD-030`（速度リミッター）/ `REQ-AD-031`（Stop&Go）、
@@ -423,7 +433,7 @@ FCW の発火点は2値のペアで決まる以上、片方だけが config か�
 | :--- | :--- | :--- |
 | **A** | AEB 列: AdasCoexistenceStack と PedalArbitrator の新設、AebSafety 配線、FCW 警報、HVD 報告経路（§8-1/8-2/8-5）、ハーネスの ManualDrive 対応 | AEB 正負バッチ緑（合成入力。無反応ドライバで介入、衝突コース不在で非介入、強ブレーキ非上乗せ、キックダウン抑制） |
 | **B**（済 2026-08-05） | 観測列: DriverOverride populate（§8-3）、custom_state、状態機械の 3 値規律、REQ-AD-028 の matcher、＋フェーズA残債の `warning_min_a_req_mps2` config 化（§9） | 上書き検出の正負 matcher 緑 → **達成**（正=`md_aeb_kickdown_suppress` のキックダウン窓、負=`md_aeb_unresponsive`、対照=同 run の `gt.fcw` 行）。3値規律は同一 xosc を `adas_aeb_enabled` の true/false 2構成で回す対（バッチの `variant` キー）で示す。**ただし段b claim のうち brake/steer 経路は producer が C/D にしか無いため未実証** |
-| **C** | ACC 列: AccLonController、操作系（ボタン、set/resume、速度と THW の走行中変更）、速度域ゲート、制限速度キャップ、Stop&Go 段a/b、MSL（§6。ACC と部品を共有するため同フェーズ） | 追従、解除と復帰、設定変更反映、停止と人間再発進、構成両極性のバッチ緑 |
+| **C**（済 2026-08-05） | ACC 列: AccLonController、操作系（ボタン、set/resume、速度と THW の走行中変更）、速度域ゲート、制限速度キャップ、Stop&Go 段a/b、MSL（§6。ACC と部品を共有するため同フェーズ） | 追従、解除と復帰、設定変更反映、停止と人間再発進、構成両極性のバッチ緑 → **達成**（20/20 シナリオ・51 matcher 緑、正負同居。両極性は同一 xosc の `variant` 2構成＝制限速度キャップ有無・停止対象構成。ACC作動中の AEB 独立発火も `md_acc_aeb_independence` で実証） |
 | **D** | LKA 列: LaneKeepAssist 新設、TLC 判定、人間操舵優先、LDW、警報チャネルの UI 配線（REQ-AD-029） | 補正と非介入の正負バッチ緑 |
 | **E** | 常設化: `manualdrive_adas_batch` の回帰ゲート組み込み（非ブロッキング開始 → 昇格は AEB 前例）、CI 相乗り、HvdGaugePanel の目視確認、docs | ゲート常設とベースライン commit |
 
@@ -464,9 +474,37 @@ RealVehicleBackend.cpp:133-134 は内部 `current_hvd_` のハンドル角欄に
 :1570-1636 の else-if 連鎖は 4 コントローラの OSI 出力すべてが通る。
 ManualDrive 分岐への追加は、他コントローラの HVD 出力に対する回帰テスト（既存 RealDriver 24 行の実 Name 列挙が不変であること等）とセットで行う。
 
-**クリープと停止保持**。
-Stop&Go の停止保持は AT クリープと直接干渉する。
-保持ブレーキ量、解除時の飛び出し、勾配での後退は、フェーズC 冒頭に単体シナリオで実測してから閾値を決める。
+**クリープと停止保持 → ★2026-08-05 フェーズC冒頭で実測済み**。
+`hold_brake = 0.30` で 18.7 秒保持して変位 0.015 m（クリープ完全抑止）、解除時の飛び出しは
+観測されず（パルス throttle 0.35 に対する素直な 2.43 m/s の加速のみ）。勾配での後退は測っていない
+——RealVehicle は道路ピッチを姿勢にしか使わないため、勾配は縦運動に入らない（下の項を参照）。
+
+**この実測が見つけた本当の問題は保持ブレーキ量ではなかった**。最初の実行では停止保持が
+640 フレーム中 **0 フレーム**しか成立しなかった。原因は `stop_speed_eps_mps` の当初値 0.10 m/s が
+**AT クリープの床（実測 0.16 m/s）より下**だったこと——ブレーキを当てない限り車両は 0 に収束せず、
+判定の入口に**原理的に**到達しない。厄介なのは上流が全部正しく見えることで、ACC は ACTIVE、
+実効上限は 0 まで減衰、車両は目視で止まっており、それでも `gt.acc.stop_hold` は永久に false のまま。
+既定値を 0.5 m/s へ引き上げて解消した。
+**恒久ルール**: この閾値を再校正するときは先にクリープ床を測ること。床より小さい値は Stop&Go を
+丸ごと死んだコードにする。
+
+**勾配は縦運動に入らない（設計の前提として明記）**。`RealVehicle` の `terrain_pitch_` は姿勢
+（`GetCombinedAttitude`）にしか使われず、縦方向の加速度には一切寄与しない。したがって「下り坂で
+設定速度を超える」現象はこの物理モデルでは起こせない。検証計画が MSL の負系（ブレーキを出さない）
+に当てようとしていた下り勾配資産（MDA-XODR-02）は**作らなかった**——起こせない現象の名前を持つ
+資産は、実行できて緑になり、何も測らない。同じ主張は平坦路でキャップが実際に効いている最中に
+取っている（`md_msl_throttle_cap`）。
+
+**★2026-08-05 追加: 「快適の上限」は加速度領域で掛けないと config が飾りになる**。
+ACC の速度ループは当初、速度誤差から**直接ペダル**を作っていた。この形では誤差が大きい瞬間に
+指令が飽和し、`decel_max_mps2` は何も制限しない——値を変えても挙動が変わらない config になる。
+症状は「AEB が一度も撃たない」という形で出た: `md_acc_aeb_independence` で先行車が 8 m/s² で
+急制動しても、2.0 m/s² の budget を持つはずの ACC がフルブレーキで吸収し切り、安全段に到達
+しないままシナリオが緑になっていた（REQ-AD-026 段d を主張しながら段d の状況を一度も作れていない）。
+ループを加速度領域へ移し、envelope で clamp してからペダル参照値（`full_brake_decel_mps2` /
+`full_throttle_accel_mps2`）で割る形に変えて解消した。
+**一般化**: 「上限」を指令の**単位が違う場所**で掛けると、飽和が上限を素通りする。上限は
+それが定義されている次元で掛ける。
 
 **comfort_decel の意味論**。
 ACC の加減速上限は ACC 自身の config に持ち、VD の `comfort_decel` を参照しない（§4-2）。
@@ -475,6 +513,16 @@ ACC の加減速上限は ACC 自身の config に持ち、VD の `comfort_decel
 **split 構成との相互作用**。
 §2-3 の所有規則で二重装備は避けるが、「split 中に所有が動的に移る」ケース（F7 の切替と ADAS の availability 遷移が同フレームに重なる場合）の順序は、フェーズA の単体テストで固定する。
 
-**ポリシーのコントローラ非依存性の残確認**。
-TrafficLightAware と StopYieldSignAware の非依存性は契約と類推からの推定であり、実走確認はフェーズC の最初に行う（§4-3）。
-確認で癒着が見つかった場合は、policy 改修ではなく snapshot 構築側の補完で吸収する（R1/R2 と同じ、呼び出し側で解決する方針）。
+**ポリシーのコントローラ非依存性の残確認 → ★2026-08-05 フェーズCで実走確認済み（癒着なし）**。
+`StopYieldSignAware` は ManualDrive の ego に対して STOP_AT_S を出す（実測 201 フレーム、
+`md_sng_stop_sign`）。癒着は見つからず、snapshot 構築側の補完は不要だった。
+**未確認だったのが何だったかを明記しておく**: 争点は「`ITrafficPolicy` の契約に適合するか」では
+なかった。両 policy は `RouteSignalScan::ScanSignalsAhead` で **ego の Position から前方を歩いて**
+標識を探すが、その歩行は `pos.CopyRoute(ego->pos_)` で ego の Route を複製するところから始まる。
+ManualDrive の ego は Route を**持たない**——だから問いは「Route が無いとき、その歩行が何か
+見つけるのか」だった。`MoveAlongS(..., HEADING_DIRECTION, true)` が Route 不在では straight-most で
+進むため直線路では到達する、というのが答えである。
+**射程は限定する**: 確認したのは StopYieldSignAware × 直線路 1 本。`TrafficLightAware` 本体と、
+分岐のある道路（Route があれば経路側を選ぶが、無ければ straight-most で「たまたま」選ばれた
+接続路を見る）は射程外で、交差点構成を作るときに再確認が要る。
+一次記録: `GT_esmini/docs/virtualdriver/measurements/manualdrive_creep_stop_hold_2026-08-05.md`。

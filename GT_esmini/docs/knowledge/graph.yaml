@@ -1854,6 +1854,179 @@ edges:
       赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py（populate停止・
       入力プロファイル時刻ずらしの2赤）。
 
+  # ---- フェーズC（req-vd-ad:REQ-AD-026 / 030 / 031、2026-08-05）: ACC / Stop&Go / MSL ----
+  # 新設 signal を2つ起こした理由は signal_catalog.yaml の各 note にある。要点だけ再掲すると、
+  # ACC 側は「設定した」と「効いた」を別の量として持たないと段e/g/h が判定できず、MSL 側は
+  # 「ブレーキを出さない」という負の主張を観測可能にしないと反証できないため。
+  - from: matcher:setting_reflected
+    to: signal:manualdrive_acc_settings
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      設定キー（gt.acc.set_speed_mps / gt.acc.thw_setting_s）と実効キー
+      （gt.acc.effective_cap_mps / gt.acc.thw_actual_s）を時系列として読み、設定の段差が
+      settle_s 以内に実効値の**同方向の**移動として現れるかを見る。等値でなく方向を見るのは、
+      実効値が min(設定, policy天井, 制限速度) の合成であり、新しい設定に届かないことが
+      正当にありうるため。**窓内で設定変更が1回も起きなければ pass ではなく fail** を返す
+      （操作列が壊れた run と、設定を保存して適用しない実装が同じ定数列を作るため）。
+  - from: matcher:adas_state_sequence
+    to: signal:manualdrive_adas_states
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      state_name 列をラン長圧縮したうえで expect の**部分列**一致を見る。順序だけを主張し
+      滞在時間は主張しない（20Hz で数十フレーム続く状態に厳密一致を課すと、誰も書いていない
+      dwell time の assertion になる）。空虚化を防ぐため expect が2要素未満、または隣接重複を
+      含む場合は skip を返す。
+  - from: matcher:speed_capped_at
+    to: signal:manualdrive_msl_cap
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      cap_key（gt.msl.cap_mps）で毎フレームのキャップを読み、自車速がそれ＋許容差を超えない
+      ことを見る。キャップをリテラルで書かず signal から読むのは、制限速度連動モードでは
+      キャップ自体が道路に沿って動くため。未記録のキャップは 0 と読まず frame ごと skip する。
+  - from: matcher:no_brake_output
+    to: signal:manualdrive_msl_cap
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      gt.msl.brake_out を読み、窓内で恒等的に 0 であることを見る。**車両の実効ブレーキでは
+      なく機能自身の寄与を読む**のが肝で、人間が踏んだブレーキは主張と無関係に非零になりうる。
+      チャネルが一度も書かれていなければ skip（誰も書かなかったチャネルは「出さなかった」証拠に
+      ならない）。
+  - from: matcher:stop_hold_stationary
+    to: signal:manualdrive_acc_settings
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      gt.acc.stop_hold が真の**連続区間ごとに**変位を測る。区間で分けるのは、1回の run で
+      停止→再発進→再停止が起きうるため（区間をまたいで測ると再発進の移動をクリープとして
+      数える）。速度だけを見ないのは「動かなかった」が「誰も保持していない車」にも当てはまる
+      ため——保持中であることを機能自身のフラグで固定して初めて保持の主張になる。
+
+  # ---- ⑤判定: フェーズC matcher -> verifies -> req-vd-ad ----
+  - from: matcher:setting_reflected
+    to: req-vd-ad:REQ-AD-026
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_acc_setting_changes.expectations.yaml
+    note: >-
+      段e（走行中の設定速度増減が追従目標に反映される）と段h（車間段階の切替が実測THWに
+      反映される）の主判定。段h は md_acc_follow_lead 側で、1本の刺激が2段階以上を跨ぐ
+      （mid→long→short）ことで判定する。実測 20/20 緑。
+  - from: matcher:adas_state_sequence
+    to: req-vd-ad:REQ-AD-026
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_acc_cancel_resume.expectations.yaml
+    note: >-
+      段c（操作列に対応する状態遷移列がHVDに出る）の主判定。段f（速度域の域外で
+      ACTIVE→STANDBY）にも md_acc_speed_range_gate で使う。設計§6 の ACC/MSL 排他も
+      同じ matcher で判定する（md_acc_msl_exclusion、gt.acc と gt.msl の2行）。
+  - from: matcher:speed_capped_at
+    to: req-vd-ad:REQ-AD-026
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_acc_speed_limit_cap.expectations.yaml
+    note: >-
+      段g（制限速度制御の有無で実効上限が変わる）の主判定。**この判定は2構成の対で初めて
+      主張になる**——respect_limit 側だけでは「常に制限を守る実装」も通り、ignore_limit 側だけ
+      では「道路を一度も読まない実装」も通る。バッチは同一 xosc を variant で2行持つ。
+  - from: matcher:speed_capped_at
+    to: req-vd-ad:REQ-AD-030
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_msl_throttle_cap.expectations.yaml
+    note: 段a（全開スロットルでも設定速度を超えない）の主判定。cap_key で実効キャップを毎フレーム読む。
+  - from: matcher:no_brake_output
+    to: req-vd-ad:REQ-AD-030
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_msl_throttle_cap.expectations.yaml
+    note: >-
+      段a の**負系**（リミッターはブレーキを出さない）の主判定。検証計画が当初この負系に
+      当てようとした下り坂資産（MDA-XODR-02）は作らなかった: RealVehicle は道路ピッチを
+      姿勢にしか使わず（terrain_pitch_ は縦運動に入らない）、勾配路は「下り坂に見えて平地の
+      ように振る舞う」——起こせない現象の名前を持つ資産になる。同じ主張は平坦路で、
+      クランプが実際に効いている最中に取っている。
+  - from: matcher:stop_hold_stationary
+    to: req-vd-ad:REQ-AD-031
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_sng_lead_stop_restart.expectations.yaml
+    note: >-
+      段a（v=0 到達後の停止保持でクリープが抑止される）の主判定。段b（信号・一時停止標識を
+      停止対象に構成した場合）にも md_sng_stop_sign で使う。実測: 保持 11.6 秒で変位
+      0.032 m（GT_esmini/docs/virtualdriver/measurements/manualdrive_creep_stop_hold_2026-08-05.md）。
+  - from: matcher:restart_after_trigger
+    to: req-vd-ad:REQ-AD-031
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_sng_lead_stop_restart.expectations.yaml
+    note: >-
+      段a の後半（人間のアクセル操作を唯一の再発進トリガとする）の主判定。先行車は停止した
+      まま run が終わるので、発進の説明はパルス以外に存在しない——「先行車が動いたから
+      追従した」で通ってしまう構成では、段a が禁じている自動再発進と区別できない。
+  - from: matcher:driver_override_reported
+    to: req-vd-ad:REQ-AD-026
+    type: verifies
+    source: resources/xosc/verification/10_manualdrive_adas/md_acc_cancel_resume.expectations.yaml
+    note: >-
+      段b（ブレーキ踏下で解除、アクセル踏下は一時上書き）の上書きチャネル側の判定。
+      フェーズBで作った matcher が、フェーズCで初めて **REASON_BRAKE_PEDAL を実際に生む
+      producer** を得た（ACC の解除）。同一 run でアクセル起因の一時上書きも
+      custom_state=DRIVER_OVERRIDE_ACCEL として出るため、規格の2値制約とその補完が
+      1本の刺激の中で並んで観測できる。
+
+  # ---- ②刺激: req -> stimulated-by -> policy（フェーズC） ----
+  # 登録ハンドルは policy 名前空間（REQ-AD-025 と同じ扱い）。MSL は policy を持たない
+  # ＝ ITrafficPolicy を一つも使わない純粋なペダルクランプなので、この型の辺を張る先が
+  # 無い。無理に既存 policy へ張ると「MSL が lead を発火させる」という嘘になるため張らない
+  # ——②刺激欠として台帳に残す方が正しい（名前空間設計の穴であって、資産が無いのではない。
+  # 刺激資産そのものは md_msl_throttle_cap / md_msl_kickdown として実在し緑）。
+  - from: req-vd-ad:REQ-AD-026
+    to: policy:lead
+    type: stimulated-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      md_acc_follow_lead / md_acc_cancel_resume / md_acc_setting_changes /
+      md_acc_speed_limit_cap（2構成）/ md_acc_speed_range_gate / md_acc_aeb_independence
+      （controller: manualdrive、adas_acc_enabled: true）が AdasCoexistenceStack 経由で
+      LeadVehicleAware(policy:lead) を毎フレーム発火させ、その constraint 列を
+      EvaluateAccCeiling が現在位置1点の速度上限へ畳む（design §4-2、policy 本体はゼロ改修）。
+      手動運転中ADASの刺激は xosc だけでは決まらない: 入力プロファイル
+      （profiles/acc_ops_*.json）が「運転者」を、xosc が「世界」を決め、両方の組で1観点が
+      発火する（検証計画§1）。実測 20/20 緑（test_results/mdadas_phasec）。
+  - from: req-vd-ad:REQ-AD-031
+    to: policy:stop_yield
+    type: stimulated-by
+    source: resources/xosc/verification/manualdrive_adas_batch.yaml
+    note: >-
+      md_sng_stop_sign を stop_at_stop_sign の true/false 2構成（variant）で回し、
+      StopYieldSignAware(policy:stop_yield) を手動スタックへ Add する/しないで両極性を作る。
+      **負側では policy がそもそも生成されない**ので、フィルタの緩和で漏れる余地が構造的に無い
+      （design §4-3）。段a（先行車のみ）は policy:lead 側の同一バッチ行
+      md_sng_lead_stop_restart が発火させる。
+      この2構成は同時に design §12 の残確認事項——TrafficLightAware / StopYieldSignAware が
+      コントローラ非依存か——の実走確認でもあった。ManualDrive の ego は Route を持たず、
+      両 policy は ego の Position から前方を歩いて標識を探す（RouteSignalScan の CopyRoute）ため、
+      「インタフェースに適合するか」ではなく「Route が無いとき歩行が何か見つけるか」が
+      未確認だった。実測で見つかる（201フレーム stop_requested、
+      GT_esmini/docs/virtualdriver/measurements/manualdrive_creep_stop_hold_2026-08-05.md）。
+
+  # ---- ⑥常設: フェーズC の新規C++ユニットも同じ傘バイナリに乗る ----
+  - from: vd-func:FUNC-079
+    to: gate:unit-ctest
+    type: sustained-by
+    source: GT_esmini/test/CMakeLists.txt
+    note: >-
+      test_AccLonController.cpp / test_ManualAdasPhaseC.cpp が傘バイナリ常設
+      （**731/731緑**、2026-08-05 フェーズC実測。フェーズB時点は673件）。
+      matcher 側の赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py
+      （フェーズCで6 matcher分を追加、計77テスト緑）。
+  - from: vd-func:FUNC-081
+    to: gate:unit-ctest
+    type: sustained-by
+    source: GT_esmini/test/CMakeLists.txt
+    note: >-
+      MSL（SpeedLimiter）の単体は test_ManualAdasPhaseC.cpp に同居する（ACC と段の順序を
+      共有し、順序こそが「リミッターが安全段を拒否できない」を決めるため、別ファイルに
+      分けると順序のテストが宙に浮く）。
+
   # ---- ⑥常設: vd-func:FUNC-075 の69新規C++ユニットがgate:unit-ctest傘バイナリに乗る ----
   # feature:F7 -> gate:unit-ctest（本ファイル上部）と同型。manualdrive_adas_batchはphase E待ちの
   # 候補ゲートであり常設ではない（design §10）ため、この辺は claim しない。

@@ -267,10 +267,10 @@ namespaces:
     title: 検証matcher（vd_metrics event語彙）
     entity_type: matcher
     face: "3"
-    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn|overtake_decision_holds|manual_aeb_fires|no_intervention_in_window|brake_not_stacked|fcw_leads_intervention|adas_state_matches|driver_override_reported|domain_split_holds|vd_control_relinquished)"
+    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn|overtake_decision_holds|manual_aeb_fires|no_intervention_in_window|brake_not_stacked|fcw_leads_intervention|adas_state_matches|driver_override_reported|adas_state_sequence|setting_reflected|speed_capped_at|no_brake_output|stop_hold_stationary|restart_after_trigger|domain_split_holds|vd_control_relinquished)"
     source_of_truth: GT_esmini/web/backend/services/vd_metrics.py
     status: active
-    count: 27
+    count: 33
     notes: >-
       min_separation_above（中心間距離）は 2026-07-24 に実装ごと削除（DEPRECATED 確定
       2026-07-21、min_obb_separation_above の厳密な劣位版・参照資産0件。根拠は graph.yaml の
@@ -284,6 +284,13 @@ namespaces:
       （2026-08-05）。上書き入力の窓と HVD の DriverOverride/custom_state の一致を見る。
       赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py の単体
       両極性テスト（populate停止・入力プロファイル時刻ずらしの2赤を含む）。
+      adas_state_sequence / setting_reflected / speed_capped_at / no_brake_output /
+      stop_hold_stationary / restart_after_trigger は req-vd-ad:REQ-AD-026 / 030 / 031
+      フェーズC（ACC・Stop&Go・MSL列）で新設（2026-08-05、同計画 §4-2）。赤実証は同じく
+      test_manualdrive_matchers.py の単体両極性テスト。設計上の注意を1点だけ挙げると、
+      setting_reflected は「設定変更が窓内で1回も起きなかった run」を pass ではなく
+      **fail** で返す — 設定を保存して適用しない実装と、操作列が壊れて何も押されなかった
+      run は同じ定数列を作るので、pass にすると計器の故障が緑で通る。
 
   - slug: openx
     title: ASAM OpenX Ontology 概念（コミット済みスナップショット）

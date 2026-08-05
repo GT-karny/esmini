@@ -488,6 +488,56 @@ signals:
       増分は `req-vd-ad:REQ-AD-028` の `acceptance_ladder`（段b は `met: false` のまま）
       が持つ——signal の state を曖昧化して持たせない、というこの上の項と同じ規約。
 
+  - id: manualdrive_acc_settings
+    title: 手動運転中 ACC の設定値と実効値（設定速度・実効上限・車間段階・実測THW）
+    exposure: [hvd, frame]
+    state: "●"
+    emit: >-
+      AdasCoexistenceStack.cpp（`gt.acc.set_speed_mps` / `gt.acc.effective_cap_mps` /
+      `gt.acc.thw_setting_s` / `gt.acc.thw_actual_s` / `gt.acc.thw_stage` /
+      `gt.acc.stop_hold` / `gt.acc.engaged` / `gt.acc.setting_changed` ほかを PolicyDetail へ）
+      → AdasFunctionReport.cpp（`gt.acc.` 接頭辞で gt.acc 行へ振り分け）
+      → GT_HostVehicleReporter → HVD custom_detail → vd_metrics.py の hvd.adas["gt.acc"].detail
+    note: >-
+      **2026-08-05 フェーズC（req-vd-ad:REQ-AD-026 / REQ-AD-031）で新設**。
+      この signal の要点は **「設定した」と「効いた」が別の観測量として出ている**ことにある。
+      REQ-AD-026 段e/g/h はいずれも「運転者が設定を変えた」ではなく「変更が実際に効いた」を
+      問うており、片方しか出ていない実装——設定を保存して適用しないもの——は、設定値だけを
+      読む観測からは正しく見える。だから `set_speed_mps` と `effective_cap_mps`、
+      `thw_setting_s` と `thw_actual_s` を対で持つ。
+      `thw_actual_s` は LeadVehicleAware 自身が出す `gt.lead_vehicle.gap_m` を自車速で割った
+      再輸出であり、独立の先行車探索はしない（PolicyDetail.hpp の TryGetDetail 参照）——
+      「追従している相手」の定義が2つに割れる方が、観測チャネルを1段経由するより悪い。
+      消費者: matcher:setting_reflected（設定→実効の段差）、matcher:stop_hold_stationary
+      （`gt.acc.stop_hold` を保持区間のアンカーに使う）、matcher:adas_state_sequence /
+      adas_state_matches（状態列は manualdrive_adas_states 側）。
+      `gt.acc.setting_changed` は matcher の**構造的赤**のための量: 操作が1回も起きなかった
+      run と、設定を保存して適用しない実装は、どちらも定数列を作る。区別できないまま緑に
+      するくらいなら赤にする、という判断を matcher 側が実装している。
+
+  - id: manualdrive_msl_cap
+    title: 手動運転中 速度リミッター（MSL）の実効キャップとクランプ状態
+    exposure: [hvd, frame]
+    state: "●"
+    emit: >-
+      AdasCoexistenceStack.cpp（`gt.msl.cap_mps` / `gt.msl.limiting` / `gt.msl.kickdown` /
+      `gt.msl.throttle_in` / `gt.msl.throttle_out` / `gt.msl.brake_out` を PolicyDetail へ）
+      → AdasFunctionReport.cpp（`gt.msl.` 接頭辞で gt.msl 行へ）→ HVD custom_detail
+    note: >-
+      **2026-08-05 フェーズC（req-vd-ad:REQ-AD-030）で新設**。
+      `gt.msl.brake_out` が恒等的に 0 であることに気づいた読者向けに書いておくと、**それが
+      出ている理由が要点**である。REQ-AD-030 段a はリミッターが「スロットルを絞るだけで
+      ブレーキを出さない」ことを負系として明示的に主張しており、誰も観測できない主張は誰も
+      反証できない。定数を emit しているのではなく、**反証可能性のために測っている**。
+      `limiting`（実際にクランプが効いたか）と `kickdown`（全踏みで解除されたか）を別に持つのも
+      同型の理由: どちらも「今クランプしていない」を生むが、原因が違う——キャップに届いて
+      いないのか、運転者が解除したのか。1つのフラグに畳むと外から区別できなくなる。
+      `gt.msl.kickdown` は AEB 抑制と**同一の** KickdownDetector が出す（設計§3-3）。
+      `gt.aeb.kickdown` と食い違ったらそれは共有が壊れた証拠であり、md_msl_kickdown が
+      両方の行を同一窓で見るのはそのためである。
+      消費者: matcher:speed_capped_at（`cap_key` で毎フレームのキャップを読む）、
+      matcher:no_brake_output、matcher:adas_state_sequence。
+
   - id: override_domain_state
     title: 操作権限ドメイン（lat/lon が manual か scenario か）
     exposure: [debug]

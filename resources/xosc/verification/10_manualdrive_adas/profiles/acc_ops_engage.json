@@ -1,0 +1,12 @@
+{
+  "name": "acc_ops_engage",
+  "description": "req-vd-ad:REQ-AD-026 step a. Switch ACC on and SET at t=1.0, then hands off the controls entirely (no pedal input for the rest of the run) so the following behaviour that follows is the FUNCTION's, not a human's. Button bit values: ACC_TOGGLE=512, ACC_SET_RESUME=1024 (ButtonBits, control/common/VehicleCommand.hpp). Each press is a PAIR of keyframes -- bit set, then cleared -- because the ADAS controls are edge-triggered (DecodeAdasOperations); a bit left set would be one press, not a held one, but leaving it set would also block every later press of the same button from ever producing an edge. t=1.0 rather than t=0.0 so the controller has settled and the Init SpeedAction has taken (the first frames of a ManualDrive run are before activation).",
+  "keyframes": [
+    { "t": 0.0,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 1.00, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 512 },
+    { "t": 1.15, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 1.30, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 1024 },
+    { "t": 1.45, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 30.0, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 }
+  ]
+}

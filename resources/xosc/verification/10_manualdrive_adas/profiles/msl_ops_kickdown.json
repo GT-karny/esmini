@@ -1,0 +1,78 @@
+{
+  "name": "msl_ops_kickdown",
+  "description": "req-vd-ad:REQ-AD-030 step b (and, in the same window, the md-kickdown-shared-consistency observation from design §3-3). MSL_TOGGLE (16384) at t=1.0 sets the cap to the current speed; a heavy-but-not-floored 0.85 throttle from t=2.0 lets the limiter visibly bite; then the accelerator is FLOORED (1.0) from t=8.0 to t=16.0 and released.\n\nThe three phases are what make this a release test rather than a 'was it ever limiting' test: without the 0.85 phase, a run could reach the floored phase having never limited at all, and 'not limiting' would then be indistinguishable from 'released'. The release window is bracketed on BOTH sides so the return of the cap after t=16 is observable too -- step b claims 'temporary', and a limiter that released permanently would pass a one-sided test.\n\n1.0 is above kickdown_threshold (0.95) and the ramp from 0.85 crosses it within one keyframe interval, so the latch engages promptly and with no ambiguity about which frame it happened on.\n\nTHE RETURN PHASE IS 0.70, NOT 0.85, AND THAT IS A MEASURED CORRECTION. KickdownDetector has HYSTERESIS: it engages at 0.95 and releases only BELOW 0.80. The first version of this profile eased back to 0.85, which is under the engage threshold but still above the RELEASE threshold, so the latch never dropped -- measured: gt.msl.kickdown and gt.aeb.kickdown both stayed true to the end of the run and the limiter never re-armed. The scenario would have claimed 'temporary release' while demonstrating a permanent one. 0.70 clears the release threshold with margin and still asks for more acceleration than the cap allows, so the third phase is a real clamp rather than an idle pedal.",
+  "keyframes": [
+    {
+      "t": 0.0,
+      "throttle": 0.0,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 1.0,
+      "throttle": 0.0,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 16384
+    },
+    {
+      "t": 1.15,
+      "throttle": 0.0,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 2.0,
+      "throttle": 0.85,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 7.9,
+      "throttle": 0.85,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 8.0,
+      "throttle": 1.0,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 16.0,
+      "throttle": 1.0,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 16.2,
+      "throttle": 0.7,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 30.0,
+      "throttle": 0.7,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    }
+  ]
+}

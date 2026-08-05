@@ -1970,8 +1970,19 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         #                              sensible default; the AEB row and the
         #                              FCW row answer DIFFERENT questions here)
         #   expect_active       bool : default True
-        #   expect_reason       str  : optional, e.g. "REASON_BRAKE_PEDAL" --
-        #                              must appear in driver_override.reasons
+        #   expect_reason       str  : optional -- must appear in
+        #                              driver_override.reasons. The harness
+        #                              projects the OSI enum through
+        #                              _enum_name(), which STRIPS the "REASON_"
+        #                              prefix and lower-cases the rest, so the
+        #                              value written in an expectations file is
+        #                              "brake_pedal" / "steering_input", NOT the
+        #                              proto spelling REASON_BRAKE_PEDAL. (Noted
+        #                              in phase C, when the first real producer
+        #                              of a Reason value appeared -- until then
+        #                              nothing had ever populated `reasons` and
+        #                              this comment's earlier example went
+        #                              unchallenged.)
         #   expect_custom_state str  : optional, e.g. "DRIVER_OVERRIDE_ACCEL"
         #                              -- exact match on the row's custom_state
         #   mode                str  : "all" (default) | "any"
@@ -2132,6 +2143,476 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             f"{len(found)}/{len(live)} evaluated frame(s) matched"
         )
         return res("pass", detail)
+
+    if kind == "adas_state_sequence":
+        # req-vd-ad:REQ-AD-026 step c (and design §6's ACC/MSL exclusivity):
+        # the function's state column must pass through `expect` IN ORDER, as
+        # a SUBSEQUENCE of the observed run-length-compressed state列. Same
+        # shape as the overtake matcher's expect_phases.
+        #
+        #   function     str        : hvd.adas key (required)
+        #   expect       list[str]  : ordered state_names, e.g.
+        #                             ["unavailable","standby","active","standby"]
+        #   after/before            : the usual sim_time window
+        #
+        # SUBSEQUENCE, NOT EQUALITY, and the run-length compression: a state
+        # column sampled at 20 Hz repeats each state for many frames, and the
+        # claim REQ-AD-026 step c actually makes is about the ORDER of the
+        # transitions, not about how long the run sat in each one. Requiring
+        # exact equality would make the matcher a dwell-time assertion nobody
+        # wrote, failing on every timing nudge.
+        #
+        # ...but a subsequence match is also how a matcher goes vacuous, so
+        # two guards: an `expect` with fewer than 2 entries is REFUSED (a
+        # one-element subsequence is just "this state occurred", which
+        # adas_state_matches already says better), and repeated adjacent
+        # entries in `expect` are refused too -- after compression they can
+        # never match, and silently accepting them would turn an authoring
+        # mistake into a permanent skip.
+        if "function" not in must or "expect" not in must:
+            return res(
+                "skip",
+                "must entry names no function/expect -- a matcher that checks "
+                "nothing must not report pass",
+            )
+        function = must["function"]
+        expect = must["expect"]
+        if not isinstance(expect, list) or len(expect) < 2:
+            return res(
+                "skip",
+                f"expect must be a list of >= 2 state names, got {expect!r} -- a "
+                "single-state expectation is adas_state_matches' job, not a "
+                "sequence claim",
+            )
+        valid_states = {
+            "unavailable",
+            "available",
+            "standby",
+            "active",
+            "errored",
+            "unknown",
+        }
+        bad = [s for s in expect if s not in valid_states]
+        if bad:
+            return res(
+                "skip",
+                f"unrecognised state name(s) {bad} (valid: {sorted(valid_states)})",
+            )
+        if any(a == b for a, b in zip(expect, expect[1:])):
+            return res(
+                "skip",
+                f"expect={expect} repeats a state on adjacent positions, which can "
+                "never match a run-length-compressed column -- express dwell with "
+                "a windowed adas_state_matches instead",
+            )
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        observed: list[tuple[int, str]] = []
+        for i in gated:
+            st = _adas_state_name(_hvd_adas_record(frames[i], function))
+            if st is None:
+                continue
+            if not observed or observed[-1][1] != st:
+                observed.append((i, st))
+        if not observed:
+            return res(
+                "skip",
+                f"{function!r} never reported in hvd.adas over {len(gated)} gated "
+                "frame(s)",
+            )
+        matched: list[tuple[int, str]] = []
+        pos = 0
+        for idx, st in observed:
+            if pos < len(expect) and st == expect[pos]:
+                matched.append((idx, st))
+                pos += 1
+        seen_txt = " -> ".join(st for _, st in observed)
+        if pos < len(expect):
+            detail = (
+                f"{function} state sequence stopped at {expect[pos]!r} "
+                f"(matched {pos}/{len(expect)}); observed: {seen_txt}"
+            )
+            return res("fail", detail, observed[-1][0])
+        at = ", ".join(f"{st}@t={frames[i]['sim_time']:.2f}" for i, st in matched)
+        detail = (
+            f"{function} passed through {expect} in order ({at}); observed: {seen_txt}"
+        )
+        return res("pass", detail)
+
+    if kind == "setting_reflected":
+        # req-vd-ad:REQ-AD-026 steps e/g/h: a change the driver made to a
+        # SETTING has to show up as a step in the corresponding EFFECTIVE
+        # value. Two custom_detail keys, read as time series.
+        #
+        #   function       str   : hvd.adas key (required)
+        #   setting_key    str   : e.g. "gt.acc.set_speed_mps" (required)
+        #   effective_key  str   : e.g. "gt.acc.effective_cap_mps" (required)
+        #   min_step       float : minimum |change| that counts, default 0.5
+        #   settle_s       float : seconds allowed for the effective value to
+        #                          follow the setting, default 2.0
+        #   after/before         : the usual sim_time window
+        #
+        # WHY A RUN WITH NO CHANGE IS A **FAIL**, NOT A PASS (verification plan
+        # §4-2 spells this out): both keys are emitted on every frame, so a
+        # controller that stored the setting and never applied it, and a run in
+        # which the driver simply never touched the stalk, produce the SAME
+        # constant columns. If "no change observed" passed, the matcher would
+        # be green on a scenario whose ops profile silently stopped working --
+        # the exact fabricated-measurement failure this project has paid for
+        # before. So: no setting change in the window => FAIL, with a message
+        # that says the stimulus, not the system, is what looks broken.
+        for req_key in ("function", "setting_key", "effective_key"):
+            if req_key not in must:
+                return res(
+                    "skip",
+                    f"must entry names no {req_key} -- a matcher that checks nothing "
+                    "must not report pass",
+                )
+        function = must["function"]
+        setting_key = must["setting_key"]
+        effective_key = must["effective_key"]
+        min_step = float(must.get("min_step", 0.5))
+        settle_s = float(must.get("settle_s", 2.0))
+        min_frames = int(must.get("min_frames", 2))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        series = []  # (idx, t, setting, effective)
+        for i in gated:
+            rec = _hvd_adas_record(frames[i], function)
+            s_val = _adas_detail_float(rec, setting_key)
+            e_val = _adas_detail_float(rec, effective_key)
+            if s_val is None or e_val is None:
+                continue
+            series.append((i, frames[i]["sim_time"], s_val, e_val))
+        if len(series) < 2:
+            return res(
+                "skip",
+                f"{function!r} reported {setting_key}/{effective_key} on only "
+                f"{len(series)} frame(s) -- nothing to read as a time series",
+            )
+        changes = [
+            k
+            for k in range(1, len(series))
+            if abs(series[k][2] - series[k - 1][2]) >= min_step
+        ]
+        if not changes:
+            span = (series[-1][2] - series[0][2]) if series else 0.0
+            return res(
+                "fail",
+                f"{setting_key} never changed by >= {min_step} over "
+                f"{len(series)} frame(s) (total drift {span:+.3f}) -- this matcher "
+                "cannot evidence 'a setting change was reflected' from a run in "
+                "which no setting change happened; check the ops profile, not the "
+                "controller",
+                series[-1][0],
+            )
+        # Every change must be followed, within settle_s, by the effective
+        # value moving in the SAME direction. Direction rather than equality:
+        # the effective value is a min() over the setting, the policy ceiling
+        # and (optionally) the speed limit, so it legitimately need not reach
+        # the new setting -- but it must not sit still or move the other way.
+        for k in changes:
+            before_eff = series[k - 1][3]
+            direction = 1.0 if series[k][2] > series[k - 1][2] else -1.0
+            t0 = series[k][1]
+            window = [row for row in series[k:] if row[1] <= t0 + settle_s]
+            best = max(
+                ((row[3] - before_eff) * direction for row in window), default=0.0
+            )
+            if best < min_step * 0.5:
+                i0 = series[k][0]
+                detail = (
+                    f"{setting_key} stepped to {series[k][2]:.3f} at t={t0:.2f} but "
+                    f"{effective_key} moved only {best * direction:+.3f} within "
+                    f"{settle_s}s (want >= {min_step * 0.5:.3f} in the same "
+                    "direction) -- the setting was stored but not applied"
+                )
+                return res("fail", detail, i0)
+        detail = (
+            f"{len(changes)} {setting_key} change(s) each reflected in "
+            f"{effective_key} within {settle_s}s"
+        )
+        return res("pass", detail)
+
+    if kind == "speed_capped_at":
+        # req-vd-ad:REQ-AD-026 step g / REQ-AD-030 step a: the ego's speed in
+        # the window stays at or below a cap.
+        #
+        #   cap        float : cap [m/s] (required unless cap_key is given)
+        #   cap_key    str   : read the cap PER FRAME from a custom_detail key
+        #                      (e.g. "gt.msl.cap_mps"), which is what a
+        #                      speed-limit-linked cap needs
+        #   function   str   : hvd.adas key, required when cap_key is used
+        #   tolerance  float : allowance above the cap, default 0.5 m/s
+        #   after/before     : the usual sim_time window
+        #
+        # The tolerance exists because a cap is enforced by shutting the
+        # throttle, not by braking: a vehicle already above the cap when the
+        # window opens, or one on a descent, coasts down rather than being
+        # pulled down. Setting it to 0 would turn this matcher into an
+        # assertion about the powertrain's drag, which is not what any
+        # requirement step claims.
+        if "cap" not in must and "cap_key" not in must:
+            return res(
+                "skip",
+                "must entry names neither cap nor cap_key -- a matcher that checks "
+                "nothing must not report pass",
+            )
+        tol = float(must.get("tolerance", 0.5))
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        cap_key = must.get("cap_key")
+        function = must.get("function")
+        if cap_key is not None and function is None:
+            return res(
+                "skip", "cap_key requires `function` (which row to read it from)"
+            )
+        samples = []  # (idx, speed, cap)
+        src = None
+        for i in gated:
+            eg = _ego_state(frames[i])
+            src = src or eg["_source"]
+            if cap_key is None:
+                cap = float(must["cap"])
+            else:
+                cap = _adas_detail_float(_hvd_adas_record(frames[i], function), cap_key)
+                if cap is None or cap <= 0.0:
+                    # An unreported or zero cap is not a cap of zero -- skipping
+                    # the frame is the only reading that does not fabricate one.
+                    continue
+            samples.append((i, eg["speed"], cap))
+        if not samples:
+            return res(
+                "skip",
+                "no gated frame carried both a speed and a usable cap "
+                f"({'cap_key ' + repr(cap_key) if cap_key else 'literal cap'})",
+                ego_source=src,
+            )
+        offenders = [(i, v, c) for (i, v, c) in samples if v > c + tol]
+        if offenders:
+            i0, v0, c0 = max(offenders, key=lambda r: r[1] - r[2])
+            detail = (
+                f"speed {v0:.2f} exceeded cap {c0:.2f} (+tol {tol}) by "
+                f"{v0 - c0:.2f} at t={frames[i0]['sim_time']:.2f} (frame {i0}); "
+                f"{len(offenders)}/{len(samples)} frame(s) over"
+            )
+            return res("fail", detail, i0, ego_source=src)
+        worst = max(samples, key=lambda r: r[1] - r[2])
+        detail = (
+            f"max overshoot {worst[1] - worst[2]:+.2f} m/s vs cap (tol {tol}) over "
+            f"{len(samples)} frame(s); peak speed {max(v for _, v, _ in samples):.2f}"
+        )
+        return res("pass", detail, ego_source=src)
+
+    if kind == "no_brake_output":
+        # req-vd-ad:REQ-AD-030 step a (negative): the named function produced
+        # no brake in the window. A LIMITER clamps throttle and never brakes,
+        # and this is the observation that says so.
+        #
+        #   function   str   : hvd.adas key (required)
+        #   brake_key  str   : custom_detail key, default "<function>.brake_out"
+        #   tolerance  float : brake fraction treated as zero, default 0.001
+        #
+        # Reads the FUNCTION'S OWN brake contribution, not the vehicle's
+        # effective brake: the human is free to brake in a limiter scenario and
+        # the effective pedal would then be non-zero for a reason that has
+        # nothing to do with the claim. A matcher that watched the effective
+        # brake would be a trap for exactly the scenario a real driver
+        # produces.
+        if "function" not in must:
+            return res(
+                "skip",
+                "must entry names no function -- a matcher that checks nothing must "
+                "not report pass",
+            )
+        function = must["function"]
+        brake_key = must.get("brake_key", f"{function}.brake_out")
+        tol = float(must.get("tolerance", 0.001))
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        measured = []  # (idx, brake)
+        for i in gated:
+            b = _adas_detail_float(_hvd_adas_record(frames[i], function), brake_key)
+            if b is None:
+                continue
+            measured.append((i, b))
+        if not measured:
+            return res(
+                "skip",
+                f"{brake_key!r} never reported over {len(gated)} gated frame(s) -- an "
+                "unwritten channel cannot evidence 'no brake was produced'",
+            )
+        offenders = [(i, b) for (i, b) in measured if b > tol]
+        if offenders:
+            i0, b0 = max(offenders, key=lambda r: r[1])
+            detail = (
+                f"{brake_key}={b0:.3f} (> tol {tol}) at t={frames[i0]['sim_time']:.2f} "
+                f"(frame {i0}) -- the function braked; {len(offenders)}/{len(measured)} "
+                "frame(s) non-zero"
+            )
+            return res("fail", detail, i0)
+        detail = (
+            f"{brake_key} stayed <= {tol} over all {len(measured)} reported frame(s)"
+        )
+        return res("pass", detail)
+
+    if kind == "stop_hold_stationary":
+        # req-vd-ad:REQ-AD-031 step a: once the vehicle has come to rest under
+        # the function's stop hold, it does not creep forward until the human
+        # triggers a restart.
+        #
+        #   max_displacement_m float : allowed travel while held, default 0.5
+        #   stop_speed         float : speed at/below which "stopped" starts,
+        #                              default 0.2 m/s
+        #   function/hold_key  str   : optional -- when given, the hold window
+        #                              is taken from that boolean custom_detail
+        #                              key (e.g. gt.acc / gt.acc.stop_hold)
+        #                              instead of from the speed alone
+        #   after/before             : the usual sim_time window
+        #
+        # WHY hold_key MATTERS: "the car did not move" is also true of a car
+        # nobody was holding. Anchoring the window on the function's own
+        # stop_hold flag is what makes this a claim about the HOLD rather than
+        # about the scenario happening to end at a standstill. Without it the
+        # matcher still runs (speed-anchored), but it cannot tell the two
+        # apart, so a run that never engaged the hold SKIPs rather than passes.
+        max_disp = float(must.get("max_displacement_m", 0.5))
+        stop_speed = float(must.get("stop_speed", 0.2))
+        function = must.get("function")
+        hold_key = must.get("hold_key")
+        min_frames = int(must.get("min_frames", 2))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        if hold_key is not None and function is None:
+            return res(
+                "skip", "hold_key requires `function` (which row to read it from)"
+            )
+
+        held = []  # (idx, x, y)
+        src = None
+        for i in gated:
+            eg = _ego_state(frames[i])
+            src = src or eg["_source"]
+            if hold_key is not None:
+                rec = _hvd_adas_record(frames[i], function)
+                detail_map = (rec or {}).get("detail") or {}
+                if str(detail_map.get(hold_key, "")).lower() != "true":
+                    continue
+            elif eg["speed"] > stop_speed:
+                continue
+            held.append((i, eg["x"], eg["y"]))
+        if len(held) < 2:
+            what = f"{hold_key!r} true" if hold_key else f"speed <= {stop_speed}"
+            return res(
+                "skip",
+                f"only {len(held)} frame(s) with {what} -- the run never held a stop, "
+                "so it cannot evidence 'no creep while held'",
+                ego_source=src,
+            )
+        # Contiguity: the hold can legitimately engage more than once in a run
+        # (a queue that stops twice). Measuring displacement across the whole
+        # union of held frames would count the travel BETWEEN two holds as
+        # creep. Measure per contiguous run and take the worst.
+        runs: list[list[tuple[int, float, float]]] = [[held[0]]]
+        for row in held[1:]:
+            if row[0] == runs[-1][-1][0] + 1:
+                runs[-1].append(row)
+            else:
+                runs.append([row])
+        worst_disp, worst_idx = 0.0, held[-1][0]
+        for run in runs:
+            x0, y0 = run[0][1], run[0][2]
+            for i, x, y in run:
+                d = math.hypot(x - x0, y - y0)
+                if d > worst_disp:
+                    worst_disp, worst_idx = d, i
+        if worst_disp > max_disp:
+            detail = (
+                f"moved {worst_disp:.3f} m while held (max {max_disp}) by "
+                f"t={frames[worst_idx]['sim_time']:.2f} (frame {worst_idx}) -- creep"
+            )
+            return res("fail", detail, worst_idx, ego_source=src)
+        detail = (
+            f"max displacement {worst_disp:.3f} m over {len(held)} held frame(s) in "
+            f"{len(runs)} hold(s) (max {max_disp})"
+        )
+        return res("pass", detail, ego_source=src)
+
+    if kind == "restart_after_trigger":
+        # req-vd-ad:REQ-AD-031 step a, the other half: after the human's
+        # accelerator trigger the vehicle actually moves off again.
+        #
+        #   trigger_after float : sim_time of the accelerator pulse (required)
+        #   min_speed     float : speed the ego must reach, default 1.0 m/s
+        #   within_s      float : how long after the trigger it has to,
+        #                         default 5.0
+        #
+        # The PRE-trigger half of the claim ("it did not move before") belongs
+        # to stop_hold_stationary; keeping them apart means a run that never
+        # stopped at all fails the right one of the two, instead of one
+        # combined matcher reporting a single ambiguous red.
+        if "trigger_after" not in must:
+            return res(
+                "skip",
+                "must entry names no trigger_after -- a matcher that checks nothing "
+                "must not report pass",
+            )
+        t_trigger = float(must["trigger_after"])
+        min_speed = float(must.get("min_speed", 1.0))
+        within_s = float(must.get("within_s", 5.0))
+        gated = _gated_frame_indices(frames, must)
+        if not gated:
+            return res("skip", "no frames in time window")
+        after = [
+            i
+            for i in gated
+            if t_trigger <= frames[i]["sim_time"] <= t_trigger + within_s
+        ]
+        if not after:
+            return res(
+                "skip",
+                f"no frame in [{t_trigger}, {t_trigger + within_s}] -- the run ended "
+                "before the restart window",
+            )
+        src = _ego_state(frames[after[0]])["_source"]
+        speeds = {i: _ego_state(frames[i])["speed"] for i in after}
+        moving = [i for i in after if speeds[i] >= min_speed]
+        if not moving:
+            i0 = max(speeds, key=speeds.get)
+            detail = (
+                f"peak speed {speeds[i0]:.2f} within {within_s}s of the trigger at "
+                f"t={t_trigger} (want >= {min_speed}) -- did not restart"
+            )
+            return res("fail", detail, i0, ego_source=src)
+        i0 = moving[0]
+        detail = (
+            f"reached {speeds[i0]:.2f} m/s at t={frames[i0]['sim_time']:.2f} "
+            f"({frames[i0]['sim_time'] - t_trigger:.2f}s after the trigger)"
+        )
+        return res("pass", detail, ego_source=src)
 
     if kind == "route_lane_plan_holds":
         # vd-func:FUNC-050 (レーンレベル経路計画) / RouteLanePlan.hpp conformance.

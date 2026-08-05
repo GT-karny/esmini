@@ -1,0 +1,25 @@
+scenario: md_acc_speed_range_gate
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-026 step f (vd-func:FUNC-079), slug md-acc-speed-range-gate.
+#
+# The lead decelerates from t=5 and ACC follows it down through the configured
+# availability floor (adas_acc_min_speed_mps=12.0 in this row's config).
+# MEASURED (test_results/mdadas_measure, 2026-08-05): gt.acc leaves ACTIVE at
+# t=11.45 and the ego settles at 7.1 m/s, i.e. well below the floor.
+#
+# The band is left by FOLLOWING, not by the driver braking, on purpose: a brake
+# also cancels ACC (step b), so a driver-braked run could not distinguish the
+# two mechanisms -- both end in STANDBY. Here the driver never touches a pedal,
+# so the band is the only available explanation.
+must:
+  - event: adas_state_sequence
+    function: gt.acc
+    expect: [unavailable, standby, active, standby]
+    after: { sim_time: 0.0 }
+    before: { sim_time: 20.0 }
+    reason: "利用可能速度域の下限を割ったときACTIVE→STANDBYへ降格すること（REQ-AD-026段f）"
+  - event: no_intervention_in_window
+    function: gt.acc
+    after: { sim_time: 13.0 }
+    before: { sim_time: 20.0 }
+    reason: "域外では介入出力が止むこと＝降格が名前だけでないこと（REQ-AD-026段f、負系）"

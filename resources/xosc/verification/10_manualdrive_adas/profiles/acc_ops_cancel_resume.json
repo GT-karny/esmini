@@ -1,0 +1,25 @@
+{
+  "name": "acc_ops_cancel_resume",
+  "description": "req-vd-ad:REQ-AD-026 step b (and the REQ-AD-028 段b brake-origin override producer). One run, four episodes, in this order: (1) t=1.0 ACC on + SET; (2) t=6.0-7.0 the driver BRAKES -- cancel, and the window where gt.acc must report driver_override active with REASON_BRAKE_PEDAL; (3) t=7.0-10.0 pedal released but NOT resumed -- the window that proves the function stays STANDBY rather than creeping back on by itself, which is the half of step b a 'cancel while the pedal is down' implementation silently fails; (4) t=10.0 RESUME, then t=14.0-16.0 an ACCELERATOR press -- a TEMPORARY override that must NOT change the state, so gt.acc stays ACTIVE while custom_state reports DRIVER_OVERRIDE_ACCEL, and releasing returns to following with no second resume. Throttle peaks at 0.45: high enough to clear accel_override_threshold (0.05) by a wide margin, far enough below kickdown_threshold (0.95) that the shared kickdown latch stays quiet -- an accelerator override and a kickdown are different events and this profile must produce exactly one of them. Button bits: ACC_TOGGLE=512, ACC_SET_RESUME=1024.",
+  "keyframes": [
+    { "t": 0.0,   "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 1.00,  "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 512 },
+    { "t": 1.15,  "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 1.30,  "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 1024 },
+    { "t": 1.45,  "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+
+    { "t": 5.90,  "throttle": 0.0,  "brake": 0.0,  "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 6.00,  "throttle": 0.0,  "brake": 0.35, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 7.00,  "throttle": 0.0,  "brake": 0.35, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 7.10,  "throttle": 0.0,  "brake": 0.0,  "steering": 0.0, "gear": 1, "buttons": 0 },
+
+    { "t": 10.00, "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 1024 },
+    { "t": 10.15, "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+
+    { "t": 13.90, "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 14.00, "throttle": 0.45, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 16.00, "throttle": 0.45, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 16.10, "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 30.00, "throttle": 0.0,  "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 }
+  ]
+}

@@ -1,0 +1,41 @@
+scenario: md_sng_lead_stop_restart
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-031 step a (vd-func:FUNC-079), slugs
+# md-sng-stop-hold-no-creep and md-sng-restart-on-accel.
+#
+# THE HOLD IS THE PART THAT NEEDED A REAL VEHICLE. RealVehicle models an
+# automatic transmission and CREEPS: with no brake applied the ego does not
+# converge to zero but to ~0.16 m/s (measured). A Stop&Go implementation that
+# merely stopped commanding acceleration would pass every unit test and roll
+# into the lead here.
+#
+# MEASURED (GT_esmini/docs/virtualdriver/measurements/
+# manualdrive_creep_stop_hold_2026-08-05.md): the hold engages at t=17.70,
+# releases at t=20.95 on the accelerator ramp, re-engages at t=22.40, and the
+# displacement while held is 0.017 m / 0.032 m over the two windows.
+must:
+  # max_displacement_m 0.5 against a measured 0.032: a 15x margin, deliberately.
+  # A threshold set at the measured value would go red on any small physics
+  # change and train the reader to ignore it; what this matcher has to catch is
+  # a CREEP (metres), not noise (centimetres).
+  - event: stop_hold_stationary
+    function: gt.acc
+    hold_key: gt.acc.stop_hold
+    max_displacement_m: 0.5
+    after: { sim_time: 10.0 }
+    before: { sim_time: 30.0 }
+    reason: "停止保持中に前進しないこと＝ATクリープが抑止されていること（REQ-AD-031段a）。保持ブレーキを0にすると赤になる"
+
+  - event: restart_after_trigger
+    trigger_after: 21.0
+    min_speed: 1.0
+    within_s: 5.0
+    reason: "人間のアクセルパルスで保持が解除され発進すること。再発進判断はシステムがしない（REQ-AD-031段a）"
+
+  - event: adas_state_matches
+    function: gt.acc
+    expect: active
+    mode: all
+    after: { sim_time: 2.0 }
+    before: { sim_time: 30.0 }
+    reason: "停止・保持・再発進を通じてACCは作動し続けること（停止保持は状態遷移ではない）"

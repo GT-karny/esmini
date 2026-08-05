@@ -932,14 +932,14 @@ requirements:
       未整備。SCN-003（先行車追従）系の刺激に合成ステア入力（follower）を重ね、
       set/cancel/resume 操作と先行車の速度変化を組み合わせて構成する。
     acceptance_ladder:
-      - { step: a, claim: ACC ON で先行車追従（設定速度上限＋THW維持）。先行車不在では設定速度で巡航する,            met: false, verified_by: [] }
-      - { step: b, claim: ブレーキ踏下で解除し、resume まで再介入しない。アクセル踏下は一時上書きで離すと追従へ復帰, met: false, verified_by: [] }
-      - { step: c, claim: OFF→STANDBY→ACTIVE の状態遷移が操作と整合して HVD に出る,                                met: false, verified_by: [] }
-      - { step: d, claim: ACC 作動中も AEB は独立監視し、safety が勝つ（tier 調停の手動運転版）,                    met: false, verified_by: [] }
-      - { step: e, claim: 走行中にハンコン等の操作（ボタン）で設定速度を増減でき、変更が即座に追従目標へ反映される,  met: false, verified_by: [] }
-      - { step: f, claim: 利用可能速度域（作動下限/上限）が設定可能で、域外では ACTIVE にならず STANDBY へ遷移する（域内復帰で resume 可）, met: false, verified_by: [] }
-      - { step: g, claim: 制限速度制御（設定速度を道路の制限速度でキャップ）の有無が設定可能で、有効時は制限速度超の設定が実効値でキャップされる, met: false, verified_by: [] }
-      - { step: h, claim: 車間距離設定（段階式 THW）が走行中にハンコン等の操作で変更でき、変更が追従車間へ反映される, met: false, verified_by: [] }
+      - { step: a, claim: ACC ON で先行車追従（設定速度上限＋THW維持）。先行車不在では設定速度で巡航する,            met: true,  verified_by: [matcher:speed_capped_at, matcher:adas_state_matches] }
+      - { step: b, claim: ブレーキ踏下で解除し、resume まで再介入しない。アクセル踏下は一時上書きで離すと追従へ復帰, met: true,  verified_by: [matcher:adas_state_sequence, matcher:no_intervention_in_window, matcher:driver_override_reported] }
+      - { step: c, claim: OFF→STANDBY→ACTIVE の状態遷移が操作と整合して HVD に出る,                                met: true,  verified_by: [matcher:adas_state_sequence] }
+      - { step: d, claim: ACC 作動中も AEB は独立監視し、safety が勝つ（tier 調停の手動運転版）,                    met: true,  verified_by: [matcher:manual_aeb_fires, matcher:adas_state_matches] }
+      - { step: e, claim: 走行中にハンコン等の操作（ボタン）で設定速度を増減でき、変更が即座に追従目標へ反映される,  met: true,  verified_by: [matcher:setting_reflected] }
+      - { step: f, claim: 利用可能速度域（作動下限/上限）が設定可能で、域外では ACTIVE にならず STANDBY へ遷移する（域内復帰で resume 可）, met: true,  verified_by: [matcher:adas_state_sequence, matcher:no_intervention_in_window] }
+      - { step: g, claim: 制限速度制御（設定速度を道路の制限速度でキャップ）の有無が設定可能で、有効時は制限速度超の設定が実効値でキャップされる, met: true,  verified_by: [matcher:speed_capped_at, matcher:min_speed_above] }
+      - { step: h, claim: 車間距離設定（段階式 THW）が走行中にハンコン等の操作で変更でき、変更が追従車間へ反映される, met: true,  verified_by: [matcher:setting_reflected] }
     acceptance: >-
       段 a は VD 版 REQ-AD-002 の THW レンジ判定を流用（自車状態は OSI scene の is_host から
       読む＝面1化済みの経路）。段 b は操作イベントと状態遷移・ペダル実効値の時系列判定。
@@ -955,9 +955,9 @@ requirements:
       THW 段階の水準（例 短/中/長の3段階、実車は 1.0-2.2 s 程度）・応答・速度域の
       定量閾値は要校正。
     realized_by: [vd-func:FUNC-079]
-    verified_by: []
+    verified_by: [matcher:adas_state_sequence, matcher:setting_reflected, matcher:speed_capped_at]
     related: [req-vd-ad:REQ-AD-002, req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-028]
-    status: future
+    status: done
     note: >-
       土台は VD の LeadVehicleAware（ITrafficPolicy、IDM 系）＋ envelope の速度制御版。
       upstream ControllerACC は Object の速度/位置を直接書き換える別アーキテクチャ
@@ -1032,9 +1032,12 @@ requirements:
     acceptance_ladder:
       - { step: a, claim: "3機能の状態が vehicle_automated_driving_function[] に正規 Name 列挙で出る（NAME_OTHER でなく実列挙。custom_detail に gt.* 規約の内部量）", met: true, verified_by: [matcher:adas_state_matches] }
       # met: false のまま verified_by は空に保つ（lint が「met:false + verified_by」を禁じる）。
-      # 判定器具 matcher:driver_override_reported は実在し正負とも緑だが、段b の claim が
-      # 挙げる3経路のうち brake/steer の producer が C/D 未着地のため met を上げない。
-      # 器具と実証範囲は下の note と graph.yaml の verifies 辺（同趣旨の但し書き付き）が持つ。
+      # ★2026-08-05 フェーズC更新: 3経路のうち **brake 経路の producer が生まれ、実証された**
+      # （ACC のブレーキ解除 → REASON_BRAKE_PEDAL、md_acc_cancel_resume の 6.1-6.9 s 窓）。
+      # 残るのは steering 経路（LKA の中断＝フェーズD）だけである。それでも met は false の
+      # まま据え置く: 段b の claim は3経路を1文で括っており、2/3 を「達成」と記すのは
+      # 誇張だから。段で割れば正直に進捗を示せる粒度だが、要求の再分割はフェーズD着手時に
+      # まとめて判断する（今ここで割ると、割り方がDの実装形に引きずられる）。
       - { step: b, claim: "運転者上書き事象が DriverOverride{active, reason} に出る（Reason はブレーキ/ステアの2値＝規格制約。アクセル起因は custom_state で補完）",   met: false, verified_by: [] }
       - { step: c, claim: 検証ハーネス（gt_sim_test）が HVD を読んで matcher 判定に使える（ManualDrive 実行対応を含む）,                                              met: true, verified_by: [matcher:manual_aeb_fires, matcher:adas_state_matches] }
     acceptance: >-
@@ -1179,19 +1182,23 @@ requirements:
       未整備。平坦直線路＋全開スロットル合成入力（キャップが効くこと）、全踏み解除→復帰、
       下り坂（スロットルキャップの限界＝ブレーキ介入しないことの負系）。
     acceptance_ladder:
-      - { step: a, claim: 設定速度を超えないようスロットルがキャップされる（追従なし・ブレーキ介入なし）,        met: false, verified_by: [] }
-      - { step: b, claim: アクセル全踏み（キックダウン相当・閾値要校正）で一時解除し、離すと復帰する,            met: false, verified_by: [] }
+      - { step: a, claim: 設定速度を超えないようスロットルがキャップされる（追従なし・ブレーキ介入なし）,        met: true,  verified_by: [matcher:speed_capped_at, matcher:no_brake_output] }
+      - { step: b, claim: アクセル全踏み（キックダウン相当・閾値要校正）で一時解除し、離すと復帰する,            met: true,  verified_by: [matcher:adas_state_sequence, matcher:driver_override_reported] }
+      # 段 c は実装済み（adas_msl_speed_limit_linked、SpeedLimiter.hpp の cap 選択）だが、
+      # 有効/無効の2構成比較を回す E2E 行がまだ無い＝「設定可能」を実行で示していない。
+      # 実装があることと、構成が効くことを実測で示したことは別の主張なので met は上げない
+      # （同じ規律で REQ-AD-026 段g は2構成を回してから met にした）。
       - { step: c, claim: 制限速度連動モード（設定値でなく道路の制限速度をキャップ値に使う）の有無が設定可能,    met: false, verified_by: [] }
-      - { step: d, claim: 状態と実効キャップが HVD に出る（gt.msl.* 規約）,                                      met: false, verified_by: [] }
+      - { step: d, claim: 状態と実効キャップが HVD に出る（gt.msl.* 規約）,                                      met: true,  verified_by: [matcher:adas_state_matches, matcher:speed_capped_at] }
     acceptance: >-
       段 a はスロットルのみのキャップであること＝下り坂で設定速度を超えてもブレーキが
       出ない（リミッターの定義、負系）を含む。段 b は解除→復帰の時系列。段 c は
       有効/無効の2構成比較（REQ-AD-026 段 g と同じ両極性判定）。設定速度の走行中変更・
       利用可能速度域は ACC（REQ-AD-026 段 e/f）と同じ操作基盤・語彙に乗せる。
     realized_by: [vd-func:FUNC-081]
-    verified_by: []
+    verified_by: [matcher:speed_capped_at, matcher:no_brake_output]
     related: [req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-025, req-vd-ad:REQ-AD-029]
-    status: future
+    status: partial
     note: >-
       2026-08-04 精査で採用。実装は AEB envelope（constraint→ペダルクランプ）と同一機構の
       縮退＝スロットル片側クランプのみ＝追加コストが最小。制限速度参照は REQ-AD-026 段 g と
@@ -1211,7 +1218,11 @@ requirements:
       未整備。渋滞追従（先行車が停止→発進を繰り返す）、赤信号への接近、一時停止標識。
       再発進トリガは合成入力のアクセルパルスで与える。
     acceptance_ladder:
-      - { step: a, claim: 先行車に対して v=0 まで追従減速・停止保持し、人間のアクセル操作で追従を再開する（再発進判断はしない）,                       met: false, verified_by: [] }
+      - { step: a, claim: 先行車に対して v=0 まで追従減速・停止保持し、人間のアクセル操作で追従を再開する（再発進判断はしない）,                       met: true,  verified_by: [matcher:stop_hold_stationary, matcher:restart_after_trigger] }
+      # 段 b は claim が「信号・一時停止標識」の**両方**を挙げる。実証したのは一時停止標識の
+      # 側だけで（md_sng_stop_sign の2構成）、信号側は刺激資産が無い。TrafficLightAware を
+      # Add する経路は実装済みで、非依存性の実走確認も StopYieldSignAware で取れているので
+      # 動く見込みは高い——が、見込みで met は上げない。信号交差点の刺激を1本足せば閉じる。
       - { step: b, claim: 信号・一時停止標識も停止対象に構成でき、停止線手前で停止する。再発進は段 a と同じ人間トリガ,                                 met: false, verified_by: [] }
       - { step: c, claim: 短時間停止（実車標準の約3秒相当・要校正）に限る時限自動再発進が構成可能（将来段・本要求の受入対象外）,                       met: false, verified_by: [] }
       - { step: d, claim: 発進判断（先行車発進・信号青・横断クリアの複合確認）による完全自動再発進（将来段・vd-func:FUNC-058 依存・本要求の受入対象外）, met: false, verified_by: [] }
@@ -1222,9 +1233,9 @@ requirements:
       REQ-AD-003/004 と同じ停止線基準を使い、停止対象を先行車のみに構成した場合は
       信号・標識で介入しないこと（構成の両極性）と対で判定する。
     realized_by: [vd-func:FUNC-079]
-    verified_by: []
+    verified_by: [matcher:stop_hold_stationary, matcher:restart_after_trigger]
     related: [req-vd-ad:REQ-AD-026, req-vd-ad:REQ-AD-003, req-vd-ad:REQ-AD-004, vd-func:FUNC-014, vd-func:FUNC-058]
-    status: future
+    status: partial
     note: >-
       3パターン分解はユーザー整理（2026-08-04）: (1) 先行車のみ・人間再発進 (2) 信号/一時
       停止込み・人間再発進 (3) AD 相当・自動再発進。段 c は 1 と 3 の実用的中間

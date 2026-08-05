@@ -1,0 +1,28 @@
+scenario: md_sng_stop_sign
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-031 step b, the stop_at_stop_sign=FALSE pole (slug
+# md-sng-target-config-polarity). Same xosc, same road, same driver as
+# md_sng_stop_sign.expectations.yaml -- the only difference is the config
+# switch (manifest `variant: lead_only_target`).
+#
+# THE NEGATIVE IS STRUCTURAL, NOT A FILTER. With the target switched off,
+# StopYieldSignAware is never INSTANTIATED at all (AdasCoexistenceStack's
+# constructor decides membership from stop_targets), so there is no constraint
+# for a later change to accidentally let through. Do not delete either row:
+# each is meaningless alone.
+#
+# MEASURED: with the target off the ego holds 12.85-13.86 m/s past the sign,
+# i.e. it never even slowed.
+must:
+  - event: min_speed_above
+    threshold: 10.0
+    after: { sim_time: 12.0 }
+    before: { sim_time: 30.0 }
+    reason: "停止対象を先行車のみに構成すると一時停止標識で介入しないこと（REQ-AD-031段b・構成の両極性）"
+  - event: adas_state_matches
+    function: gt.acc
+    expect: active
+    mode: all
+    after: { sim_time: 2.0 }
+    before: { sim_time: 30.0 }
+    reason: "対照として、ACC自体は同じくACTIVEであること（違いは停止対象の構成だけ）"

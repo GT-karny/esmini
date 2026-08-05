@@ -1,0 +1,26 @@
+{
+  "name": "acc_ops_setting_changes",
+  "description": "req-vd-ad:REQ-AD-026 steps e and h. ACC on + SET at t=1.0, then FOUR separate SPEED_UP presses (t=4/5/6/7) and, later, TWO THW_CYCLE presses (t=12, t=17). Button bits: ACC_TOGGLE=512, ACC_SET_RESUME=1024, ACC_SPEED_UP=2048, ACC_THW_CYCLE=8192.\n\nFOUR presses, not one: the setting_reflected matcher's default min_step is 0.5 m/s and one press moves the setting by set_speed_step_mps=1.39 m/s, so a single press would already clear it -- but four presses spaced a second apart give the effective value time to be measured MOVING rather than merely differing at two sampled instants, which is what separates 'the change was applied' from 'the number was stored'.\n\nTWO thw cycles, not one: step h asks for a stimulus that crosses TWO OR MORE stages in ONE run ('1 本の刺激で 2 段階以上を跨ぐ'), because a single change cannot distinguish a real stage selector from a field that flips once and sticks. Stage order is short(1.0) -> mid(1.6) -> long(2.2) with wraparound, and the default stage is mid, so these two presses walk mid -> long -> short: both DIRECTIONS of change appear in one run.\n\nThe cycles come well after the speed presses so the two settings' effects do not overlap in time -- a matcher reading thw_setting_s must not have to disentangle a simultaneous set-speed step.",
+  "keyframes": [
+    { "t": 0.0,   "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 1.00,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 512 },
+    { "t": 1.15,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 1.30,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 1024 },
+    { "t": 1.45,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+
+    { "t": 4.00,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 2048 },
+    { "t": 4.15,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 5.00,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 2048 },
+    { "t": 5.15,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 6.00,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 2048 },
+    { "t": 6.15,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 7.00,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 2048 },
+    { "t": 7.15,  "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+
+    { "t": 12.00, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 8192 },
+    { "t": 12.15, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 17.00, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 8192 },
+    { "t": 17.15, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 30.00, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 }
+  ]
+}

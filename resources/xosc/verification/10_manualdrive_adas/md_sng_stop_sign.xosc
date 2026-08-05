@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ManualDrive ADAS verification scenario 10_manualdrive_adas / md_sng_stop_sign
+  (req-vd-ad:REQ-AD-031 step b, vd-func:FUNC-079; slugs md-sng-stop-sign-stop and
+  md-sng-target-config-polarity). Added 2026-08-05 (phase C).
+
+  Road: straight_stop_sign_stop_line.xodr - a 500 m straight carrying a paired
+  stop sign (id=10, type=206/de, s=200) and its stop LINE (id=11, type=294, s=195).
+  The same road the VirtualDriver's own REQ-AD-004 assets use, deliberately: 段b's
+  stopping behaviour is specified as "the same stop-line basis as the VD case", and
+  reusing the road is what makes that comparable rather than merely asserted.
+
+  WHAT THIS RUN IS ACTUALLY TESTING, AND WHY IT COMES FIRST IN PHASE C. Until this
+  scenario ran, "TrafficLightAware and StopYieldSignAware are controller-independent"
+  was an INFERENCE - from the ITrafficPolicy contract and from AebSafety's having
+  turned out to be independent (design §12 records it as an open item, and §4-3 says
+  phase C confirms it by running). Those two policies scan the road ahead from the
+  ego's own Position (RouteSignalScan's CopyRoute walk), and a ManualDrive ego has
+  no Route at all, so "it compiles against the interface" was never the question;
+  "does the scan find anything when nobody planned a route" was.
+
+  ONE FILE, TWO CONFIGURATIONS (manifest `variant`, the phase-B mechanism). The
+  positive row sets adas_acc_stop_at_stop_sign=true and expects a stop at the line;
+  the polarity row leaves it false and expects the ego to drive past untouched. The
+  two are not a convenience: with the target switched off, StopYieldSignAware is
+  never even INSTANTIATED (AdasCoexistenceStack's constructor), so the negative is
+  structural rather than a filter someone could later relax. Deleting either row
+  would leave the other proving nothing about configurability.
+
+  13.889 m/s (50 km/h) and a sign at s=200 from a start at s=30: ~12 s of approach,
+  comfortably inside the 30 s run with room for the stop and the hold to be measured
+  as settled values rather than as a transient.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="3" date="2026-08-05T00:00:00"
+               description="ManualDrive ADAS verification: ACC Stop-and-Go stops at a stop line when the stop sign is a configured target" author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_stop_sign_stop_line.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="ManualDriveController">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_headless_stub.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-1" offset="0" s="30"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="ManualDriveController" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="StopSignStopAndGoStory">
+         <Act name="StopSignStopAndGoAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition><SimulationTimeCondition value="30" rule="greaterThan"/></ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

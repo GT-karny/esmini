@@ -1,0 +1,30 @@
+scenario: md_acc_msl_exclusion
+category: 10_manualdrive_adas
+# design §6 (vd-func:FUNC-079 + FUNC-081), slug md-acc-msl-mutual-exclusion.
+#
+# MEASURED (test_results/mdadas_measure, 2026-08-05): gt.acc walks
+# unavailable -> standby@1.00 -> active@1.30 -> standby@6.00 (demoted when the
+# limiter is switched on) -> active (after the reclaim + resume at t=11.0/11.3),
+# while gt.msl walks unavailable -> active@6.00 -> standby@11.00.
+#
+# BOTH DIRECTIONS IN ONE RUN. A one-direction run would pass on an
+# implementation in which MSL simply always wins; "the later ON wins" is a claim
+# about ORDER and needs a reversal to be tested at all.
+#
+# NEITHER ROW MAY REPORT UNAVAILABLE while it is merely demoted -- that is the
+# difference between "suspended" and "switched off", and it is what a driver
+# would see on the dash. The two sequences below assert it by construction:
+# unavailable appears only at the head, before either function was switched on.
+must:
+  - event: adas_state_sequence
+    function: gt.acc
+    expect: [unavailable, standby, active, standby, active]
+    after: { sim_time: 0.0 }
+    before: { sim_time: 20.0 }
+    reason: "MSLをONにするとACCがSTANDBYへ降格し、ACCを取り戻すと再びACTIVEになること（設計§6・後からONにした側が勝つ）"
+  - event: adas_state_sequence
+    function: gt.msl
+    expect: [unavailable, active, standby]
+    after: { sim_time: 0.0 }
+    before: { sim_time: 20.0 }
+    reason: "逆向き＝ACCを取り戻すとMSLがSTANDBYへ降格すること。OFF(UNAVAILABLE)ではなく降格であることが要点（設計§6）"

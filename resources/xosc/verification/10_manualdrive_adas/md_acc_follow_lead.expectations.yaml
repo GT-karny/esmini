@@ -1,0 +1,44 @@
+scenario: md_acc_follow_lead
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-026 steps a and h (vd-func:FUNC-079), slugs
+# md-acc-follow-thw-band and md-acc-thw-stage-runtime-change.
+#
+# WINDOWS ARE MEASURED, NOT CHOSEN (test_results/mdadas_measure, 2026-08-05).
+# The driver SETs at t=1.30 and gt.acc reaches ACTIVE on that frame; the follow
+# converges by t~8; the two following-distance presses land at t=12 and t=17 and
+# the measured headway settles within ~3 s of each.
+must:
+  - event: adas_state_matches
+    function: gt.acc
+    expect: active
+    mode: all
+    after: { sim_time: 2.0 }
+    before: { sim_time: 34.0 }
+    reason: "ACCがsetから走行終了まで作動し続けること（追従中に勝手に解除・降格しない、REQ-AD-026段a）"
+
+  # The follow itself: the ego must actually come DOWN to the lead's speed
+  # rather than cruise at its own set speed of 24. 17.0 m/s is the lead's 15
+  # plus 2.0 -- above the measured settled speed (16.7) with margin, and far
+  # below the set speed, so the assertion can only be satisfied by following.
+  - event: speed_capped_at
+    cap: 17.0
+    tolerance: 0.5
+    after: { sim_time: 12.0 }
+    before: { sim_time: 34.0 }
+    reason: "設定速度24m/sではなく先行車の15m/s付近まで落ちて追従していること（REQ-AD-026段a）"
+
+  # Step h: the STAGE the driver selected has to reach the measured headway.
+  # settle_s=4.0 because the IDM gap term converges over seconds (measured:
+  # stage 1 -> 2.09 s, stage 2 -> 2.51 s, stage 0 -> 1.63 s actual headway).
+  # min_step 0.5 is under the smallest stage step (1.0 -> 1.6 = 0.6 s) and
+  # above the frame-to-frame noise in thw_setting_s, which is a constant
+  # between presses.
+  - event: setting_reflected
+    function: gt.acc
+    setting_key: gt.acc.thw_setting_s
+    effective_key: gt.acc.thw_actual_s
+    min_step: 0.5
+    settle_s: 4.0
+    after: { sim_time: 6.0 }
+    before: { sim_time: 34.0 }
+    reason: "車間段階の切替が実測THWに段差として現れること。2回切替（mid→long→short）で両方向を跨ぐ（REQ-AD-026段h）"
