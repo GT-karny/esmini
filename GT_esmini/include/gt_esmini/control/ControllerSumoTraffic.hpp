@@ -99,14 +99,6 @@ public:
         return config_;
     }
 
-    // Number of vehicles this controller has injected into the scenario so far
-    // (spawned by SUMO). The smoke check reads it; a run that exits 0 with zero
-    // spawned vehicles is a silent failure, not a pass.
-    size_t GetSpawnedCount() const
-    {
-        return spawned_total_;
-    }
-
 private:
     void LoadConfig(const std::string& config_path);
     void ApplyProperties(scenarioengine::OSCProperties* properties);
@@ -154,8 +146,6 @@ private:
         bool              has_heading = false;
     };
     std::unordered_map<std::string, TrackedPose> tracked_;
-
-    size_t spawned_total_ = 0;
 };
 
 scenarioengine::Controller* InstantiateControllerSumoTraffic(void* args);

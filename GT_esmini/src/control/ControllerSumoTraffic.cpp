@@ -442,7 +442,6 @@ void gt_esmini::ControllerSumoTraffic::SpawnDepartedVehicles()
         LOG_INFO("GTSumoTrafficController: add SUMO vehicle {} ({}) to scenario", id, vclass);
         entities_->addObject(vehicle, true);
         spawned_ids_.insert(id);
-        spawned_total_++;
     }
 }
 
