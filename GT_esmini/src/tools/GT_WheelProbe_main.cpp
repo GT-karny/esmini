@@ -106,8 +106,9 @@ void PrintUsage()
         "  --no-haptic-init      do not initialize the HAPTIC subsystem (diagnostic)\n"
         "\n"
         "Mapping options (default to the shipped G29 layout)\n"
-        "  --steer-axis N            --steer-invert\n"
-        "  --steer-raw-center N      --steer-raw-full N\n"
+        "  --steer-axis N\n"
+        "  --steer-raw-center N      --steer-raw-full N   (raw_full is FULL RIGHT;\n"
+        "                            raw_full < raw_center = axis counts up to the left)\n"
         "  --throttle-axis N         --throttle-raw-released N  --throttle-raw-full N\n"
         "  --brake-axis N            --brake-raw-released N     --brake-raw-full N\n"
         "  --clutch-axis N           --clutch-raw-released N    --clutch-raw-full N\n"
@@ -169,7 +170,16 @@ int main(int argc, char** argv)
         else if (!std::strcmp(a, "--hz"))                    ok = TakeInt(argc, argv, i, hz);
         else if (!std::strcmp(a, "--frames"))                ok = TakeInt(argc, argv, i, frames);
         else if (!std::strcmp(a, "--steer-axis"))            ok = TakeInt(argc, argv, i, map.steer.index);
-        else if (!std::strcmp(a, "--steer-invert"))          map.steer.invert = true;
+        // --steer-invert was retired with the flag it set (polarity is the
+        // calibration's order now). Accepted-and-rejected rather than silently
+        // unknown so a stale caller gets told what to do instead.
+        else if (!std::strcmp(a, "--steer-invert"))
+        {
+            std::cerr << "GT_WheelProbe: --steer-invert was removed. Steering polarity comes from "
+                         "--steer-raw-center / --steer-raw-full (raw_full is full RIGHT); mirror "
+                         "them to invert.\n";
+            return 2;
+        }
         else if (!std::strcmp(a, "--steer-raw-center"))      ok = TakeInt(argc, argv, i, map.steer.raw_center);
         else if (!std::strcmp(a, "--steer-raw-full"))        ok = TakeInt(argc, argv, i, map.steer.raw_full);
         else if (!std::strcmp(a, "--throttle-axis"))         ok = TakeInt(argc, argv, i, map.throttle.index);

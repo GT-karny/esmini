@@ -27,6 +27,12 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         config_dir = (slash == std::string::npos) ? std::string() : filepath.substr(0, slash);
     }
 
+    // feature:F8 -- retired key. Polarity now lives in the calibrated pair on
+    // every axis (steer_raw_center/steer_raw_full), so a leftover
+    // "steer_invert": true would otherwise be ignored SILENTLY and the wheel
+    // would steer the opposite way from the last run with no explanation.
+    bool legacy_steer_invert = false;
+
     std::string line;
     while (std::getline(file, line))
     {
@@ -135,12 +141,12 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
         // key WITH its closing quote ("throttle"), so the line
         // `"throttle_axis": 1` cannot match it and vice versa.
         //
-        // steer_invert is the only bool here, and it is a bool ONLY because its
-        // value is always true/false: parse_bool treats any value containing
-        // "1" as true, so a key whose value can be -1 (every *_axis key) must
-        // never be parsed as a bool.
+        // No bool among them: polarity lives in the calibrated pair on every
+        // axis (WheelAxisMapping.hpp). parse_bool would also be unusable for
+        // these keys -- it treats any value containing "1" as true, and every
+        // *_axis key can legitimately be -1.
         parse_int ("steer_axis",             sdl2.axes.steer.index);
-        parse_bool("steer_invert",           sdl2.axes.steer.invert);
+        parse_bool("steer_invert",           legacy_steer_invert);  // retired; warned about below
         parse_int ("steer_raw_center",       sdl2.axes.steer.raw_center);
         parse_int ("steer_raw_full",         sdl2.axes.steer.raw_full);
         parse_int ("throttle_axis",          sdl2.axes.throttle.index);
@@ -345,12 +351,19 @@ bool ManualDriveConfig::LoadFromFile(const std::string& filepath)
              ffb.target_track.enabled, ffb.target_track.kp, ffb.target_track.kd,
              ffb.target_track.max_force, ffb.target_track.override_steer_force_threshold,
              ffb.target_track.override_steer_dev_threshold, ffb.target_track.override_sustain_time);
+    if (legacy_steer_invert)
+    {
+        LOG_WARN("ManualDriveConfig: 'steer_invert' is no longer used and was IGNORED. Steering "
+                 "polarity now comes from steer_raw_center/steer_raw_full (raw_full is full RIGHT) "
+                 "-- mirror them instead: steer_raw_full = 2*steer_raw_center - steer_raw_full, or "
+                 "press Flip in the GUI's Axis Mapping panel.");
+    }
     // feature:F8 -- logged unconditionally: when a wheel misbehaves, "which
     // axis was this build actually reading?" is the first question, and the
     // answer must be in the log of the run that misbehaved.
     LOG_INFO("ManualDriveConfig: axes steer=a{}{} (center={} full={}) throttle=a{} ({}..{}) "
              "brake=a{} ({}..{}) clutch=a{} ({}..{})",
-             sdl2.axes.steer.index, sdl2.axes.steer.invert ? " inverted" : "",
+             sdl2.axes.steer.index, sdl2.axes.steer.SignFactor() < 0.0 ? " (counts up to the left)" : "",
              sdl2.axes.steer.raw_center, sdl2.axes.steer.raw_full,
              sdl2.axes.throttle.index, sdl2.axes.throttle.raw_released, sdl2.axes.throttle.raw_full,
              sdl2.axes.brake.index, sdl2.axes.brake.raw_released, sdl2.axes.brake.raw_full,

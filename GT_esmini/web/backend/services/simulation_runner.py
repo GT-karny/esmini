@@ -368,7 +368,6 @@ def _sdl2_axis_entries(mapping: Any, base: dict) -> dict[str, Any]:
 # truth), used only as the last-resort fallback in _sdl2_axis_entries.
 _AXIS_CPP_DEFAULTS: dict[str, Any] = {
     "steer_axis": 0,
-    "steer_invert": False,
     "steer_raw_center": 0,
     "steer_raw_full": 32767,
     "throttle_axis": 1,

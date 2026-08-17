@@ -190,7 +190,6 @@ const BoolField kBoolFields[] = {
     {"lane_change_initiation_enabled", &VirtualDriverConfig::lane_change_initiation_enabled},  // vd-func:FUNC-055
     {"overtake_enabled", &VirtualDriverConfig::overtake_enabled},  // vd-func:FUNC-056
     {"overtake_use_opposing_lane_enabled", &VirtualDriverConfig::overtake_use_opposing_lane_enabled},  // vd-func:FUNC-056
-    {"sdl2_steer_invert", &VirtualDriverConfig::sdl2_steer_invert},  // feature:F8
 };
 
 const IntField kIntFields[] = {
@@ -269,6 +268,18 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
         int parsed = 0;
         if (root.GetInt(field.key, parsed)) (this->*(field.member)) = parsed;
         else WarnIfWrongType(root, field.key, "an integer");
+    }
+
+    // feature:F8 -- retired key. Polarity is the order of the calibrated pair on
+    // every axis now, so an old sdl2_steer_invert would be dropped silently and
+    // the wheel would steer the opposite way from the previous run with nothing
+    // in the log to explain it. Unknown keys are otherwise ignored here, which
+    // is exactly why this one needs naming.
+    if (root.Find("sdl2_steer_invert"))
+    {
+        LOG_WARN("VirtualDriverConfig: 'sdl2_steer_invert' is no longer used and was IGNORED. "
+                 "Steering polarity now comes from sdl2_steer_raw_center/sdl2_steer_raw_full "
+                 "(raw_full is full RIGHT) -- mirror them instead, or press Flip in the GUI.");
     }
 
     LOG_INFO("VirtualDriverConfig: planner(horizon={:.1f}s dt={:.2f}) driver(la_gain={:.2f} kp={:.2f}) input={}",

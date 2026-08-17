@@ -114,7 +114,6 @@ ControllerVirtualDriver::ControllerVirtualDriver(InitArgs* args)
     // has to be threaded here too; otherwise a wheel with a non-G29 pedal order
     // would be read correctly under ManualDrive and wrongly under VD.
     io_config_.sdl2.axes.steer.index             = vd_config_.sdl2_steer_axis;
-    io_config_.sdl2.axes.steer.invert            = vd_config_.sdl2_steer_invert;
     io_config_.sdl2.axes.steer.raw_center        = vd_config_.sdl2_steer_raw_center;
     io_config_.sdl2.axes.steer.raw_full          = vd_config_.sdl2_steer_raw_full;
     io_config_.sdl2.axes.throttle.index          = vd_config_.sdl2_throttle_axis;

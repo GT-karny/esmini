@@ -73,8 +73,12 @@ double SteerAxisSpec::Normalize(int raw) const
     {
         return 0.0;  // centred
     }
+    // No SignFactor here: `span` is negative for an axis that counts up to the
+    // left, so the division already produces the mirrored value. Multiplying by
+    // SignFactor as well would cancel the inversion out (the bug that the old
+    // separate `invert` flag made easy to write).
     const double n = (static_cast<double>(raw) - static_cast<double>(raw_center)) / span;
-    return StripNegativeZero(std::clamp(n, -1.0, 1.0) * SignFactor());
+    return StripNegativeZero(std::clamp(n, -1.0, 1.0));
 }
 
 void WheelAxisMapping::CollectProblems(int num_axes, std::vector<std::string>& problems) const

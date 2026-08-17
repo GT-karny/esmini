@@ -342,8 +342,10 @@ struct VirtualDriverConfig
     //
     // Prefixed sdl2_* like the buttons above, and flat because this file's
     // loader is a field table keyed by flat name.
+    // No invert flag on any axis: polarity is the order of the calibrated pair
+    // (WheelAxisMapping.hpp). A leftover sdl2_steer_invert is warned about in
+    // VirtualDriverConfig.cpp rather than silently ignored.
     int         sdl2_steer_axis             = 0;
-    bool        sdl2_steer_invert           = false;
     int         sdl2_steer_raw_center       = 0;
     int         sdl2_steer_raw_full         = 32767;
     int         sdl2_throttle_axis          = 1;

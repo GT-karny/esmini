@@ -22,7 +22,6 @@ import { useWheelProbe } from '../../hooks/useWheelProbe';
 
 export const DEFAULT_AXIS_MAPPING: WheelAxisMapping = {
   steer_axis: 0,
-  steer_invert: false,
   steer_raw_center: 0,
   steer_raw_full: 32767,
   throttle_axis: 1,
@@ -251,13 +250,29 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
     return frame.norm[fn] > 0.5;
   };
 
-  /** Inverting a pedal IS swapping its calibrated ends. */
-  const swapPedalEnds = (fn: PedalFn) =>
+  /**
+   * Invert an axis. Uniform across all four, because "which way does this device
+   * count" is the same hardware-matching question everywhere -- there is no
+   * invert flag anywhere, and this button IS the mechanism.
+   *
+   * The arithmetic differs only because the two calibrations mean different
+   * things: a pedal's ends are exchanged, while steering mirrors its span about
+   * the centre so that the centre the user set is preserved.
+   */
+  const flipAxis = (fn: AxisFn) => {
+    if (fn === 'steer') {
+      onChange({
+        ...mapping,
+        steer_raw_full: 2 * mapping.steer_raw_center - mapping.steer_raw_full,
+      });
+      return;
+    }
     onChange({
       ...mapping,
       [`${fn}_raw_released`]: mapping[`${fn}_raw_full`],
       [`${fn}_raw_full`]: mapping[`${fn}_raw_released`],
     });
+  };
 
   const bar = (fn: AxisFn, value: number, axis: number) => {
     // Steering is bipolar, pedals are unipolar; both are drawn on 0..100% with
@@ -312,29 +327,28 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
           >
             {detecting ? 'Move it...' : 'Detect'}
           </button>
-          {/* Pedals have no invert CHECKBOX on purpose: the (released, full) pair
-              already encodes polarity, and a second way to state the same fact
-              would let a user contradict themselves. But swapping that pair IS
-              the inversion, so it gets a button -- a pedal reading backwards is a
-              calibration mistake to correct, not a preference to toggle (unlike
-              steering, where "which way the wheel turns" is a real choice). */}
-          {fn !== 'steer' ? (
-            <>
-              <button
-                onClick={() => swapPedalEnds(fn)}
-                title="Swap the released / fully-pressed raw values (this IS inverting the pedal)"
-                className="text-[10px] px-2 py-0.5 rounded bg-glass-1 border border-glass-edge text-text-tertiary hover:text-foreground hover:bg-glass-hover cursor-pointer"
-              >
-                Flip
-              </button>
-              {/* Reports the MEASUREMENT, not the stored numbers: an idle pedal
-                  reading pressed is the only evidence that the ends are the
-                  wrong way round. Silent when undecidable (no data / still
-                  moving) rather than guessing. */}
-              {pedalReadsPressedWhileIdle(fn) === true ? (
-                <span className="text-[10px] text-warning">reads pressed while idle → Flip</span>
-              ) : null}
-            </>
+          {/* Flip on EVERY axis, no invert checkbox anywhere: polarity is the
+              order of the calibrated pair, and this button is the one way to
+              change it. Uniform because "which way does this device count" is
+              the same hardware-matching question on the wheel as on a pedal. */}
+          <button
+            onClick={() => flipAxis(fn)}
+            title={
+              fn === 'steer'
+                ? 'Mirror the steering span about its centre (use when the wheel steers the wrong way)'
+                : 'Exchange the released / fully-pressed raw values (use when the pedal works backwards)'
+            }
+            className="text-[10px] px-2 py-0.5 rounded bg-glass-1 border border-glass-edge text-text-tertiary hover:text-foreground hover:bg-glass-hover cursor-pointer"
+          >
+            Flip
+          </button>
+          {/* Reports the MEASUREMENT, not the stored numbers: an idle pedal
+              reading pressed is the only evidence that the ends are the wrong way
+              round. Silent when undecidable (no data / still moving) rather than
+              guessing, and absent for steering, which has no equivalent test (a
+              wheel at rest is wherever it was left). */}
+          {fn !== 'steer' && pedalReadsPressedWhileIdle(fn) === true ? (
+            <span className="text-[10px] text-warning">reads pressed while idle → Flip</span>
           ) : null}
         </div>
         {bar(fn, normValue, axis)}
@@ -380,15 +394,6 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
       <div className="space-y-2">
         {axisRow('steer', 'Steering', mapping.steer_axis, frame?.norm.steering ?? 0)}
         <div className="flex items-center gap-3 pl-[4.5rem]">
-          <label className="text-[10px] text-text-tertiary flex items-center gap-1 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={mapping.steer_invert}
-              onChange={(e) => setField('steer_invert', e.target.checked)}
-              className="accent-primary"
-            />
-            Invert (also flips FFB direction)
-          </label>
           {/* Separate from Detect on purpose: a wheel with FFB idle has no
               centring spring and rests wherever it was left, so the centre has
               to be an explicit "it is straight ahead right now" statement. */}
@@ -398,6 +403,9 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
           >
             Set centre
           </button>
+          <span className="text-[10px] text-text-tertiary">
+            Flip also reverses the FFB force direction
+          </span>
         </div>
         {PEDALS.map(({ fn, label }) =>
           axisRow(fn, label, mapping[`${fn}_axis`], frame?.norm[fn] ?? 0),

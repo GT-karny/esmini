@@ -105,9 +105,8 @@ def test_saved_axis_reassignment_prefills_and_reaches_a_launched_run(sandbox, tm
     current["sdl2"]["axis_mapping"].update(
         {
             "steer_axis": 0,
-            "steer_invert": True,
             "steer_raw_center": -100,
-            "steer_raw_full": 30000,
+            "steer_raw_full": -30000,  # mirrored: full RIGHT below centre
             "throttle_axis": 2,
             "brake_axis": 1,
             "brake_raw_released": 0,
@@ -122,7 +121,7 @@ def test_saved_axis_reassignment_prefills_and_reaches_a_launched_run(sandbox, tm
     assert axes["throttle_axis"] == 2
     assert axes["brake_axis"] == 1
     assert axes["brake_raw_released"] == 0
-    assert axes["steer_invert"] is True
+    assert axes["steer_raw_full"] == -30000  # the mirrored calibration survives
     assert axes["steer_raw_center"] == -100
     assert axes["clutch_axis"] == -1
 
@@ -140,7 +139,7 @@ def test_saved_axis_reassignment_prefills_and_reaches_a_launched_run(sandbox, tm
     assert run_config["input"]["brake_axis"] == 1
     assert run_config["input"]["brake_raw_released"] == 0
     assert run_config["input"]["brake_raw_full"] == 32767
-    assert run_config["input"]["steer_invert"] is True
+    assert run_config["input"]["steer_raw_full"] == -30000
     assert run_config["input"]["steer_raw_center"] == -100
     assert run_config["input"]["clutch_axis"] == -1
 
@@ -163,7 +162,8 @@ def test_a_run_request_without_an_axis_block_still_gets_the_g29_defaults(tmp_pat
     assert run_config["input"]["clutch_axis"] == 3
     assert run_config["input"]["throttle_raw_released"] == 32767
     assert run_config["input"]["throttle_raw_full"] == -32768
-    assert run_config["input"]["steer_invert"] is False
+    assert run_config["input"]["steer_raw_center"] == 0
+    assert run_config["input"]["steer_raw_full"] == 32767
 
 
 # --- probe API ------------------------------------------------------------
@@ -173,9 +173,8 @@ def test_mapping_args_translates_every_key_and_the_invert_flag():
     flags = wheel_probe._mapping_args(
         {
             "steer_axis": 0,
-            "steer_invert": True,
             "steer_raw_center": -100,
-            "steer_raw_full": 30000,
+            "steer_raw_full": -30000,  # mirrored: full RIGHT below centre
             "throttle_axis": 2,
             "throttle_raw_released": 32767,
             "throttle_raw_full": -32768,
@@ -190,20 +189,21 @@ def test_mapping_args_translates_every_key_and_the_invert_flag():
     assert flags[flags.index("--throttle-axis") + 1] == "2"
     assert flags[flags.index("--brake-raw-released") + 1] == "0"
     assert flags[flags.index("--clutch-axis") + 1] == "-1"
-    assert "--steer-invert" in flags
     # Every mapping key must reach the probe: a key that silently fails to
     # translate would make the GUI preview disagree with what a run does.
     for key in SDL2_AXIS_KEY_MAP:
-        if key == "steer_invert":
-            continue
         assert "--" + key.replace("_", "-") in flags, key
 
 
-def test_mapping_args_omits_the_invert_flag_when_false():
-    # Negative control: --steer-invert is a presence flag, so "False" must mean
-    # absent rather than "--steer-invert False" (which the probe would reject).
-    flags = wheel_probe._mapping_args({"steer_axis": 0, "steer_invert": False})
+def test_mapping_args_never_forwards_a_retired_invert_key():
+    # feature:F8 -- the flag was removed in favour of the calibration order, and
+    # GT_WheelProbe rejects --steer-invert with exit 2. A stale client that still
+    # sends the key must therefore not have it translated (which would kill the
+    # live readout), and must not have it silently honoured either (that would
+    # restore two representations of one fact).
+    flags = wheel_probe._mapping_args({"steer_axis": 0, "steer_invert": True})
     assert "--steer-invert" not in flags
+    assert flags == ["--steer-axis", "0"]
 
 
 def test_mapping_args_drops_a_malformed_value_instead_of_poisoning_the_command():

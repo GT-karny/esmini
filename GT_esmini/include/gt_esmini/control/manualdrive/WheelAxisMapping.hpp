@@ -16,17 +16,28 @@
 // arithmetic is where every device difference is resolved, so it is exactly
 // the part that must stay testable without a wheel attached.
 //
-// REPRESENTATION CHOICES (both are load-bearing):
+// REPRESENTATION: POLARITY LIVES IN THE CALIBRATION, ON EVERY AXIS.
 //
-//  - Pedals carry NO invert flag. The (raw_released, raw_full) pair already
-//    encodes polarity: released > full is an inverted pedal (the G29 case),
-//    released < full is the other convention. One representation per fact
-//    means there is no way to state polarity twice and disagree with yourself.
-//  - Steering DOES carry an invert flag, applied AFTER normalization. Range
-//    calibration (raw_center / raw_full) and "the wheel turns the wrong way"
-//    are different questions to a human, and the second one is a switch.
-//    See the FFB note on SteerAxisSpec::invert -- the sign has a safety
-//    consequence, so it must be read from ONE place.
+// No axis carries an invert flag. The calibrated pair already states the
+// direction:
+//   pedals   (raw_released, raw_full) -- released > full is the G29 convention
+//   steering (raw_center, raw_full)   -- raw_full is FULL RIGHT, so raw_full <
+//                                        raw_center means the axis counts up to
+//                                        the left
+// Inverting an axis therefore means exchanging its two calibrated ends, which is
+// what the GUI's per-axis "Flip" button does. One fact, one representation, on
+// all four axes.
+//
+// EARLIER DESIGN, AND WHY IT WAS WRONG (kept so it is not re-invented): steering
+// had an extra `invert` bool "because which way the wheel turns is a preference,
+// unlike a pedal". That was backwards. Nobody prefers mirrored steering -- you
+// set it to match how the DEVICE counts, exactly like a pedal. And with
+// raw_full defined as full-right, the flag duplicated information the
+// calibration already carried, i.e. it was the redundancy the pedals were
+// deliberately spared. It is gone; `steer_invert` in an old config file is
+// ignored with a warning (ManualDriveConfig.cpp).
+//
+// The FFB consequence has not gone away, only its source: see SignFactor().
 
 #include <string>
 #include <vector>
@@ -69,6 +80,14 @@ struct PedalAxisSpec
         return raw_released != 0;
     }
 
+    /** Inverting a pedal IS exchanging its calibrated ends (GUI "Flip"). */
+    void Flip()
+    {
+        const int released = raw_released;
+        raw_released       = raw_full;
+        raw_full           = released;
+    }
+
     // raw -> [0,1]. Degenerate span (released == full, i.e. an uncalibrated or
     // mis-entered pair) yields 0.0 = released rather than a division by zero:
     // for a pedal, "released" is the safe reading to fabricate.
@@ -79,36 +98,52 @@ struct PedalAxisSpec
 // the pre-F8 code -- positive = right (raw increasing toward raw_full).
 struct SteerAxisSpec
 {
-    int  index = 0;
-    // Applied AFTER normalization: n = -n. Use this for "the wheel turns the
-    // wrong way", not for calibration.
-    //
-    // SAFETY -- READ BEFORE USING THIS ELSEWHERE. SDLFFBSink's force sign
-    // convention is tied to the axis polarity (positive force pushes the wheel
-    // LEFT, i.e. toward negative raw). If the axis is inverted relative to
-    // that convention, the F7 target-tracking servo must have its OUTPUT sign
-    // flipped by the SAME factor, otherwise the servo pushes away from its
-    // target and the loop becomes positive feedback (a powered actuator
-    // running away). Hence: this flag is read in exactly one place
-    // (SteerSignFactor() below), and both the axis readback and the commanded
-    // force multiply by it.
-    bool invert = false;
+    int index = 0;
     // Raw value at wheel centre, and at FULL RIGHT lock. Defaults are the G29
-    // convention (centre 0, full right +32767).
-    int  raw_center = 0;
-    int  raw_full   = 32767;
+    // convention (centre 0, full right +32767). raw_full < raw_center is a
+    // device whose axis counts up toward the left -- that IS the inverted case,
+    // and it needs no separate flag.
+    int raw_center = 0;
+    int raw_full   = 32767;
 
     bool IsAssigned() const
     {
         return index >= 0;
     }
 
+    /**
+     * Which way the device's raw value runs relative to "right is positive":
+     * +1 when raw increases to the right, -1 when it increases to the left.
+     *
+     * Normalize() does NOT need this (its denominator already carries the sign).
+     * It exists for the FFB, and that is a SAFETY interface, not a convenience:
+     *
+     * SDLFFBSink's force sign convention is tied to the axis direction. If the
+     * axis runs the other way, the F7 target-tracking servo must have its OUTPUT
+     * sign flipped too, otherwise it pushes AWAY from its target and the loop
+     * becomes positive feedback on a powered actuator. Readback and commanded
+     * force therefore both derive from this one function, so they cannot
+     * disagree -- verified on a real G29 for both polarities (see
+     * docs/features/wheel_axis_mapping.md §4-2).
+     */
     double SignFactor() const
     {
-        return invert ? -1.0 : 1.0;
+        return (raw_full >= raw_center) ? 1.0 : -1.0;
     }
 
-    // raw -> [-1,+1], clamped.
+    /**
+     * Inverting the steering IS mirroring its calibrated span about the centre,
+     * which keeps the centre where the user put it (unlike a pedal, whose two
+     * ends are simply exchanged). GUI "Flip".
+     */
+    void Flip()
+    {
+        raw_full = 2 * raw_center - raw_full;
+    }
+
+    // raw -> [-1,+1], clamped. Sign comes from the calibration itself: with
+    // raw_full < raw_center the denominator is negative, so a raw above centre
+    // normalizes negative (= left), which is exactly the inverted device.
     //
     // NOTE, deliberate 3e-5 behaviour change vs the pre-F8 code: the old
     // NormalizeAxis divided by 32767 without clamping, so a raw of -32768

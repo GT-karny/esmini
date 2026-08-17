@@ -90,8 +90,11 @@ def _mapping_args(mapping: dict[str, Any] | None) -> list[str]:
             # rejects a non-integer flag value with exit code 2, which would
             # turn one bad field into "no live readout at all".
             logger.warning("wheel-probe: ignoring non-integer %s=%r", key, value)
-    if mapping.get("steer_invert"):
-        flags.append("--steer-invert")
+    # No polarity flag to forward: it lives in the calibrated pair, which the
+    # int flags above already carry (feature:F8). A leftover "steer_invert" key
+    # in the payload is deliberately NOT translated -- the probe rejects
+    # --steer-invert with exit 2, and honouring it here would resurrect the
+    # two-representations-for-one-fact problem the flag was removed for.
     return flags
 
 

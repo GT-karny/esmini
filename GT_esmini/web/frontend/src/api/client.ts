@@ -201,18 +201,22 @@ export interface ScriptInfo {
 /**
  * feature:F8 -- wheel axis assignment + raw-range calibration.
  *
- * Pedals carry no invert flag: (raw_released, raw_full) already encodes
- * polarity, so released > full IS an inverted pedal (the G29 case). `steer_invert`
- * is a switch for "the wheel turns the wrong way" and ALSO flips the FFB force
- * direction on the C++ side -- the two must move together, or the F7 target
- * servo would push away from its target.
+ * NO axis carries an invert flag: polarity is the ORDER of the calibrated pair.
+ * For a pedal, released > full is the inverted (G29) convention; for steering,
+ * `steer_raw_full` is FULL RIGHT, so a value below `steer_raw_center` is a device
+ * whose axis counts up to the left. Inverting an axis therefore means exchanging
+ * its ends (pedals) or mirroring the span about the centre (steering) -- the
+ * per-axis Flip button.
+ *
+ * The steering order also sets the FFB force direction on the C++ side, so the
+ * two cannot disagree (a mismatch would make the F7 target servo push away from
+ * its target).
  *
  * An axis index of -1 marks the function unassigned (e.g. a wheel with no
  * clutch pedal).
  */
 export interface WheelAxisMapping {
   steer_axis: number;
-  steer_invert: boolean;
   steer_raw_center: number;
   steer_raw_full: number;
   throttle_axis: number;

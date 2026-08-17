@@ -84,7 +84,6 @@ class ManualDriveButtonMapping(BaseModel):
 # by eye.
 SDL2_AXIS_KEY_MAP: dict[str, str] = {
     "steer_axis": "steer_axis",
-    "steer_invert": "steer_invert",
     "steer_raw_center": "steer_raw_center",
     "steer_raw_full": "steer_raw_full",
     "throttle_axis": "throttle_axis",
@@ -106,14 +105,19 @@ class ManualDriveAxisMapping(BaseModel):
     before this existed -- so a request that omits the block reproduces the old
     behaviour exactly.
 
-    Pedals carry no invert flag: (raw_released, raw_full) already encodes
-    polarity. ``steer_invert`` exists only for "the wheel turns the wrong way",
-    and note that it also flips the FFB force direction on the C++ side -- the
-    two must stay together or the F7 target servo pushes away from its target.
+    NO axis carries an invert flag: polarity is the ORDER of the calibrated pair
+    (pedal: ``raw_released > raw_full`` is the G29 convention; steering:
+    ``raw_full`` is FULL RIGHT, so ``raw_full < raw_center`` is a device whose
+    axis counts up to the left). Inverting an axis means exchanging its ends
+    (pedals) or mirroring the span about the centre (steering) -- the GUI's
+    per-axis Flip button.
+
+    The steering order also sets the FFB force direction on the C++ side; both
+    derive from SteerAxisSpec::SignFactor() so they cannot disagree (a mismatch
+    would make the F7 target servo push away from its target).
     """
 
     steer_axis: int = 0
-    steer_invert: bool = False
     steer_raw_center: int = 0
     steer_raw_full: int = 32767
     throttle_axis: int = 1

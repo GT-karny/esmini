@@ -90,9 +90,10 @@ TEST(WheelAxisMappingTest, ZeroResultsAreNeverNegativeZero)
     EXPECT_FALSE(std::signbit(map.throttle.Normalize(32767)));  // released
     EXPECT_FALSE(std::signbit(map.steer.Normalize(0)));         // centred
 
-    SteerAxisSpec inverted;
-    inverted.invert = true;  // multiplying 0.0 by -1 is the other way to get -0
-    EXPECT_FALSE(std::signbit(inverted.Normalize(0)));
+    // A mirrored calibration divides by a negative span, the other way to reach -0.
+    SteerAxisSpec mirrored;
+    mirrored.raw_full = -32767;
+    EXPECT_FALSE(std::signbit(mirrored.Normalize(0)));
 }
 
 // --- The device differences this feature exists for ------------------------
@@ -137,23 +138,66 @@ TEST(WheelAxisMappingTest, AsymmetricSteerCalibrationIsHonored)
     EXPECT_DOUBLE_EQ(steer.Normalize(-32768), -1.0);
 }
 
-TEST(WheelAxisMappingTest, SteerInvertFlipsSignAndSignFactorAgrees)
+TEST(WheelAxisMappingTest, SteerPolarityComesFromTheCalibrationOrder)
 {
+    // The inverted device is expressed by calibrating full-right at a raw value
+    // BELOW centre -- there is no flag to set. Both polarities asserted on the
+    // same raw input.
+    SteerAxisSpec normal;  // centre 0, full right +32767
+    SteerAxisSpec mirrored;
+    mirrored.raw_center = 0;
+    mirrored.raw_full   = -32767;  // this device counts up to the left
+
+    EXPECT_DOUBLE_EQ(normal.Normalize(16383), -mirrored.Normalize(16383));
+    EXPECT_DOUBLE_EQ(mirrored.Normalize(-32767), 1.0);  // full right, at a negative raw
+    EXPECT_DOUBLE_EQ(mirrored.Normalize(32767), -1.0);  // full left
+    EXPECT_DOUBLE_EQ(mirrored.Normalize(0), 0.0);
+}
+
+TEST(WheelAxisMappingTest, SignFactorFollowsTheCalibrationOrder)
+{
+    // SignFactor is the FFB's only source for the force direction, and getting it
+    // out of step with Normalize would make the F7 servo push away from its
+    // target (positive feedback on a powered actuator). Both are derived from the
+    // same two numbers now, so the test pins the derivation for both polarities.
     SteerAxisSpec normal;
-    SteerAxisSpec inverted;
-    inverted.invert = true;
+    SteerAxisSpec mirrored;
+    mirrored.raw_full = -32767;
 
     EXPECT_DOUBLE_EQ(normal.SignFactor(), 1.0);
-    EXPECT_DOUBLE_EQ(inverted.SignFactor(), -1.0);
-    // Both polarities, on the same raw input.
-    EXPECT_DOUBLE_EQ(normal.Normalize(16383), -inverted.Normalize(16383));
-    EXPECT_DOUBLE_EQ(inverted.Normalize(32767), -1.0);
-    EXPECT_DOUBLE_EQ(inverted.Normalize(0), 0.0);
-    // SignFactor() is the ONE place the FFB path reads this flag from, so it
-    // must agree with what Normalize applies -- if these ever diverge, the F7
-    // servo pushes away from its target (positive feedback on a powered
-    // actuator). Asserted as an identity rather than trusted by inspection.
-    EXPECT_DOUBLE_EQ(inverted.Normalize(20000), normal.Normalize(20000) * inverted.SignFactor());
+    EXPECT_DOUBLE_EQ(mirrored.SignFactor(), -1.0);
+    // Sign of the normalized reading for a raw above centre must agree with it.
+    EXPECT_GT(normal.Normalize(20000) * normal.SignFactor(), 0.0);
+    EXPECT_GT(mirrored.Normalize(20000) * mirrored.SignFactor(), 0.0);
+}
+
+TEST(WheelAxisMappingTest, FlipInvertsAnAxisAndIsItsOwnInverse)
+{
+    // "Flip" is the whole user-facing inversion mechanism (GUI button), so its
+    // two properties are asserted directly: it mirrors the reading, and applying
+    // it twice restores the original calibration exactly.
+    SteerAxisSpec steer;
+    steer.raw_center = -100;
+    steer.raw_full   = 30000;
+    const double before = steer.Normalize(15000);
+
+    steer.Flip();
+    EXPECT_DOUBLE_EQ(steer.Normalize(15000), -before);
+    EXPECT_DOUBLE_EQ(steer.SignFactor(), -1.0);
+    EXPECT_DOUBLE_EQ(steer.Normalize(-100), 0.0);  // the centre is preserved
+    steer.Flip();
+    EXPECT_EQ(steer.raw_center, -100);
+    EXPECT_EQ(steer.raw_full, 30000);
+    EXPECT_DOUBLE_EQ(steer.Normalize(15000), before);
+
+    PedalAxisSpec pedal{1, 32767, -32768};
+    EXPECT_DOUBLE_EQ(pedal.Normalize(-32768), 1.0);
+    pedal.Flip();
+    EXPECT_DOUBLE_EQ(pedal.Normalize(-32768), 0.0);  // now the released end
+    EXPECT_DOUBLE_EQ(pedal.Normalize(32767), 1.0);
+    pedal.Flip();
+    EXPECT_EQ(pedal.raw_released, 32767);
+    EXPECT_EQ(pedal.raw_full, -32768);
 }
 
 // --- The "no HID report yet" sentinel: both polarities --------------------
@@ -248,7 +292,7 @@ TEST(WheelAxisMappingConfigTest, DefaultsSurviveAConfigThatNeverMentionsAxes)
     ASSERT_TRUE(cfg.LoadFromFile(path.string()));
 
     EXPECT_EQ(cfg.sdl2.axes.steer.index, 0);
-    EXPECT_FALSE(cfg.sdl2.axes.steer.invert);
+    EXPECT_DOUBLE_EQ(cfg.sdl2.axes.steer.SignFactor(), 1.0);
     EXPECT_EQ(cfg.sdl2.axes.throttle.index, 1);
     EXPECT_EQ(cfg.sdl2.axes.brake.index, 2);
     EXPECT_EQ(cfg.sdl2.axes.clutch.index, 3);
@@ -259,12 +303,11 @@ TEST(WheelAxisMappingConfigTest, DefaultsSurviveAConfigThatNeverMentionsAxes)
 TEST(WheelAxisMappingConfigTest, AxisKeysAreParsed)
 {
     // A plausible non-G29 layout: pedals in a different order, brake reporting
-    // 0..32767, steering inverted.
+    // 0..32767, steering asymmetric.
     const auto path = WriteTempConfig("gt_f8_axes_set.json", R"({
         "input_type": "sdl2_wheel",
         "input": {
             "steer_axis": 0,
-            "steer_invert": true,
             "steer_raw_center": -100,
             "steer_raw_full": 30000,
             "throttle_axis": 2,
@@ -281,7 +324,6 @@ TEST(WheelAxisMappingConfigTest, AxisKeysAreParsed)
     ASSERT_TRUE(cfg.LoadFromFile(path.string()));
 
     EXPECT_EQ(cfg.sdl2.axes.steer.index, 0);
-    EXPECT_TRUE(cfg.sdl2.axes.steer.invert);
     EXPECT_EQ(cfg.sdl2.axes.steer.raw_center, -100);
     EXPECT_EQ(cfg.sdl2.axes.steer.raw_full, 30000);
     EXPECT_EQ(cfg.sdl2.axes.throttle.index, 2);
@@ -333,25 +375,71 @@ TEST(WheelAxisMappingConfigTest, KeyboardBindingsDoNotAliasWithAxisKeys)
     EXPECT_EQ(cfg.keyboard.clutch, "LShift");
 }
 
-TEST(WheelAxisMappingConfigTest, SteerInvertParsesBothPolarities)
+TEST(WheelAxisMappingConfigTest, MirroredSteeringIsExpressedByTheCalibrationAlone)
 {
-    // parse_bool treats any value containing "1" as true, which is why no
-    // *_axis key may be a bool. Here the concern is the opposite direction:
-    // that "false" really lands as false rather than being left at a default
-    // that happens to agree.
-    const auto on = WriteTempConfig("gt_f8_invert_on.json",
-                                    R"({ "input": { "steer_invert": true } })");
-    const auto off = WriteTempConfig("gt_f8_invert_off.json",
-                                     R"({ "input": { "steer_invert": false } })");
+    // The inverted device, as a config file: full-right calibrated BELOW centre.
+    // No flag involved -- this is the whole mechanism, so it is asserted through
+    // the loader and not only on a hand-built struct.
+    //
+    // ONE KEY PER LINE IS MANDATORY in these fixtures. The loader is a line
+    // scanner that takes the substring after the FIRST colon on the line, so a
+    // single-line `{ "a": 1, "b": 2 }` object parses as nothing (stoi throws on
+    // the rest of the object and the value silently keeps its default). Written
+    // as a one-liner, this test first "passed" while asserting on default values.
+    const auto path = WriteTempConfig("gt_f8_mirrored.json", R"({
+        "input": {
+            "steer_axis": 0,
+            "steer_raw_center": 0,
+            "steer_raw_full": -32767
+        }
+    })");
 
-    ManualDriveConfig cfg_on;
-    ASSERT_TRUE(cfg_on.LoadFromFile(on.string()));
-    EXPECT_TRUE(cfg_on.sdl2.axes.steer.invert);
+    ManualDriveConfig cfg;
+    ASSERT_TRUE(cfg.LoadFromFile(path.string()));
 
-    ManualDriveConfig cfg_off;
-    cfg_off.sdl2.axes.steer.invert = true;  // start from the opposite value
-    ASSERT_TRUE(cfg_off.LoadFromFile(off.string()));
-    EXPECT_FALSE(cfg_off.sdl2.axes.steer.invert);
+    EXPECT_DOUBLE_EQ(cfg.sdl2.axes.steer.SignFactor(), -1.0);
+    EXPECT_DOUBLE_EQ(cfg.sdl2.axes.steer.Normalize(-32767), 1.0);  // full right
+    EXPECT_DOUBLE_EQ(cfg.sdl2.axes.steer.Normalize(32767), -1.0);  // full left
+}
+
+TEST(WheelAxisMappingConfigTest, RetiredSteerInvertKeyDoesNotChangeAnything)
+{
+    // A config left over from the flag era must not silently steer the wheel the
+    // other way. The key is parsed only to WARN (ManualDriveConfig.cpp); the
+    // mapping it produces has to be identical to the same file without it, which
+    // is what this asserts (the warning itself is not observable here).
+    // One key per line -- see the note in the test above; as a one-liner this
+    // test compared two configs that had BOTH failed to parse, i.e. it passed
+    // vacuously.
+    const auto with_key = WriteTempConfig("gt_f8_legacy_invert.json", R"({
+        "input": {
+            "steer_axis": 0,
+            "steer_invert": true,
+            "steer_raw_center": -100,
+            "steer_raw_full": 30000
+        }
+    })");
+    const auto without = WriteTempConfig("gt_f8_legacy_invert_absent.json", R"({
+        "input": {
+            "steer_axis": 0,
+            "steer_raw_center": -100,
+            "steer_raw_full": 30000
+        }
+    })");
+
+    ManualDriveConfig a;
+    ManualDriveConfig b;
+    ASSERT_TRUE(a.LoadFromFile(with_key.string()));
+    ASSERT_TRUE(b.LoadFromFile(without.string()));
+
+    // Non-default values, so "both fell back to defaults" cannot masquerade as
+    // agreement.
+    EXPECT_EQ(a.sdl2.axes.steer.raw_center, -100);
+    EXPECT_EQ(a.sdl2.axes.steer.raw_full, 30000);
+    EXPECT_EQ(a.sdl2.axes.steer.raw_center, b.sdl2.axes.steer.raw_center);
+    EXPECT_EQ(a.sdl2.axes.steer.raw_full, b.sdl2.axes.steer.raw_full);
+    EXPECT_DOUBLE_EQ(a.sdl2.axes.steer.SignFactor(), b.sdl2.axes.steer.SignFactor());
+    EXPECT_DOUBLE_EQ(a.sdl2.axes.steer.Normalize(16383), b.sdl2.axes.steer.Normalize(16383));
 }
 
 }  // namespace gt_esmini
