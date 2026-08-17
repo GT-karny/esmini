@@ -103,6 +103,14 @@ SUMO は既定で乱数を使う。**VD 検証の背景交通として使うな�
 - SUMO トラフィックは **1 個の `ScenarioObject`** として宣言する。
   このオブジェクト自体は**エンティティにならない**（テンプレート扱いで、`CatalogReference` は
   3D モデルのフォールバックとしてのみ使われる）
+- **コントローラは xosc に直接インライン宣言する。`ControllerCatalog` 経由にしない。**
+  GT のサニタイザは xosc 内の `filepath`/`path` だけを絶対化して一時ディレクトリへ書くので、
+  **カタログファイル内の相対パスが解決できなくなる**。実測（2026-08-17）:
+  `cut-in_sumo.xosc`（カタログ参照）は `GT_Sim.exe` で
+  `Failed to localize controller file` → **exit 1 / SUMO 車 0 台**、
+  同じファイルを vanilla `esmini.exe` で走らせると **exit 0 / 6 台**。
+  インライン宣言の `sumo-test.xosc` は `GT_Sim.exe` でも exit 0 / 100 台。
+  **どちらのバイナリで測ったかを必ず書くこと** — 同じ xosc で結果が割れる
 - `.sumocfg` は Property の value ではなく **`<File filepath>`** で渡す
 - 相対パスは **`.xosc` からの相対**
 - `<step-length>` は esmini の `--fixed_timestep` と揃える
@@ -116,6 +124,13 @@ SUMO は既定で乱数を使う。**VD 検証の背景交通として使うな�
   - `GTSumoTrafficController` → **GT 版**（`feature:F9`）。新規に背景交通を書くならこちら
 
   **取り違えてもエラーは出ない。**動いてしまい、方位のずれた背景交通が静かに出るだけ
+- GT 版は**既定 OFF**。名指しするだけでは SUMO を読み込まない。
+  `config/sumo_traffic.json` で ON にするか、シナリオ側に
+  `<Property name="enabled" value="true"/>` を書く（後者が優先）。
+  他の Property: `injectEgo` / `overrideHeading` / `seed` / `speedMode` / `stepLength`。
+  **`speedMode` を負にすると `setSpeedMode` を呼ばなくなり、SUMO が Ego の速度を
+  「車線制限 × speedFactor」で刈る upstream と同じ挙動に戻る**（負の対照として使える）。
+  手本は `resources/xosc/sumo_background_traffic_gt.xosc`
 
 ### B4. xodr → net.xml の無言破壊
 
