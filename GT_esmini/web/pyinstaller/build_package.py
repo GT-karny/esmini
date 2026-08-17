@@ -88,6 +88,11 @@ CONFIG_FILES = [
     ),
     # auto_light.json: F6 environment-driven headlights, resolved beside the exe (v0.13)
     ("GT_esmini/config/auto_light.json", "config/auto_light.json"),
+    # feature:F9 SUMO background traffic. Added here by the feature:F8 session
+    # only because the coverage check below (correctly) refuses to package while
+    # a config file on disk is unaccounted for -- the F9 work that introduces
+    # this file owns its content and its runtime wiring.
+    ("GT_esmini/config/sumo_traffic.json", "config/sumo_traffic.json"),
     # feature:F7 per-domain split (lateral=ManualDrive / longitudinal=VirtualDriver).
     # Three ManualDrive variants selected per-scenario via the ConfigFile property,
     # so none of them replaces manual_drive.json: _stub has no input device and no
