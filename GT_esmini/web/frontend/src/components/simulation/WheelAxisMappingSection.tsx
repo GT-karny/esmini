@@ -52,6 +52,14 @@ const PEDALS: { fn: PedalFn; label: string }[] = [
 const DETECT_MIN_DEVIATION = 3000;
 const DETECT_WINDOW_MS = 4000;
 
+// Idle test for the pedal-polarity check: how many consecutive frames must agree,
+// and how much raw wander still counts as "not moving". 150 raw is ~0.5% of full
+// scale -- above a pedal potentiometer's noise, far below any real press. At the
+// probe's 30 Hz, 15 frames is ~0.5 s.
+const IDLE_FRAMES = 15;
+const IDLE_RAW_EPS = 150;
+const HISTORY_LEN = 30;
+
 interface DetectState {
   fn: AxisFn;
   baseline: number[];
@@ -70,6 +78,9 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
   const [probeEnabled, setProbeEnabled] = useState(false);
   const [detect, setDetect] = useState<DetectState | null>(null);
   const [detectResult, setDetectResult] = useState<string | null>(null);
+  // Short frame history, used only by the idle test in pedalReadsPressedWhileIdle
+  // (a single frame cannot tell "resting" from "being held").
+  const [history, setHistory] = useState<{ axes: number[] }[]>([]);
 
   const { data: status } = useQuery({
     queryKey: ['wheel-probe-status'],
@@ -90,6 +101,11 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
   // timer, so no reported movement is missed between renders.
   const detectRef = useRef<DetectState | null>(null);
   detectRef.current = detect;
+
+  useEffect(() => {
+    if (!frame) return;
+    setHistory((prev) => [...prev.slice(-(HISTORY_LEN - 1)), { axes: frame.axes }]);
+  }, [frame]);
 
   useEffect(() => {
     const active = detectRef.current;
@@ -204,6 +220,45 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
   const setField = (key: keyof WheelAxisMapping, value: number | boolean) =>
     onChange({ ...mapping, [key]: value });
 
+  /**
+   * Does this pedal's calibration have its ends the wrong way round?
+   *
+   * NOT answerable from the configuration -- `raw_released > raw_full` merely
+   * restates which numbers are stored (and is TRUE for a perfectly correct G29,
+   * whose released reading is +32767). A label built on that would report
+   * "normal" for a pedal wired backwards, i.e. it would be a restatement
+   * masquerading as a check.
+   *
+   * The measurement that DOES decide it: a pedal returns mechanically, so the
+   * raw value it sits at while nobody touches it IS the released value --
+   * therefore an IDLE pedal must normalize to ~0. If an idle pedal reads
+   * pressed, either its ends are swapped or the axis index points at something
+   * else. (Steering has no equivalent test: with FFB idle the wheel stays
+   * wherever it was left, so its resting value means nothing -- the same
+   * asymmetry that made "Set centre" a separate explicit action.)
+   *
+   * Returns null while the answer is not measurable yet: no live data, the axis
+   * has never reported, or the axis is still moving (a pedal held down is not
+   * evidence of anything).
+   */
+  const pedalReadsPressedWhileIdle = (fn: PedalFn): boolean | null => {
+    const axis = mapping[`${fn}_axis`];
+    if (!frame || axis < 0 || axis >= frame.reported.length || !frame.reported[axis]) return null;
+    const recent = history.map((h) => h.axes[axis]).filter((v) => v !== undefined);
+    if (recent.length < IDLE_FRAMES) return null;
+    const span = Math.max(...recent) - Math.min(...recent);
+    if (span > IDLE_RAW_EPS) return null; // still moving -> undecidable
+    return frame.norm[fn] > 0.5;
+  };
+
+  /** Inverting a pedal IS swapping its calibrated ends. */
+  const swapPedalEnds = (fn: PedalFn) =>
+    onChange({
+      ...mapping,
+      [`${fn}_raw_released`]: mapping[`${fn}_raw_full`],
+      [`${fn}_raw_full`]: mapping[`${fn}_raw_released`],
+    });
+
   const bar = (fn: AxisFn, value: number, axis: number) => {
     // Steering is bipolar, pedals are unipolar; both are drawn on 0..100% with
     // the steering zero at the centre.
@@ -257,6 +312,30 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
           >
             {detecting ? 'Move it...' : 'Detect'}
           </button>
+          {/* Pedals have no invert CHECKBOX on purpose: the (released, full) pair
+              already encodes polarity, and a second way to state the same fact
+              would let a user contradict themselves. But swapping that pair IS
+              the inversion, so it gets a button -- a pedal reading backwards is a
+              calibration mistake to correct, not a preference to toggle (unlike
+              steering, where "which way the wheel turns" is a real choice). */}
+          {fn !== 'steer' ? (
+            <>
+              <button
+                onClick={() => swapPedalEnds(fn)}
+                title="Swap the released / fully-pressed raw values (this IS inverting the pedal)"
+                className="text-[10px] px-2 py-0.5 rounded bg-glass-1 border border-glass-edge text-text-tertiary hover:text-foreground hover:bg-glass-hover cursor-pointer"
+              >
+                Flip
+              </button>
+              {/* Reports the MEASUREMENT, not the stored numbers: an idle pedal
+                  reading pressed is the only evidence that the ends are the
+                  wrong way round. Silent when undecidable (no data / still
+                  moving) rather than guessing. */}
+              {pedalReadsPressedWhileIdle(fn) === true ? (
+                <span className="text-[10px] text-warning">reads pressed while idle → Flip</span>
+              ) : null}
+            </>
+          ) : null}
         </div>
         {bar(fn, normValue, axis)}
       </div>
