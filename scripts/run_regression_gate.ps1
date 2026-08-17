@@ -383,6 +383,40 @@ if (-not $SkipBehavioral) {
 # whenever overall=fail, which some batches do BY DESIGN (a discriminating case
 # recorded as a known red in the baseline). The DEVIATION vs baseline is the gate.
 # ----------------------------------------------------------------------------
+# Run a native command and tee BOTH its streams into the gate log.
+#
+# Why this exists rather than `& $exe @args 2>&1 | ForEach-Object { Write-Host $_ }`
+# written inline: `2>&1` turns the child's stderr into ErrorRecords, and under
+# $ErrorActionPreference = "Stop" the FIRST one throws NativeCommandError and
+# kills the whole gate. Both of our python steps write ordinary progress to
+# stderr -- gt_sim_test routes the DLL log callback there
+# (gt_lib.py _ensure_default_handler), and check_regression_baseline.py writes
+# its summary there. The line that killed the gate was literally
+# "no deviations vs baseline (14 scenarios)".
+#
+# It only bites when this script's own stderr is redirected, which is exactly
+# what the mandated detached launch does (Start-Process -RedirectStandardError,
+# see the build skill). In a console the gate runs to the end; run it the way
+# long jobs are supposed to be run and it dies mid-step with a PowerShell error
+# that reads as infrastructure noise rather than as a red gate.
+#
+# Suppressing the throw hides nothing. A harness that really dies produces no
+# batch_verdict.json and the NOT MEASURED branch fails the batch, and the
+# baseline checker is judged by $LASTEXITCODE, which this preserves.
+function Invoke-NativeTee {
+    param([string]$Exe, [string[]]$Arguments)
+
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Exe @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
+}
+
+# ----------------------------------------------------------------------------
 function Invoke-BehavioralBatch {
     # CAUTION (2026-08-03 incident: -FailOnBehavioral could never turn the gate
     # red): this function's return value is consumed as a boolean by the caller
@@ -408,7 +442,7 @@ function Invoke-BehavioralBatch {
     $argList = @($Harness, "batch", $BatchPath, "--out", $OutPath)
     if (-not [string]::IsNullOrWhiteSpace($Dll)) { $argList += @("--dll", $DllPath) }
     Write-Host "${Label}: $PyExe $($argList -join ' ')" -ForegroundColor Cyan
-    & $PyExe @argList 2>&1 | ForEach-Object { Write-Host $_ }
+    Invoke-NativeTee $PyExe $argList
 
     $verdictFile = Join-Path $OutPath "batch_verdict.json"
     $verdictText = "(no batch_verdict.json)"
@@ -489,7 +523,7 @@ function Invoke-BehavioralBatch {
     $checker = Resolve-RepoPath "scripts/check_regression_baseline.py"
     $regArgs = @($checker, "--batch-out", $OutPath, "--baseline", $BaselinePath, "--max-age-seconds", "1800")
     Write-Host "${Label}: $PyExe $($regArgs -join ' ')" -ForegroundColor Cyan
-    & $PyExe @regArgs 2>&1 | ForEach-Object { Write-Host $_ }
+    Invoke-NativeTee $PyExe $regArgs
     $reg = $LASTEXITCODE
 
     if ($reg -eq 0) {
