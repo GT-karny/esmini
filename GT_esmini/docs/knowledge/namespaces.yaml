@@ -65,20 +65,22 @@ namespaces:
       "(proposal P<n>)" を書く慣行とし、implements辺を抽出可能にする。
 
   - slug: feature
-    title: 機能ロードマップ F1-F8
+    title: 機能ロードマップ F1-F9
     entity_type: feature
     face: "cross"
-    id_pattern: "F[1-8]"
+    id_pattern: "F[1-9]"
     source_of_truth: GT_esmini/docs/tech_debt_audit_2026-06.md
     status: active
-    count: 8
+    count: 9
     extract: commit-mentions
     notes: >-
-      F1-F7 は source_of_truth のロードマップ由来。F8（ハンコン軸割り当て設定、2026-08-06）は
-      そのロードマップの外で発生した後発機能で、定義は
-      GT_esmini/docs/features/wheel_axis_mapping.md にある。日付入りの監査ドキュメントへ
+      F1-F7 は source_of_truth のロードマップ由来。F8（ハンコン軸割り当て設定、2026-08-06）と
+      F9（SUMO 背景交通、2026-08-17）はそのロードマップの外で発生した後発機能で、定義は
+      それぞれ GT_esmini/docs/features/wheel_axis_mapping.md /
+      GT_esmini/docs/features/sumo_background_traffic.md にある。日付入りの監査ドキュメントへ
       後発機能を書き足すと由来が濁るため、定義文書を分けた（§7.1 の「恒久資産に工程名を
-      付けない」と同じ動機）。
+      付けない」と同じ動機）。F8/F9 の採番は凍結体系への例外追加で、いずれもユーザー承認済み
+      （型の不在ではなく採番の凍結だったため、新名前空間ではなく例外追加を選んだ）。
 
   - slug: audit-debt
     title: 技術負債監査 2026-06（12プレフィックス・99件）

@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:efc069f98d01b316 -->
+<!-- generated-from: sha256:6c8cb76dc073a32d -->
 
-ノード 238・辺 293（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 239・辺 294（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -28,12 +28,13 @@ flowchart LR
     n_proposal_P17["P17"]
     n_proposal_P18["P18"]
   end
-  subgraph sg_feature["feature｜機能ロードマップ F1-F8"]
+  subgraph sg_feature["feature｜機能ロードマップ F1-F9"]
     n_feature_F2["F2"]
     n_feature_F3["F3"]
     n_feature_F6["F6"]
     n_feature_F7["F7"]
     n_feature_F8["F8"]
+    n_feature_F9["F9"]
   end
   subgraph sg_debt_phase["debt-phase｜負債返済ロードマップ R0-R5（R5はU1-U4に細分）"]
     n_debt_phase_R5_U4["R5-U4"]
@@ -523,6 +524,7 @@ flowchart LR
   n_feature_F7 -->|sustained-by| n_gate_unit_ctest
   n_feature_F8 -->|shares-design-with| n_feature_F7
   n_feature_F8 -->|sustained-by| n_gate_unit_ctest
+  n_feature_F9 -->|conflicts-with| n_gate_regression_gate
   n_vd_func_FUNC_056 -->|realizes| n_req_vd_ad_REQ_AD_023
   n_vd_func_FUNC_056 -->|realizes| n_req_vd_ad_REQ_AD_024
   n_vd_component_overtake_maneuver -->|realizes| n_vd_func_FUNC_056
@@ -656,6 +658,12 @@ flowchart LR
 | `req-vd-ad:REQ-AD-026` | `openx:Domain#FollowRoadUser` | 手動運転中 ACC の先行車追従が対象とする ODD 軸。REQ-AD-002（AD 文脈）と同じ openx 概念を運転主体違いで共有 |
 | `req-vd-ad:REQ-AD-027` | `openx:Domain#KeepLane` | 手動運転中 LKA の車線維持補正が対象とする ODD 軸 |
 | `req-vd-ad:REQ-AD-002` | `openx:Domain#FollowRoadUser` | 先行車追従のODD軸 |
+
+### conflicts-with (1)
+
+| from | to | note |
+| :--- | :--- | :--- |
+| `feature:F9` | `gate:regression-gate` | 用途(b)「VD検証の背景交通」で回帰ゲートに載せるには、先に SUMO の乱数を潰す必要がある。 ベースライン凍結は自己決定論性が前提だが SUMO は既定で乱数を使うため、シード固定 （.sumocfg の <seed> と randomTrips/duarouter の需要生成側の両方）と3回連続実行の 一致確認を済ませるまでバッチをゲートへ配線してはいけない。着手時点で判明している 設計上の拘束として記録する。用途(a)「手動運転の周囲交通」にはこの拘束は掛からない （設定で分ける）ので、F9 全体がゲートと衝突するわけではない |
 
 ### depends-on (27)
 

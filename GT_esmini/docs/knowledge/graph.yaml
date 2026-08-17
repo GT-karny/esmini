@@ -1710,6 +1710,23 @@ edges:
       GT_ENABLE_SDL2 非依存に置いてある＝既定OFF/CI OFFでも走る。実機G923でのレイアウト確認は
       常設化できない（機器依存）ため計上しない
 
+  # ---- feature:F9 SUMO 背景交通（実験機能、2026-08-17） ----
+  # 定義: GT_esmini/docs/features/sumo_background_traffic.md（ロードマップ外の後発機能。
+  # namespaces.yaml の feature エントリ notes も参照）。
+  # **設計確定・未実装**のため realizes / sustained-by は張らない。実装が landing して
+  # 実際に発火・観測するようになってから結線する（発火しない辺は名前の類似でしかない）。
+  - from: feature:F9
+    to: gate:regression-gate
+    type: conflicts-with
+    source: GT_esmini/docs/features/sumo_background_traffic.md
+    note: >-
+      用途(b)「VD検証の背景交通」で回帰ゲートに載せるには、先に SUMO の乱数を潰す必要がある。
+      ベースライン凍結は自己決定論性が前提だが SUMO は既定で乱数を使うため、シード固定
+      （.sumocfg の <seed> と randomTrips/duarouter の需要生成側の両方）と3回連続実行の
+      一致確認を済ませるまでバッチをゲートへ配線してはいけない。着手時点で判明している
+      設計上の拘束として記録する。用途(a)「手動運転の周囲交通」にはこの拘束は掛からない
+      （設定で分ける）ので、F9 全体がゲートと衝突するわけではない
+
   # ---- 引けなかった辺: RouteLanePlan (vd-func:FUNC-050, 2026-08) ----
   # 縦串3辺の結線時に検討したが張らなかった2辺と、その理由（一次記録）。
   #
