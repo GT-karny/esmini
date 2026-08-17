@@ -74,6 +74,8 @@ build/EnvironmentSimulator/Applications/esmini/Release/esmini.exe `
 
 **exit 0 だけでは合格にしない。** SUMO 車が 0 台でも exit 0 で完走する経路が実在する。
 必ず出現数を数え、期待値と突き合わせること。
+**車種構成を指定しているなら、台数だけでなく車種も数える**（§B1）。
+これも「参照が外れていても exit 0」の側の壊れ方をする。
 
 ---
 
@@ -87,6 +89,25 @@ build/EnvironmentSimulator/Applications/esmini/Release/esmini.exe `
 | 初期配置なのに走行中に湧く | エッジ先頭固定だと入りきらない車が繰り越される | 初期配置には **`departPos="random_free"` が必須** |
 | 全車が 0 km/h で出現 | SUMO の `departSpeed` 既定は **0**（静止発進）。高速道路でも止まって出る | `departSpeed="max" departLane="best"` を **randomTrips と duarouter の両方**に指定 |
 | 制限速度を超える車がいる | `speedFactor`（平均 1.0・標準偏差 0.1） | 厳密に収めるなら vType に `speedFactor="1.0"` |
+| 車種構成が効かず全車が同じ車種で走る | vType は**経路ファイルではなく `.sumocfg` の `<additional-files>` 経由**で効く。参照が外れていても SUMO はエラーも警告も出さず、**全車 `DEFAULT_VEHTYPE`** で走る | `<additional-files>` の参照を確認したうえで、**実際に投入された車種を数える**（下記） |
+
+#### vType が効いていることの確かめ方
+
+参照を目視で確認しただけでは足りない。**走らせて、投入された車種を数える。**
+`--tripinfo-output` を取り、`tripinfo` 要素の `vType` を集計して
+
+- 1 台も完走していない → 確認できていない（測定不能を合格にしない）
+- **全部 `DEFAULT_VEHTYPE` → 不合格**（分布が効いていない）
+
+の 2 つで落とす。台数が少ないと混入率はばらつくので、比率の検証は別途長く回すこと。
+
+#### randomTrips / duarouter 生成の需要に車種を効かせる
+
+生成された経路ファイルは `type` 属性を持たない。そこで
+**`vTypeDistribution` の id を `DEFAULT_VEHTYPE` にする**と、経路生成側を一切変えずに
+全車がその分布から抽出される。車種構成の before/after を**同一の経路ファイル**で
+取れるので、A/B が需要の乱数差で汚れない。
+明示型にしたい場合は id を変え、randomTrips の trip-attributes に `type="その id"` を渡す。
 
 ### B2. 決定論性（用途で分ける — ここを間違えると回帰が作れない）
 
