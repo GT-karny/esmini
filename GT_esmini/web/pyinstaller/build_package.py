@@ -42,7 +42,20 @@ VERIFICATION_BUILDER = (
 # Files to copy from build/GT_esmini/Release/
 # GT_RoadGen.exe: parallel OpenDRIVE->.osgb road-mesh generator. GT_esminiLib spawns it (co-located
 # in bin/) to pre-generate + cache the road model, so it MUST ship alongside GT_Sim.exe.
-BIN_GLOBS = ["GT_Sim.exe", "GT_RoadGen.exe", "*.dll", "*.pyd"]
+# GT_WheelProbe.exe (feature:F8): read-only SDL2 axis probe. The web UI's axis
+# mapping panel spawns it from bin/ for the live readout and the "Detect" button,
+# and config.py resolves it as PACKAGE_ROOT/bin/GT_WheelProbe.exe. Its absence is
+# WARNED about rather than fatal (see check_prerequisites): the panel degrades to
+# hand-editing and the API returns an explanatory 503, and the probe only exists
+# in a GT_ENABLE_SDL2=ON build.
+#
+# NOTE FOR WHOEVER ADDS THE NEXT EXECUTABLE: exes are enumerated here one by one
+# (only DLLs/PYDs are globbed), and build_package.ps1 has its OWN --target list
+# plus its own staging copy. All three have to be updated, and the failure mode of
+# forgetting this one is silent -- the package builds fine and the feature is just
+# missing at runtime (exactly what happened to GT_WheelProbe on its first
+# packaging, 2026-08-17).
+BIN_GLOBS = ["GT_Sim.exe", "GT_RoadGen.exe", "GT_WheelProbe.exe", "*.dll", "*.pyd"]
 
 # Extra files from the embedded Python distribution (thirdparty/python-embed/), not
 # build/GT_esmini/Release/: CMake links GT_esminiLib against Python3::Python when
@@ -152,6 +165,17 @@ def verify_prerequisites() -> None:
         )
     if not FRONTEND_DIST.is_dir() or not (FRONTEND_DIST / "index.html").exists():
         errors.append(f"Frontend not built. Run 'npm run build' in {FRONTEND_DIR}.")
+    # feature:F8 -- warn, do not fail: the axis-mapping panel works without the
+    # probe (hand-edited values, plus an explanatory 503 from /api/wheel-probe),
+    # and the probe only exists in a GT_ENABLE_SDL2=ON build. A silent omission is
+    # what this check exists to prevent -- the first packaged build shipped
+    # without it and nothing anywhere said so.
+    if not (BUILD_RELEASE / "GT_WheelProbe.exe").exists():
+        print(
+            f"[WARN] GT_WheelProbe.exe not found at {BUILD_RELEASE} -- the wheel "
+            "axis mapping panel will have no live axis readout and no Detect "
+            "button (build with -DGT_ENABLE_SDL2=ON to include it)."
+        )
     if not EMBEDDED_PYTHON.is_dir():
         errors.append(f"Embedded Python not found at {EMBEDDED_PYTHON}.")
     else:
