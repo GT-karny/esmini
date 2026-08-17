@@ -3,7 +3,7 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:257efcede297e837 -->
+<!-- generated-from: sha256:2ee45f17d2b7105d -->
 
 ノード 239・辺 294（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 

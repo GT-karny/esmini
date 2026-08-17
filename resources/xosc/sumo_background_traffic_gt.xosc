@@ -3,8 +3,12 @@
 
      Deliberately NOT a copy of cut-in_sumo.xosc: that one selects upstream's
      "SumoController" and must keep doing so. This one selects
-     "GTSumoTrafficController" and switches the feature on through a scenario
-     Property, because sumo_traffic.json defaults enabled to false.
+     "GTSumoTrafficController".
+
+     It sets no "enabled" Property on purpose, so this scenario exercises the
+     shipped default in config/sumo_traffic.json. If that default is ever turned
+     off, the smoke does not quietly pass with an empty road — it spawns zero
+     vehicles and the count check fails.
 
      What it is meant to show: exit 0 AND SUMO vehicles actually appearing.
      Either alone is a silent pass -- the upstream controller exits 0 with zero
@@ -39,7 +43,6 @@
                 <Controller name="gtSumoTraffic">
                     <Properties>
                         <Property name="esminiController" value="GTSumoTrafficController"/>
-                        <Property name="enabled" value="true"/>
                         <Property name="overrideVehicleScaleMode" value="BBToModel"/>
                         <File filepath="../sumo_inputs/e6mini.sumocfg"/>
                     </Properties>

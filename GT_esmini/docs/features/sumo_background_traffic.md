@@ -1,11 +1,13 @@
 # feature:F9 — SUMO 背景交通（実験機能）
 
 SUMO のマイクロ交通流シミュレーションを背景交通としてシーンに入れる実験機能。
-既定 OFF・常設ゲート非対象。ロードマップ（`tech_debt_audit_2026-06.md` §5 の F1〜F6）の外で
+常設ゲート非対象。ロードマップ（`tech_debt_audit_2026-06.md` §5 の F1〜F6）の外で
 発生した後発機能で、F8 と同じく定義をこのファイルに置く。
 
 - 作成: 2026-08-17
-- 状態: **実装済み（既定 OFF・常設ゲート非対象）**。実装の所在と検証済みの範囲は §3 / §6。
+- 状態: **実装済み（常設ゲート非対象）**。実装の所在と検証済みの範囲は §3 / §6。
+  `GTSumoTrafficController` を名指ししたシナリオでは**既定で有効**（2026-08-17 に
+  既定 OFF から変更）。名指ししていないシナリオは一切影響を受けない。
 - 用途: (a) 手動運転中の周囲交通（GT_Sim.exe / Web UI）、(b) VD 検証シナリオの背景交通
 
 ---
@@ -249,7 +251,7 @@ R1 のため ScenarioReader を触れないので、GT 側の `Init()` で両方
 
 ```jsonc
 {
-  "enabled": false,          // 実験機能。既定 OFF
+  "enabled": true,           // 全体キルスイッチ。オプトインではない（下記）
   "sumocfg": "",             // .xosc の <File filepath> が優先。ここは既定値
   "seed": 42,                // 決定論性。0 以下で SUMO の乱数に任せる
   "step_length": 0.05,       // esmini の fixed_timestep と揃える。0 以下で .sumocfg の値
@@ -262,9 +264,18 @@ R1 のため ScenarioReader を触れないので、GT 側の `Init()` で両方
 シナリオ側 Property で 1 件ずつ上書きできる（キーは `enabled` / `injectEgo` /
 `overrideHeading` / `seed` / `speedMode` / `stepLength` / `overrideVehicleScaleMode`、
 別ファイルを使うなら `ConfigFile`）。**JSON はインストール全体の既定、Property はその
-シナリオの意思**という分担で、背景交通が要るシナリオは自分で `enabled=true` を書く。
-既定 OFF の意味は「明示的に名指ししたシナリオでしか動かない」ではなく
-「名指ししてもなお JSON か Property で ON にするまで SUMO を読み込まない」。
+シナリオの意思**という分担。
+
+**`enabled` はオプトインではなくキルスイッチ**（2026-08-17 変更）。
+`GTSumoTrafficController` を名指しした時点がオプトインで、名指ししたシナリオは
+背景交通が欲しいに決まっているため、二重に ON を書かせない。
+`enabled=false` は「xosc を1本も触らずに GT の SUMO 背景交通を全部止める」ための口。
+
+C++ 側の既定値（`Config::enabled`）も同じ `true` にしてある。
+**配布された JSON と、JSON が見つからなかったときの挙動が逆になるのが最悪**で、
+「設定ファイルの有無で結果が変わるが誰も気づかない」を作らないため。
+実測（2026-08-17）: `ConfigFile` に存在しないファイル名を指したシナリオでも
+SUMO 車 6 台＝JSON がある場合と同じ。
 
 ### 決定論性
 
@@ -332,9 +343,17 @@ SUMO は既定で乱数を使うため、**シードを固定しないとベー�
   GT_Sim headless / `--fixed_timestep 0.05` / 20 秒で **exit 0 かつ SUMO 車 6 台**
   （`car1`〜`car4` / `bus1` / `truck1` ＝ `e6mini.rou.xml` の需要と一致）。
   exit 0 だけでは合格にしない——upstream も車 0 台で exit 0 を返す。
-- **既定 OFF の負の対照**: 同じ xosc から `enabled` Property を外すと exit 0 のまま
-  `disabled ... No SUMO traffic` を出して SUMO 車 0 台。テンプレートのホスト車も
-  シーンに現れない（csv_logger の `Number of Vehicles: 1` ＝ Ego のみ）。
+  この xosc は `enabled` Property を**書いていない**＝配布される既定値そのものを踏む。
+- **キルスイッチの両極性**（2026-08-17、既定 ON 化と同時に測り直し）:
+
+  | 条件 | SUMO 車 | ログ |
+  |---|---|---|
+  | 既定（JSON `enabled: true`） | **6 台** | `SUMO loaded from ...` |
+  | Property `enabled=false` | **0 台** | `turned off (enabled=false ...)` |
+  | 設定ファイルを見つけられない | **6 台** | `SUMO loaded from ...`（C++ 既定も true） |
+
+  いずれも exit 0。テンプレートのホスト車はどの条件でもシーンに現れない
+  （csv_logger の `Number of Vehicles: 1` ＝ Ego のみ）。
 - **既存シナリオの不変**: `sumo-test.xosc` は GT_Sim で exit 0 / 100 台のまま、
   `cut-in_sumo.xosc` は vanilla `esmini.exe` で exit 0 / 6 台のまま
   （GT_Sim では F9 以前からカタログ参照が壊れている。§5）。

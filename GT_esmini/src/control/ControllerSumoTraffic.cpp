@@ -1,7 +1,7 @@
 /*
  * GT_esmini - Extended esmini
  *
- * feature:F9 -- SUMO background traffic (experimental, default OFF).
+ * feature:F9 -- SUMO background traffic (experimental).
  *
  * GT-side counterpart of upstream scenarioengine::ControllerSumo, which stays
  * untouched (R1 clean core). What differs, and why, is in the header and in
@@ -87,7 +87,7 @@ gt_esmini::ControllerSumoTraffic::ControllerSumoTraffic(InitArgs* args) : Contro
 
     if (!config_.enabled)
     {
-        LOG_INFO("GTSumoTrafficController: disabled (feature:F9 is experimental, enabled defaults to false). No SUMO traffic.");
+        LOG_INFO("GTSumoTrafficController: turned off (enabled=false in sumo_traffic.json or in the scenario). No SUMO traffic.");
         return;
     }
 

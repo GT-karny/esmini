@@ -1714,7 +1714,9 @@ edges:
   # 定義: GT_esmini/docs/features/sumo_background_traffic.md（ロードマップ外の後発機能。
   # namespaces.yaml の feature エントリ notes も参照）。
   #
-  # 2026-08-17 更新: **実装 landing**（ControllerSumoTraffic + SumoTransform、既定 OFF）。
+  # 2026-08-17 更新: **実装 landing**（ControllerSumoTraffic + SumoTransform）。
+  # enabled は同日中に既定 OFF → ON へ変更（オプトインはコントローラの名指しであって
+  # フラグではない、という整理。常設ゲート非対象なのは下の conflicts-with のとおり変わらない）。
   # それでも realizes / verifies / sustained-by は張らない。理由は「未実装だから」から
   # 「張り先が無いから」に変わった:
   #   - realizes の宛先になる要求ノードが無い。F9 は req-vd-ad の外（VD-AD の要求体系は

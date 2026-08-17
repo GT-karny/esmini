@@ -3,9 +3,11 @@
   // Every key here is a default; a scenario may override any of them through
   // Properties on the GTSumoTrafficController entry.
 
-  // Master switch. OFF by default: this is an experimental feature and is not
-  // wired into any standing gate (SUMO is random by default, see "seed").
-  "enabled": false,
+  // Kill switch, not an opt-in: naming GTSumoTrafficController in a scenario is
+  // the opt-in, and a scenario that names it wants traffic. Set false here to
+  // turn every GT SUMO scenario off at once without editing any xosc.
+  // (The feature is still experimental and is not wired into any standing gate.)
+  "enabled": true,
 
   // Fallback .sumocfg. The scenario's own <File filepath> wins over this.
   "sumocfg": "",

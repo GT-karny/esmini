@@ -21,7 +21,7 @@
 
 #include "gt_esmini/control/sumotraffic/SumoTransform.hpp"
 
-// feature:F9 -- GT-side SUMO background traffic (experimental, default OFF).
+// feature:F9 -- GT-side SUMO background traffic (experimental).
 //
 // The xosc-facing value carries a GT prefix on purpose. Controller selection
 // goes through upstream's `esminiController` property key, and upstream already
@@ -69,7 +69,11 @@ class ControllerSumoTraffic : public scenarioengine::Controller
 public:
     struct Config
     {
-        bool        enabled         = false;  // experimental feature, default OFF
+        // Naming the controller in a scenario IS the opt-in; this flag is the
+        // kill switch, not a second opt-in. It defaults to the same value the
+        // shipped sumo_traffic.json carries, so a missing config file behaves
+        // like the shipped one instead of silently doing the opposite.
+        bool        enabled          = true;
         std::string sumocfg;                  // fallback; the xosc <File filepath> wins
         int         seed            = 42;     // <= 0 : leave SUMO's own randomness alone
         double      step_length     = 0.05;   // <= 0 : leave the .sumocfg value alone

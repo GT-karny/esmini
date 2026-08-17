@@ -124,9 +124,9 @@ SUMO は既定で乱数を使う。**VD 検証の背景交通として使うな�
   - `GTSumoTrafficController` → **GT 版**（`feature:F9`）。新規に背景交通を書くならこちら
 
   **取り違えてもエラーは出ない。**動いてしまい、方位のずれた背景交通が静かに出るだけ
-- GT 版は**既定 OFF**。名指しするだけでは SUMO を読み込まない。
-  `config/sumo_traffic.json` で ON にするか、シナリオ側に
-  `<Property name="enabled" value="true"/>` を書く（後者が優先）。
+- GT 版は**名指しした時点で有効**。`enabled` はオプトインではなく**キルスイッチ**で、
+  `config/sumo_traffic.json` を `false` にすると xosc を1本も触らずに全部止まる
+  （シナリオ側の `<Property name="enabled" value="..."/>` が優先）。
   他の Property: `injectEgo` / `overrideHeading` / `seed` / `speedMode` / `stepLength`。
   **`speedMode` を負にすると `setSpeedMode` を呼ばなくなり、SUMO が Ego の速度を
   「車線制限 × speedFactor」で刈る upstream と同じ挙動に戻る**（負の対照として使える）。
