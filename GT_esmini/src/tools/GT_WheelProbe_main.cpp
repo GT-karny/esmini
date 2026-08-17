@@ -349,6 +349,18 @@ int main(int argc, char** argv)
                   << ",\"clutch\":" << (map.clutch.IsAssigned() ? map.clutch.Normalize(read_axis(map.clutch.index)) : 0.0)
                   << "}}" << std::endl;  // endl: the consumer is a pipe reader, so every frame must flush
 
+        // Exit when the consumer goes away. On Windows a broken pipe makes the
+        // write fail silently (badbit) rather than raising, and a child process
+        // is NOT killed with its parent -- so without this check the probe
+        // outlives an abruptly-terminated web backend and keeps polling the
+        // wheel forever. Observed for real: killing the server left a
+        // GT_WheelProbe running with the device open, which is exactly the kind
+        // of orphan that later gets diagnosed as "the wheel is silent".
+        if (!std::cout)
+        {
+            return 0;
+        }
+
         SDL_Delay(delay_ms);
     }
 
