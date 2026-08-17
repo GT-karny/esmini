@@ -374,7 +374,21 @@ def render_skill_for_package(text: str, source_rel: str) -> str:
             "(or fix the skill) before packaging."
         )
 
-    return SKILL_BANNER.format(source=source_rel) + text
+    # 4. banner -- AFTER the YAML frontmatter, never before it. Claude Code
+    # reads a skill's frontmatter from the very first line, so a banner at the
+    # top turns SKILL.md into a file with no frontmatter at all: the skill stops
+    # being discovered, silently, in the package only.
+    banner = SKILL_BANNER.format(source=source_rel)
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end == -1:
+            raise ValueError(
+                f"{source_rel}: frontmatter opens with '---' but never closes. "
+                "Cannot place the package banner without breaking skill discovery."
+            )
+        cut = end + len("\n---\n")
+        return text[:cut] + "\n" + banner + text[cut:].lstrip("\n")
+    return banner + text
 
 
 def copy_skills(pkg_dir: Path) -> None:
@@ -396,6 +410,17 @@ def copy_skills(pkg_dir: Path) -> None:
             except ValueError as exc:
                 print("[FAIL] skill render failed.")
                 print(f"  {exc}")
+                sys.exit(1)
+            # A skill whose SKILL.md loses its frontmatter is not "a skill with a
+            # cosmetic problem", it is a skill Claude Code never sees. Check the
+            # rendered bytes, not the intent: the first shipped build put the
+            # banner above the frontmatter and the package looked perfectly fine.
+            if rel.name == "SKILL.md" and not rendered.startswith("---\n"):
+                print("[FAIL] rendered SKILL.md does not begin with YAML frontmatter.")
+                print(
+                    f"  {src_rel}/{rel.as_posix()} would not be discovered as a skill."
+                )
+                print(f"  first line: {rendered.splitlines()[0]!r}")
                 sys.exit(1)
             out = dst_dir / rel
             out.parent.mkdir(parents=True, exist_ok=True)
