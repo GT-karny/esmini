@@ -247,7 +247,7 @@ Python 側の検証ハーネスは xodr へのアクセス手段を持たない�
 
 | 資産 | 接続路長 | 役割 |
 | :--- | ---: | :--- |
-| `05_anticipation/decelerate_for_right_turn.xosc`（既存） | 14.87 m | 正: 短い接続路 |
+| `05_anticipation/decelerate_for_left_turn.xosc`（既存） | 14.87 m | 正: 短い接続路 |
 | `05_anticipation/junction_turn_signal_long_connector.xosc`（**新設**） | 33.2 m | 正: 長い接続路（欠陥1の再発検知） |
 | `05_anticipation/cross_straight_junction.xosc`（既存） | 15.5 m | **負: 直進では点かない** |
 
@@ -255,9 +255,9 @@ Python 側の検証ハーネスは xodr へのアクセス手段を持たない�
 
 ---
 
-## 5. 判明した別件 — `decelerate_for_right_turn` は左折である
+## 5. 判明した別件 — 旧 `decelerate_for_right_turn` は左折である
 
-実測で「右折」の名を持つ資産に **left** が点いた件を追跡した結果、
+実測で「右折」の名を持っていた資産に **left** が点いた件を追跡した結果、
 **指示器は正しく、資産名が誤り**であると確定した。
 
 `fabriksgatan_traffic_lights.xodr` の接続路 road 13 は
@@ -269,10 +269,11 @@ heading delta = `0.108108 × 14.8696 = +1.608 rad (+92°)`。
 したがって `TurnDirectionFromHeadingDelta` が +1（left）を返したのは幾何どおりで、
 LHT/RHT やレーン符号の取り違えではない。
 
-**改名は本サイクルでは行わない。** 資産名を変えるとバッチ manifest・
-expectations・baseline・KG の参照が連動し、指示器の修正と混ざる。
-本書に記録を残し、独立した整理として切り出す。
-expectations には `expect_dir: left` を、理由つきで書く。
+**2026-08-04 に改名を実施済み。** `decelerate_for_right_turn` を
+`decelerate_for_left_turn` へ改め、バッチ manifest・expectations・baseline・KG の
+参照を同時に更新した（本節執筆時点では「改名は別サイクル」としていたが、
+その後のサイクルで実施した）。expectations には `expect_dir: left` を、
+理由つきで書いてある。
 
 ---
 
@@ -284,7 +285,7 @@ expectations には `expect_dir: left` を、理由つきで書く。
 常設ゲート（Step 1〜2.9 と CI）の全シナリオを洗った結果は次のとおり。
 
 - 幾何的に旋回条件（junction かつ heading delta > 0.10 rad）を満たすのは
-  `decelerate_for_right_turn` と `traffic_lights_junction` の**2本のみ**。
+  `decelerate_for_left_turn` と `traffic_lights_junction` の**2本のみ**。
   他は junction を持たないか、持っていても直進（delta < 閾値）である。
 - その2本を含め、**既存 baseline の matcher に指示器を読むものは1つも無い**。
   全て速度・停止・追従・操舵・AEB・制御移譲のいずれかである。
@@ -305,4 +306,4 @@ expectations には `expect_dir: left` を、理由つきで書く。
 - 国別のリードタイム／距離テーブルは作らない（§11-2 の決定を継承）
 - ハザード・制動灯など他の灯火（`vd-func:FUNC-062`）
 - 交差点マニューバそのもの（`vd-func:FUNC-057`）の改善
-- `decelerate_for_right_turn` の改名（§5）
+- ~~`decelerate_for_right_turn` の改名（§5）~~ 2026-08-04 に改名実施済み（§5）

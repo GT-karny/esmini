@@ -108,7 +108,7 @@ if (-not $SkipCMake) {
 
     Write-Step "1" "C++ Build (Release)"
     Invoke-Checked "cmake build" {
-        cmake --build $BuildDir --config Release --target GT_Sim GT_esminiLib esminiRMLib GT_RoadGen
+        cmake --build $BuildDir --config Release --target GT_Sim GT_esminiLib esminiRMLib GT_RoadGen GT_WheelProbe
     }
 } else {
     Write-Host "`n  -- Skipping CMake configure + C++ build --" -ForegroundColor Yellow
@@ -129,6 +129,16 @@ if (Test-Path "$BuildRelease\GT_RoadGen.exe") {
 } else {
     Write-Host "  !! WARNING: GT_RoadGen.exe not found at $BuildRelease — large OpenDRIVE road generation will be slow / may hang" -ForegroundColor Yellow
 }
+# GT_WheelProbe.exe (feature:F8): the web UI's axis-assignment panel spawns it to
+# show live axis values. Without it the panel can still edit the mapping by hand
+# but has no way to tell the user WHICH axis is which on their wheel — the whole
+# point of the feature. Named in the --target list above for the same reason
+# GT_RoadGen is: this script builds specific targets, not ALL_BUILD.
+if (Test-Path "$BuildRelease\GT_WheelProbe.exe") {
+    Copy-Item "$BuildRelease\GT_WheelProbe.exe" $DriverBin -Force -ErrorAction SilentlyContinue
+} else {
+    Write-Host "  !! WARNING: GT_WheelProbe.exe not found at $BuildRelease — the wheel axis mapping panel will have no live axis readout" -ForegroundColor Yellow
+}
 # esminiRMLib.dll lives under EnvironmentSimulator/Libraries/esminiRMLib/Release
 # — stage into $BuildRelease so build_package.py's *.dll glob picks it up.
 if (Test-Path "$RMLibRelease\esminiRMLib.dll") {
@@ -138,9 +148,32 @@ if (Test-Path "$RMLibRelease\esminiRMLib.dll") {
     Write-Host "  !! WARNING: esminiRMLib.dll not found at $RMLibRelease — 2D Viewer will show no roads" -ForegroundColor Yellow
 }
 # SDL2.dll is required at runtime when built with GT_ENABLE_SDL2=ON.
+#
+# Copied only when the destination differs. A running GT_Sim (or the axis probe)
+# holds SDL2.dll open, and an unconditional Copy-Item then aborts the whole
+# packaging run — which is what happened while a simulation from a parallel
+# session was up. The source is a fixed thirdparty binary, so "already identical"
+# is the normal case and skipping it loses nothing; a genuine mismatch that
+# cannot be written is still reported, because shipping a stale SDL2.dll would be
+# a silent runtime failure.
+function Copy-IfDifferent($src, $dstDir, $label) {
+    $dst = Join-Path $dstDir (Split-Path $src -Leaf)
+    # Size comparison, not Get-FileHash: that cmdlet did not resolve in the host
+    # this script is launched from (module auto-loading is not available there),
+    # and it is enough here -- the source is a fixed thirdparty binary, so the
+    # only realistic states are "byte-identical" and "absent/replaced wholesale".
+    if ((Test-Path $dst) -and (Get-Item $src).Length -eq (Get-Item $dst).Length) {
+        return
+    }
+    try {
+        Copy-Item $src $dstDir -Force -ErrorAction Stop
+    } catch {
+        Write-Host "  !! WARNING: could not update $label at $dstDir (file in use by a running process?) — $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
 if (Test-Path $SDL2Dll) {
-    Copy-Item $SDL2Dll $BuildRelease -Force
-    Copy-Item $SDL2Dll $DriverBin -Force
+    Copy-IfDifferent $SDL2Dll $BuildRelease "SDL2.dll"
+    Copy-IfDifferent $SDL2Dll $DriverBin "SDL2.dll"
 } else {
     Write-Host "  !! WARNING: SDL2.dll not found at $SDL2Dll — ManualDrive wheel input will not work" -ForegroundColor Yellow
 }

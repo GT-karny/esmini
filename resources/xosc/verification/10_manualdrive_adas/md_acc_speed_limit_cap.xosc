@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ManualDrive ADAS verification scenario 10_manualdrive_adas / md_acc_speed_limit_cap
+  (req-vd-ad:REQ-AD-026 step g, vd-func:FUNC-079; slug md-acc-speed-limit-cap).
+  Added 2026-08-05 (phase C).
+
+  Runs on straight_500m_speed_limit_step.xodr (MDA-XODR-01), whose posted limit steps
+  90 -> 50 km/h at s=250. Ego enters at 24 m/s (86 km/h - under the first limit, over
+  the second) and SETs ACC there, so the SET SPEED is 24 while the road's limit falls
+  to 13.89 m/s part-way through.
+
+  ONE RUN, TWO CONFIGURATIONS. This file is used TWICE by the batch, via the manifest
+  `variant` key, differing only in adas_acc_respect_speed_limit. That is the whole
+  claim of step g: the same road and the same driver must produce a DIFFERENT
+  effective cap depending on one switch. Running only the respect-limit case would
+  pass on an implementation that always honours the limit and ignores the config, and
+  running only the ignore case would pass on one that never reads the road at all.
+
+  The geometry is not duplicated for the second configuration (verification plan
+  §7-2 / the phase-B precedent set by md_aeb_no_conflict): two files that must never
+  disagree are a maintenance hazard, and the difference here is not geometric.
+
+  Reaching s=250 takes about 9 s at 24 m/s from s=30, leaving the rest of the 20 s
+  run under the reduced limit - long enough for the effective cap to be measured as
+  a settled value on both sides of the step rather than only during the transition.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="3" date="2026-08-05T00:00:00"
+               description="ManualDrive ADAS verification: ACC effective cap under a stepped road speed limit (two configurations)" author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="24.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_500m_speed_limit_step.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="ManualDriveController">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_headless_stub.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-1" offset="0" s="30"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="ManualDriveController" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="AccSpeedLimitCapStory">
+         <Act name="AccSpeedLimitCapAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition><SimulationTimeCondition value="20" rule="greaterThan"/></ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

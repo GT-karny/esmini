@@ -1,0 +1,38 @@
+{
+  // feature:F9 -- SUMO background traffic (experimental).
+  // Every key here is a default; a scenario may override any of them through
+  // Properties on the GTSumoTrafficController entry.
+
+  // Kill switch, not an opt-in: naming GTSumoTrafficController in a scenario is
+  // the opt-in, and a scenario that names it wants traffic. Set false here to
+  // turn every GT SUMO scenario off at once without editing any xosc.
+  // (The feature is still experimental and is not wired into any standing gate.)
+  "enabled": true,
+
+  // Fallback .sumocfg. The scenario's own <File filepath> wins over this.
+  "sumocfg": "",
+
+  // SUMO random seed. <= 0 leaves SUMO's own randomness alone. A frozen
+  // regression baseline needs this fixed AND three identical consecutive runs
+  // confirmed before the baseline is written.
+  "seed": 42,
+
+  // SUMO step length [s]. Keep it equal to esmini's --fixed_timestep.
+  // <= 0 leaves the value declared in the .sumocfg alone.
+  "step_length": 0.05,
+
+  // Push the scenario's own entities into SUMO, so SUMO's car-following sees
+  // them. false = background traffic that ignores the scenario.
+  "inject_ego": true,
+
+  // Derive the yaw of SUMO vehicles from their position history instead of
+  // reading SUMO's angle (which carries no lane-change yaw under the sublane
+  // model in SUMO 1.6.0).
+  "override_heading": true,
+
+  // Speed mode applied to injected scenario entities. 0 = all SUMO checks off,
+  // which is what stops SUMO from clipping the reported ego speed to
+  // (lane speed limit x speedFactor). < 0 = do not call setSpeedMode at all
+  // (SUMO's default 31), which is the clipped behaviour.
+  "speed_mode": 0
+}

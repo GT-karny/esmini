@@ -10,6 +10,7 @@
 #include "gt_esmini/control/manualdrive/NetworkInputBridge.hpp"
 #include "gt_esmini/control/manualdrive/NetworkPhysicsBridge.hpp"
 #include "gt_esmini/control/manualdrive/HeadlessFfbInput.hpp"
+#include "gt_esmini/control/manualdrive/ScriptedInputSource.hpp"
 #ifdef GT_ENABLE_SDL2
 #include "gt_esmini/control/manualdrive/SDL2WheelInput.hpp"
 #include "gt_esmini/control/manualdrive/SDL2KeyboardInput.hpp"
@@ -82,6 +83,15 @@ ControllerManualDrive::ControllerManualDrive(InitArgs* args)
         // the real device-holder FFB path headlessly, with no G29 plugged in.
         input_source_ = new HeadlessFfbInput();
     }
+    else if (config_.input_type == "scripted")
+    {
+        // req-vd-ad:REQ-AD-025..031, vd-func:FUNC-075 -- deterministic
+        // profile-file replay for the ManualDrive ADAS batch (design
+        // manualdrive_adas_verification_plan.md §7-4/§3-3). See
+        // ScriptedInputSource.hpp for the profile format and self-determinism
+        // rationale (no socket, replays against SIMULATION time).
+        input_source_ = new ScriptedInputSource();
+    }
     else
     {
         input_source_ = new StubInputSource();
@@ -108,6 +118,90 @@ ControllerManualDrive::ControllerManualDrive(InitArgs* args)
 
     // Configure override manager
     override_mgr_.Configure(config_);
+
+    // req-vd-ad:REQ-AD-025/028, vd-func:FUNC-075 (design §2-1/§9/§10, phase
+    // A) -- build the AEB/FCW coexistence stack from config_.adas, now that
+    // config_ has actually been loaded above (constructed here, not as a
+    // default member initializer -- see ControllerManualDrive.hpp's comment
+    // on adas_stack_ for why). The intervention-stage AebSafetyConfig itself
+    // still has no separate keys (manualdrive_adas_design.md §3-2:
+    // "ttc_threshold 等はAebSafetyConfigを共有"), so ManualAdasStackConfig::aeb
+    // is left at its compiled-in defaults.
+    //
+    // BOTH FCW gate thresholds are wired (req-vd-ad:REQ-AD-028, phase B).
+    // Phase A wired only warning_ttc_threshold_s and left
+    // warning_min_a_req_mps2 at its compiled-in default, which made the pair
+    // half-calibratable and therefore, on encounters where required
+    // deceleration is the binding side, not calibratable at all (design
+    // §9/§12).
+    ManualAdasStackConfig adas_cfg;
+    adas_cfg.aeb_enabled                   = config_.adas.aeb.enabled;
+    adas_cfg.kickdown_suppress_enabled     = config_.adas.aeb.kickdown_suppress_enabled;
+    adas_cfg.warning_ttc_threshold_s       = config_.adas.aeb.warning_ttc_threshold_s;
+    adas_cfg.warning_min_a_req_mps2        = config_.adas.aeb.warning_min_a_req_mps2;
+    adas_cfg.arbitrator.full_brake_decel_mps2 = config_.adas.brake_control.full_brake_decel_mps2;
+    adas_cfg.arbitrator.brake_kp           = config_.adas.brake_control.brake_kp;
+    adas_cfg.arbitrator.brake_ki           = config_.adas.brake_control.brake_ki;
+    adas_cfg.kickdown.engage_threshold     = config_.adas.kickdown_threshold;
+    adas_cfg.kickdown.release_threshold    = config_.adas.kickdown_release_threshold;
+
+    // PHASE C (req-vd-ad:REQ-AD-026 / REQ-AD-030 / REQ-AD-031,
+    // vd-func:FUNC-079 / FUNC-081). As with the AEB block above, the policy
+    // thresholds ACC shares with LeadVehicleAware/TrafficLightAware/
+    // StopYieldSignAware stay at their compiled-in policy defaults (design
+    // §4-2 "policy 本体は無改修") -- the only LeadVehicleAware field this
+    // controller writes is time_headway, and it does so through the stage
+    // selection rather than directly (AdasCoexistenceStack::RebuildLeadPolicy).
+    adas_cfg.acc.enabled                  = config_.adas.acc.enabled;
+    adas_cfg.acc.set_speed_step_mps       = config_.adas.acc.set_speed_step_mps;
+    adas_cfg.acc.thw_stages.short_s       = config_.adas.acc.thw_stage_short_s;
+    adas_cfg.acc.thw_stages.mid_s         = config_.adas.acc.thw_stage_mid_s;
+    adas_cfg.acc.thw_stages.long_s        = config_.adas.acc.thw_stage_long_s;
+    adas_cfg.acc.thw_default_stage        = config_.adas.acc.thw_default_stage;
+    adas_cfg.acc.min_speed_mps            = config_.adas.acc.min_speed_mps;
+    adas_cfg.acc.max_speed_mps            = config_.adas.acc.max_speed_mps;
+    adas_cfg.acc.respect_speed_limit      = config_.adas.acc.respect_speed_limit;
+    adas_cfg.acc.accel_max_mps2           = config_.adas.acc.accel_max_mps2;
+    adas_cfg.acc.decel_max_mps2           = config_.adas.acc.decel_max_mps2;
+    adas_cfg.acc.full_brake_decel_mps2    = config_.adas.acc.full_brake_decel_mps2;
+    adas_cfg.acc.full_throttle_accel_mps2 = config_.adas.acc.full_throttle_accel_mps2;
+    adas_cfg.acc.speed_kp                 = config_.adas.acc.speed_kp;
+    adas_cfg.acc.speed_ki                 = config_.adas.acc.speed_ki;
+    adas_cfg.acc.speed_deadband_mps       = config_.adas.acc.speed_deadband_mps;
+    adas_cfg.acc.accel_override_threshold = config_.adas.acc.accel_override_threshold;
+    adas_cfg.acc.brake_cancel_threshold   = config_.adas.acc.brake_cancel_threshold;
+    adas_cfg.acc.stop_and_go.enabled                 = config_.adas.acc.stop_and_go.enabled;
+    adas_cfg.acc.stop_and_go.stop_at_traffic_light   = config_.adas.acc.stop_and_go.stop_at_traffic_light;
+    adas_cfg.acc.stop_and_go.stop_at_stop_sign       = config_.adas.acc.stop_and_go.stop_at_stop_sign;
+    adas_cfg.acc.stop_and_go.restart_accel_threshold = config_.adas.acc.stop_and_go.restart_accel_threshold;
+    adas_cfg.acc.stop_and_go.hold_brake              = config_.adas.acc.stop_and_go.hold_brake;
+    adas_cfg.acc.stop_and_go.stop_speed_eps_mps      = config_.adas.acc.stop_and_go.stop_speed_eps_mps;
+    adas_cfg.msl.enabled                  = config_.adas.msl.enabled;
+    adas_cfg.msl.speed_limit_linked       = config_.adas.msl.speed_limit_linked;
+    adas_cfg.msl.taper_band_mps           = config_.adas.msl.taper_band_mps;
+
+    // PHASE D (req-vd-ad:REQ-AD-027, vd-func:FUNC-080). Unlike every block
+    // above, LKA shares NO thresholds with an existing policy -- there was no
+    // lane-centre component to share them with (design §5-1) -- so every field
+    // here is its own, and all of them REQUIRE CALIBRATION (verification plan
+    // §5). LaneKeepAssistConfig's own member initializers stay the C++-side
+    // single source of truth for the defaults; these lines only let the config
+    // FILE override them.
+    adas_cfg.lka.enabled              = config_.adas.lka.enabled;
+    adas_cfg.lka.warning_only         = config_.adas.lka.warning_only;
+    adas_cfg.lka.min_speed_mps        = config_.adas.lka.min_speed_mps;
+    adas_cfg.lka.max_speed_mps        = config_.adas.lka.max_speed_mps;
+    adas_cfg.lka.tlc_threshold_s      = config_.adas.lka.tlc_threshold_s;
+    adas_cfg.lka.margin_threshold_m   = config_.adas.lka.margin_threshold_m;
+    adas_cfg.lka.release_margin_m     = config_.adas.lka.release_margin_m;
+    adas_cfg.lka.kp_offset            = config_.adas.lka.kp_offset;
+    adas_cfg.lka.kd_lateral           = config_.adas.lka.kd_lateral;
+    adas_cfg.lka.correction_max       = config_.adas.lka.correction_max;
+    adas_cfg.lka.correction_rate_max  = config_.adas.lka.correction_rate_max;
+    adas_cfg.lka.steer_override_rate  = config_.adas.lka.steer_override_rate;
+    adas_cfg.lka.steer_override_hold_s = config_.adas.lka.steer_override_hold_s;
+
+    adas_stack_ = std::make_unique<AdasCoexistenceStack>(adas_cfg);
 
     // Create coordinator
     coordinator_ = new ManualDriveCoordinator();
@@ -385,6 +479,37 @@ int ControllerManualDrive::BuildLightMaskFromExtension() const
         is_on(VehicleLightType::FOG_LIGHTS_FRONT) ||
         is_on(VehicleLightType::FOG_LIGHTS_REAR))  mask |= 16;
     return mask;
+}
+
+void ControllerManualDrive::GetADASFunctions(std::vector<AdasFunctionState>& functions) const
+{
+    // Config-derived enable flags (design §8-1, mirrors
+    // ControllerVirtualDriver::GetADASFunctions' VdPolicyEnableFlags split
+    // between "configured on" and "this frame's decision"). FCW has no
+    // separate config key in phase A: it is AebSafety's own warning
+    // pre-stage, built from the SAME config_.adas.aeb.enabled flag
+    // (AdasFunctionReport.hpp's ManualAdasEnableFlags doc comment).
+    ManualAdasEnableFlags flags;
+    flags.aeb = config_.adas.aeb.enabled;
+    flags.fcw = config_.adas.aeb.enabled;
+    // req-vd-ad:REQ-AD-026 / REQ-AD-030 (phase C). Config-enabled only; the
+    // driver's own on/off and the function's STANDBY/ACTIVE come from
+    // adas_last_result_.decision.{acc,msl}_state, resolved by the stack.
+    flags.acc = config_.adas.acc.enabled;
+    flags.msl = config_.adas.msl.enabled;
+    // req-vd-ad:REQ-AD-027 (phase D). BOTH rows follow the SAME single config
+    // flag: warning_only is a mode of one function, not a second enable, and
+    // withdrawing the gt.lka row under warning_only would make step f's
+    // negative ("the assist produced no correction") indistinguishable from
+    // "nobody looked" -- see ManualAdasEnableFlags' own comment.
+    flags.lka = config_.adas.lka.enabled;
+    flags.ldw = config_.adas.lka.enabled;
+
+    functions = BuildManualAdasFunctionReport(flags,
+                                              adas_last_owns_longitudinal_,
+                                              adas_last_owns_lateral_,
+                                              adas_last_result_.decision,
+                                              adas_last_result_.detail);
 }
 
 void ControllerManualDrive::GetPowertrainForOSI(double& rpm, double& torque) const

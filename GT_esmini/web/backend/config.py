@@ -58,6 +58,10 @@ if PACKAGED:
     REPO_ROOT = PACKAGE_ROOT  # alias for downstream compatibility
 
     GT_SIM_EXE = PACKAGE_ROOT / "bin" / "GT_Sim.exe"
+    # feature:F8 -- read-only wheel axis probe, spawned by the axis-mapping
+    # panel. Built only when GT_ENABLE_SDL2=ON, so its absence is a normal
+    # condition the API reports rather than an error state.
+    GT_WHEEL_PROBE_EXE = PACKAGE_ROOT / "bin" / "GT_WheelProbe.exe"
     ESMINI_RM_LIB = PACKAGE_ROOT / "bin" / "esminiRMLib.dll"
     # GT_esminiLib.dll carries the GT ODR side-model metadata C API (plan P9a).
     GT_ESMINI_LIB = PACKAGE_ROOT / "bin" / "GT_esminiLib.dll"
@@ -77,6 +81,10 @@ else:
     REPO_ROOT = _find_repo_root()
 
     GT_SIM_EXE = REPO_ROOT / "build" / "GT_esmini" / "Release" / "GT_Sim.exe"
+    # feature:F8 -- see the packaged branch above.
+    GT_WHEEL_PROBE_EXE = (
+        REPO_ROOT / "build" / "GT_esmini" / "Release" / "GT_WheelProbe.exe"
+    )
     ESMINI_RM_LIB = REPO_ROOT / "DriverScript" / "bin" / "esminiRMLib.dll"
     # GT_esminiLib.dll carries the GT ODR side-model metadata C API (plan P9a).
     # Mirrors ESMINI_RM_LIB's layout: the build copies it next to esminiRMLib.dll

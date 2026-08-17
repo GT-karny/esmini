@@ -29,6 +29,7 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_VirtualDriverTelemetryJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_PolicyDetail.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_AdasFunctionReport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_ManualAdasFunctionReport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_ControllerVirtualDriverActivation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrSideModel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/road/test_OdrForkPatches.cpp
@@ -46,6 +47,22 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_OverrideManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_FfbTargetServo.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_EngineModel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_KickdownDetector.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_PedalArbitrator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_ScriptedInputSource.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_ManualDriveAdasConfig.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_AdasCoexistenceStack.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_AccLonController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_ManualAdasPhaseC.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_LaneKeepAssist.cpp
+    # feature:F8 — wheel axis mapping. Registered unconditionally: the mapping
+    # itself is SDL-free for exactly this reason (GT_ENABLE_SDL2 is OFF by
+    # default and OFF in CI, so a wheel-gated test would never run there).
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/manualdrive/test_WheelAxisMapping.cpp
+    # feature:F9 — esmini <-> SUMO pose conversion. Pure arithmetic, no libsumo:
+    # it belongs in the umbrella gate binary, unlike the speed-mode probe below
+    # which loads a real SUMO network.
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/sumotraffic/test_SumoTransform.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)
@@ -92,6 +109,38 @@ target_include_directories(${ODR_PROBE_TARGET} PRIVATE
     ${CMAKE_SOURCE_DIR}/GT_esmini/include
 )
 target_compile_definitions(${ODR_PROBE_TARGET} PRIVATE GT_ODR_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+
+# [feature:F9] Separate ctest target: does setSpeedMode() lift SUMO's speed cap
+# in libsumo 1.6.0? Talks to libsumo only — no esmini, no GT controller — so the
+# answer cannot be confounded by the injection path.
+#
+# Deliberately NOT built with the unittest() macro: that macro registers one
+# ctest entry per binary, which would run both polarities in one process and
+# make the second one depend on libsumo surviving a load/close/load cycle. Each
+# polarity gets its own ctest entry (and process) instead.
+#
+# Not in any standing gate: run_gt_tests.ps1 filters on test_ScenarioReaderParsing.
+set(SUMO_PROBE_TARGET test_SumoSpeedModeProbe)
+add_executable(${SUMO_PROBE_TARGET} ${CMAKE_CURRENT_SOURCE_DIR}/unit/sumotraffic/test_SumoSpeedModeProbe.cpp)
+# ${SOCK_LIB}: SUMO's foreign_tcpip carries the TraCI socket server, so linking
+# libsumo standalone (without CommonMini, which normally drags Winsock in) needs
+# ws2_32 named explicitly.
+target_link_libraries(${SUMO_PROBE_TARGET} PRIVATE project_options ${SUMO_LIBRARIES} ${GTEST_LIBRARIES} ${SOCK_LIB} ${TIME_LIB})
+target_include_directories(${SUMO_PROBE_TARGET} SYSTEM PRIVATE
+    ${EXTERNALS_SUMO_INCLUDES}
+    ${EXTERNALS_GOOGLETEST_INCLUDES}
+)
+target_compile_definitions(${SUMO_PROBE_TARGET} PRIVATE
+    GT_SUMO_PROBE_REPO_ROOT="${CMAKE_SOURCE_DIR}"
+    _CRT_SECURE_NO_WARNINGS
+    _USE_MATH_DEFINES
+)
+disable_iwyu(${SUMO_PROBE_TARGET})
+set_folder(${SUMO_PROBE_TARGET} Unittest)
+add_test(NAME ${SUMO_PROBE_TARGET}_default_mode
+         COMMAND ${SUMO_PROBE_TARGET} --gtest_filter=SumoSpeedModeProbe.DefaultSpeedModeClipsAtTheLaneLimit)
+add_test(NAME ${SUMO_PROBE_TARGET}_cleared_mode
+         COMMAND ${SUMO_PROBE_TARGET} --gtest_filter=SumoSpeedModeProbe.ClearedSpeedModeFollowsTheCommandedSpeed)
 
 # PythonDriver Unit Tests (requires Python3::Python target from parent CMakeLists.txt)
 if(TARGET Python3::Python)

@@ -1,0 +1,28 @@
+scenario: md_sng_stop_sign
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-031 step b (vd-func:FUNC-079), slug md-sng-stop-sign-stop.
+# THE stop_at_stop_sign=TRUE half of the pair; the other half is
+# md_sng_stop_sign_lead_only.expectations.yaml, run from the SAME xosc through
+# the manifest's `variant` key.
+#
+# THIS RUN ALSO CLOSED design §12's LAST OPEN QUESTION. Whether
+# StopYieldSignAware works for a ManualDrive ego was an inference until it ran:
+# the policy walks the road ahead from the ego's Position via CopyRoute, and a
+# ManualDrive ego has no Route at all. MEASURED (see
+# GT_esmini/docs/virtualdriver/measurements/manualdrive_creep_stop_hold_2026-08-05.md):
+# gt.acc.stop_requested is true for 201 frames from t=6.9 and the ego stops.
+must:
+  - event: stop_hold_stationary
+    function: gt.acc
+    hold_key: gt.acc.stop_hold
+    max_displacement_m: 0.5
+    after: { sim_time: 12.0 }
+    before: { sim_time: 30.0 }
+    reason: "一時停止標識を停止対象に構成したとき、停止線手前で停止し保持すること（REQ-AD-031段b）"
+  - event: adas_state_matches
+    function: gt.acc
+    expect: active
+    mode: all
+    after: { sim_time: 2.0 }
+    before: { sim_time: 30.0 }
+    reason: "標識停止中もACCは作動状態であること"

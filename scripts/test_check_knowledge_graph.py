@@ -75,6 +75,19 @@ ns_bad = copy.deepcopy(NAMESPACES)
 del ns_bad["gate"]["face"]
 expect("face 欠落を検出", [e for e in run_values(CATALOGS, ns_bad) if "face タグがありません" in e])
 
+# 2026-08-06 追加。'implemented'（語彙外だが**もっともらしい**綴り）が4件混入し、
+# --spine-matrix の ③実装 のどのカウンタにも入らないまま「未実装req」に実装済み要求を
+# 7件並べていた。値の誤りではなく数え落としなので、症状は「増えない」＝目視では出ない。
+bad = copy.deepcopy(CATALOGS)
+bad["vd-func"][0]["status"] = "implemented"
+expect("vd-func status 語彙外を検出",
+       [e for e in run_values(bad, NAMESPACES) if "未知の status" in e])
+
+bad = copy.deepcopy(CATALOGS)
+del bad["vd-func"][0]["status"]
+expect("vd-func status 欠落を検出",
+       [e for e in run_values(bad, NAMESPACES) if "未知の status" in e])
+
 print("== 1a. acceptance_ladder（段階受入, hard）==")
 # 2026-08-02 追加。段は「要求のどこまで出来ているか」の真実源で、graph.yaml の
 # verifies 辺（要求単位）では表現できない粒度を引き受ける。ここが壊れると辺だけが残り

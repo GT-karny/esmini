@@ -1,0 +1,27 @@
+scenario: md_lka_drift
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-027 step e, the IN-BAND pole (manifest `variant: in_band`).
+# Same xosc, same input profile and the same CONFIG KEY as
+# md_lka_drift_below_band.expectations.yaml -- adas_lka_min_speed_mps is simply
+# moved below the ego's speed instead of above it.
+#
+# WHY THIS ROW EXISTS SEPARATELY FROM THE PLAIN `left` / `right` ROWS, WHICH ARE
+# ALSO IN BAND. Those two leave min_speed_mps at its shipped 0.0, so they
+# exercise the assist but say nothing about the BOUND. Step e's claim is that
+# the bound is what decides, and evidence for that has to be two runs whose only
+# difference is the bound's value. Without this row, `below_band` would pass on a
+# build where min_speed_mps was ignored and LKA had simply been broken.
+must:
+  - event: adas_state_matches
+    function: gt.lka
+    expect: active
+    mode: any
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "同じ速度域キーを自車速の下に置けば同一刺激で介入すること＝域外側との差が「域の設定が効いている」ことの実体（REQ-AD-027段e）"
+  - event: lane_kept_within
+    function: gt.lka
+    max_offset_m: 1.0
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "域内では補正が入り車線内に留まること（域外側の逸脱と対）"

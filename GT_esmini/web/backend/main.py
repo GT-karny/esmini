@@ -33,6 +33,7 @@ from GT_esmini.web.backend.api import (
     verification,
     annotation,
     virtual_driver_api,
+    wheel_probe,
 )
 from GT_esmini.web.backend.config import GRPC_PORT, HTTP_PORT
 from GT_esmini.web.backend.db.database import init_db
@@ -225,6 +226,9 @@ app.include_router(sv_stream.router)
 app.include_router(vd_stream.router)
 app.include_router(vd_input.router)
 app.include_router(preset_stream.router)
+# feature:F8 — wheel axis probe (REST + WebSocket). Registered here, before the
+# SPA catch-all, for the same reason as the streams above.
+app.include_router(wheel_probe.router)
 
 
 @app.get("/api/health")

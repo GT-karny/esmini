@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ManualDrive ADAS verification scenario 10_manualdrive_adas / md_acc_setting_changes
+  (req-vd-ad:REQ-AD-026 step e, vd-func:FUNC-079; slug md-acc-set-speed-runtime-
+  change). Added 2026-08-05 (phase C).
+
+  Empty road, no lead, no speed limit honoured: the effective cap therefore equals
+  the set speed EXACTLY, frame for frame. That is the point. Step e's claim is that
+  a change to the setting reaches the target, and the cleanest way to see it is a
+  configuration in which nothing else can move the target - with a lead present,
+  the gap term could hold the effective cap still through a setting change and the
+  matcher would read "stored but not applied" for a reason that is not a defect.
+
+  The gap-term case is not lost: md_acc_follow_lead carries step h (the following-
+  distance stage) under exactly the traffic this scenario removes. Splitting them is
+  what lets each run have one unambiguous explanation.
+
+  Ego starts at 18 m/s so four SPEED_UP presses (4 x 1.39 = 5.56 m/s) land near 23.6
+  m/s, well inside the vehicle's performance envelope and reachable within the run.
+
+  The operation列 comes from acc_ops_setting_changes.json (the same profile
+  md_acc_follow_lead uses); its THW cycles fall in this run too but have no
+  observable effect without a lead, which is harmless and deliberately not asserted
+  here.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="3" date="2026-08-05T00:00:00"
+               description="ManualDrive ADAS verification: ACC set-speed changed four times mid-run on an empty road" author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="18.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_500m_2lane.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="ManualDriveController">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_headless_stub.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-1" offset="0" s="30"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="ManualDriveController" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="AccSettingChangesStory">
+         <Act name="AccSettingChangesAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition><SimulationTimeCondition value="22" rule="greaterThan"/></ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

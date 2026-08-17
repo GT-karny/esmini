@@ -8,7 +8,7 @@ category: 05_anticipation
 # slows, keeps steering in range, and reaches the correct destination (road 2).
 # deceleration_profile_smooth is intentionally NOT asserted here — the full stop
 # before the junction confounds the deceleration window (that smoothness is
-# covered by decelerate_for_right_turn, the continuous-drive variant).
+# covered by decelerate_for_left_turn, the continuous-drive variant).
 must:
   - event: speed_below
     threshold: 0.5

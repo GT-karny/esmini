@@ -4,16 +4,29 @@
 #include "gt_esmini/control/common/IPhysicsBackend.hpp"
 #include "gt_esmini/control/manualdrive/IFFBSink.hpp"
 #include "gt_esmini/control/common/DomainOwnershipLedger.hpp"
+#include "gt_esmini/control/virtualdriver/ITrafficPolicy.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include "Entities.hpp"
 #include "logger.hpp"
+
+#include <cmath>
 
 namespace gt_esmini
 {
 
 void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
 {
+    // req-vd-ad:REQ-AD-025/028, vd-func:FUNC-075 -- local simulation clock for
+    // TrafficPolicyContext::sim_time (step 3a-adas below). Mirrors
+    // ControllerVirtualDriver::Step's own `sim_time_ += timeStep;` (its FIRST
+    // statement): sim_time is NOT actually an upstream scenarioengine::
+    // Controller base-class member -- only object_/entities_/scenario_engine_
+    // are (Controller.hpp) -- so ManualDrive keeps its own accumulator the
+    // same way VD does, incremented unconditionally on every RunFrame() call
+    // regardless of which branch below returns early.
+    c.sim_time_ += dt;
+
     // 1. Poll input source
     InputFrame frame = c.input_source_->Poll(dt);
 
@@ -88,6 +101,181 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
             cmd.brake = 0.0;
         }
     }
+
+    // 3a-adas. req-vd-ad:REQ-AD-025/028, vd-func:FUNC-075 (design
+    // manualdrive_adas_design.md §2-2) -- AdasCoexistenceStack arbitration.
+    // MUST run HERE: after cmd is assembled, BEFORE the 3-bus publish block
+    // immediately below. Do not move this.
+    //
+    // WHY HERE AND NOWHERE ELSE: the bus contract (3-bus block's own comment,
+    // and DomainOwnershipLedger.hpp) is "publish what you own, consume what
+    // you don't". If arbitration ran AFTER publish, a split configuration's
+    // peer (the other domain's owner/integrator) would already have consumed
+    // the PRE-arbitration value off the bus for this frame -- so under a
+    // lat=manual/lon=VD-style split, an AEB intervention decided here would
+    // never reach the channel that actually drives the vehicle; it would be
+    // silently dropped. Arbitrating BEFORE publish means the owned
+    // (longitudinal) channel this controller is about to publish always
+    // carries the ADAS-arbitrated value, never the raw driver value.
+    //
+    // ctx.{ego,entities} come from the upstream scenarioengine::Controller
+    // base class's own object_/entities_ members (Controller.hpp) -- the same
+    // ones ControllerVirtualDriver reads for its own TrafficPolicyContext.
+    // ctx.sim_time does NOT: it is ManualDrive's own accumulator (see this
+    // function's top), because sim_time is NOT actually a Controller
+    // base-class member despite manualdrive_adas_design.md §2-1 describing
+    // all three as "upstream Controller基底クラスのメンバ" -- confirmed by
+    // reading Controller.hpp; VirtualDriver's own sim_time_ is a
+    // ControllerVirtualDriver member (ControllerVirtualDriver.hpp), not
+    // inherited either. This did not change the hook's shape, only where
+    // sim_time comes from.
+    //
+    // owns_longitudinal is read from the ledger HERE, once, and both used for
+    // arbitration and CACHED (adas_last_owns_longitudinal_) for
+    // GetADASFunctions() below -- see that method's own comment for why the
+    // cached value (not a fresh re-read) is correct there.
+    //
+    // Runs unconditionally whenever c.object_ exists, i.e. also when this
+    // controller turns out NOT to be the integrator (the `is_integrator`
+    // check happens further down, AFTER this block and after 3-bus publish).
+    // That is intentional, not an oversight: DomainOwnershipLedger::
+    // IntegratorOf() prefers the LONGITUDINAL owner, falling back to the
+    // LATERAL owner only when nobody owns LONGITUDINAL -- so the only way
+    // this controller can be a NON-integrator is if it does NOT own
+    // LONGITUDINAL (e.g. the reverse split, lat=manual/lon=VD). In that case
+    // owns_longitudinal below reads false, and AdasCoexistenceStack::Step()'s
+    // own domain-ownership bypass (AdasCoexistenceStack.hpp) makes this a
+    // correct no-op for ARBITRATION while still evaluating the AEB/FCW
+    // policies every frame -- which is exactly what that class's own header
+    // asks for, to keep AebSafety's cross-frame encroachment debounce warm
+    // across an ownership hand-off (design §12's dynamic-ownership risk item).
+    //
+    // Deliberately NOT run on the two early-return paths ABOVE this point in
+    // the function (AUTO_RESUME hand-back to VirtualDriverControl, and the
+    // fully-AUTO/no-split scenario-delegation return): both returns happen
+    // before cmd is even assembled, so there is nothing yet to arbitrate, and
+    // both represent this controller NOT being the human driver this frame
+    // (design §1's scope is explicitly "human stays the primary driver" --
+    // full delegation to the scenario/story is out of scope for ADAS
+    // coexistence, and AUTO_RESUME's whole point is that longitudinal
+    // ownership has already been handed back to VirtualDriverController by
+    // the time that return executes). A consequence worth stating plainly:
+    // AebSafety's cross-frame debounce state goes cold while this controller
+    // is not driving at all (full AUTO) and re-warms over the following
+    // few frames once manual driving resumes -- accepted for phase A, not a
+    // defect, since that window is not a "manually driving but ADAS silently
+    // skipped" case.
+    if (c.object_)
+    {
+        auto&      ledger           = DomainOwnershipLedger::Instance();
+        const int  obj_id           = c.object_->GetId();
+        const bool owns_longitudinal = ledger.IsOwner(obj_id, &c, OwnedDomain::LONGITUDINAL);
+        // req-vd-ad:REQ-AD-027 (phase D). Read here, once, from the SAME ledger
+        // call shape as the longitudinal flag, and cached below for
+        // GetADASFunctions() -- see AdasCoexistenceStack.hpp's DOMAIN OWNERSHIP
+        // block for why the two domains need separate flags rather than one.
+        const bool owns_lateral      = ledger.IsOwner(obj_id, &c, OwnedDomain::LATERAL);
+
+        TrafficPolicyContext pctx;
+        pctx.ego      = c.object_;
+        pctx.entities = c.entities_;
+        pctx.sim_time = c.sim_time_;
+
+        // req-vd-ad:REQ-AD-026 段e/g/h + REQ-AD-030 (phase C) -- the two
+        // per-frame inputs the stack cannot derive from the policy snapshots.
+        //
+        // GetSpeedLimit() is the SAME route the VD overtake ceiling uses
+        // (ControllerVirtualDriver.cpp's respect_speed_limit branch,
+        // req-vd-ad:REQ-AD-023), which is what REQ-AD-026 段g's note asks for.
+        // It is read here, not inside the stack, because the stack takes only
+        // a TrafficPolicyContext and must not start reaching into Position.
+        //
+        // `cmd.buttons` (not frame.pedal_steer->buttons) so the mask the ADAS
+        // stalk sees is the same one every other consumer this frame sees --
+        // cmd is what the domain-zeroing above produced and what the bus is
+        // about to carry.
+        ManualAdasEnvironment env;
+        env.speed_limit_mps = c.object_->pos_.GetSpeedLimit();
+        env.buttons         = cmd.buttons;
+
+        // req-vd-ad:REQ-AD-027 (phase D) -- the LATERAL environment. THIS IS
+        // THE ONE PLACE IN THE CODEBASE WHERE roadmanager's road-t sign
+        // convention is converted to LaneKeepAssist's vehicle-left-positive
+        // one; see LaneKeepAssist.hpp's SIGN CHAIN block, and do not repeat the
+        // conversion anywhere downstream.
+        //
+        //   * GetRoadLaneInfo() supplies laneOffset (lane-relative, and the
+        //     ONLY lane-relative offset esmini exposes) plus the current lane's
+        //     WIDTH in one call, so the half-width and the offset can never
+        //     come from two different s-values.
+        //   * The road-t frame is +t = road-left along increasing s, which is
+        //     vehicle-RIGHT for a vehicle driving against s. Multiplying by
+        //     GetDrivingDirectionRelativeRoad()'s sign collapses all four cases
+        //     (RHT/LHT x with/against s) onto "+ = vehicle-left" -- the same
+        //     conversion, for the same reason, that AutoLightController.cpp
+        //     already performs on the same quantity.
+        //   * The lateral speed is taken from the HEADING, not by
+        //     differentiating the offset. Differentiating would produce a huge
+        //     spurious spike on the frame a lane boundary is crossed, because
+        //     GetOffset() RE-REFERENCES to the new lane there -- and a lane
+        //     boundary crossing is exactly the event this assist exists to
+        //     prevent, i.e. the instrument would blow up precisely where it
+        //     matters most. GetHRelativeDrivingDirection() already accounts for
+        //     the lane sign, so speed * sin(h_rel) is vehicle-left-positive
+        //     with no further conversion (the same v*sin(dh) form
+        //     ControllerVirtualDriver uses to arm its resume-merge profile).
+        //   * lane_valid is FALSE, and every geometric field left at zero, when
+        //     the road/lane/width cannot be resolved. A fabricated 0.0 offset
+        //     would read as a perfectly centred vehicle.
+        {
+            roadmanager::RoadLaneInfo lane_info;
+            const bool                lane_ok =
+                c.object_->pos_.GetRoadLaneInfo(&lane_info) == roadmanager::Position::ReturnCode::OK &&
+                lane_info.width > 1e-6;
+            if (lane_ok)
+            {
+                const double sign_drive =
+                    (c.object_->pos_.GetDrivingDirectionRelativeRoad() < 0) ? -1.0 : 1.0;
+                env.lane_valid           = true;
+                env.lane_offset_m        = lane_info.laneOffset * sign_drive;
+                env.lane_half_width_m    = lane_info.width * 0.5;
+                env.vehicle_half_width_m = c.object_->boundingbox_.dimensions_.width_ * 0.5;
+                env.lateral_speed_mps =
+                    c.object_->GetSpeed() * std::sin(c.object_->pos_.GetHRelativeDrivingDirection());
+                env.lane_id = lane_info.laneId;
+            }
+            // The indicator LAMP, from the FSM that owns it. Read here means it
+            // is LAST frame's state: the FSM is advanced in step 11 below,
+            // after this hook. That one-frame lag is accepted rather than
+            // engineered away -- at dt=0.05 an indicator that has just come on
+            // suppresses the assist 50 ms later, which is two orders of
+            // magnitude shorter than any lane departure, and moving the FSM
+            // update earlier would reorder a block that also owns
+            // prev_buttons_/prev_steering_ for the light toggles.
+            env.indicator_active = c.indicator_fsm_.left != IndicatorFSM::State::OFF ||
+                                   c.indicator_fsm_.right != IndicatorFSM::State::OFF;
+        }
+
+        ManualAdasFrameResult adas_result =
+            c.adas_stack_->Step(pctx, owns_longitudinal, owns_lateral, cmd, env, dt);
+
+        // Apply the arbitrated commands back into cmd BEFORE the publish block
+        // below. Phase A-C were longitudinal-only; phase D adds the steering,
+        // and it is assigned UNCONDITIONALLY: on any frame the assist did not
+        // run, lka.steer_out is the driver's own steering passed through
+        // unchanged, so a branch here would only add a way for the two paths to
+        // disagree.
+        cmd.throttle = adas_result.pedals.throttle_out;
+        cmd.brake    = adas_result.pedals.brake_out;
+        cmd.steering = adas_result.lka.steer_out;
+
+        // Cache for GetADASFunctions(), called by GT_Step AFTER this Step()
+        // returns -- see that method's header comment for why "this frame".
+        c.adas_last_result_            = adas_result;
+        c.adas_last_owns_longitudinal_ = owns_longitudinal;
+        c.adas_last_owns_lateral_      = owns_lateral;
+    }
+
     // 3-bus. feature:F7 S3 — publish owned channels, then consume the unowned
     // ones if this controller is the integrator. See the bus contract in
     // DomainOwnershipLedger.hpp for why the merge is at the command stage.
@@ -236,6 +424,19 @@ void ManualDriveCoordinator::RunFrame(ControllerManualDrive& c, double dt) const
     // left untouched, so single-controller ManualDrive scenarios (where the
     // human steers and target-track drives the takeover detector) keep their
     // existing behaviour bit for bit.
+    //
+    // req-vd-ad:REQ-AD-027 (phase D) -- WHY THE LKA CORRECTION CANNOT LAND ON
+    // THE WHEEL TWICE. This block sets the servo target from the LATERAL OWNER
+    // and runs only under `!IsOwner(..., LATERAL)`. The LKA correction is
+    // applied to cmd.steering in the 3a-adas hook above and runs only under
+    // owns_lateral. The two conditions are exact complements, so no frame can
+    // both add a correction to the command AND push the physical wheel toward
+    // it as a servo target -- which would be the same intervention applied
+    // through two paths at once, felt as double authority on a real G29.
+    // ManualLkaArbitrates() (LaneKeepAssist.hpp) is the shared predicate, and
+    // LkaCorrectionAndFfbPeerRoutingAreMutuallyExclusive pins the complement
+    // against this branch's own condition over every combination. Making this
+    // hop unconditional would break that invariant.
     if (ffb && c.object_)
     {
         auto&     ledger = DomainOwnershipLedger::Instance();

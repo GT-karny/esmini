@@ -24,7 +24,7 @@
          virtual_driver.json:22)                       [bicycle-model steer,
          vd_resume_transient.py kinematic_window_metrics: delta = sn*MAX_STEER_ANGLE]
        kappa = tan(delta) / wheel_base(3.0 m = car_white bbox length 5.0 in
-         decelerate_for_right_turn.xosc * 0.6, ControllerVirtualDriver.cpp:312)
+         decelerate_for_left_turn.xosc * 0.6, ControllerVirtualDriver.cpp:312)
        R = 1 / kappa
 
      Table (see f7_curve_onset_repro.md for the full derivation):
@@ -34,7 +34,7 @@
        road id=4  wheel_deg=45  axis_frac=0.10000  tire_delta=3.495 deg  R=49.119  m
 
      NOTE ON THE fabriksgatan_traffic_lights.xodr JUNCTION TURNS (road 13, R~9.25 m,
-     used unmodified by decelerate_for_right_turn.xosc / traffic_lights_junction.xosc):
+     used unmodified by decelerate_for_left_turn.xosc / traffic_lights_junction.xosc):
      those correspond to wheel_deg ~= 231 (axis_frac ~= 0.514) by this SAME formula,
      a much more extreme demand than the user's cited "30 deg". They remain useful as
      a large-signal sanity check but must NOT be labeled against the 0/10/20/30/45 deg

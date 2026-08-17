@@ -7,7 +7,7 @@
   turnRate ~0.003 rad/m, well below SHARP_TURN_RATE 0.04), so it must NOT trigger
   the ManeuverAwareSpeedPlanner turn_speed cap: the ego should keep cruising, not
   brake for a junction it drives straight through. This is the inverse of
-  decelerate_for_right_turn.xosc (same junction, same incoming road/lane), and the
+  decelerate_for_left_turn.xosc (same junction, same incoming road/lane), and the
   regression guard for the "straight junction over-deceleration" bug (P2 issue 1).
   No commanded Slow event -> any deceleration would come from the mid/long planner.
   Cruise speed is a running Story Event (NOT Init) for VirtualDriver visibility.

@@ -1,7 +1,7 @@
 scenario: junction_turn_signal_long_connector
 category: 05_anticipation
 # No Default baseline: this is a telemetry-only regression guard for the indicator lamp, not
-# a trajectory-comparison scenario (same posture as decelerate_for_right_turn /
+# a trajectory-comparison scenario (same posture as decelerate_for_left_turn /
 # cross_straight_junction alongside it).
 #
 # req-vd-ad:REQ-AD-021 defect-1 regression guard
@@ -58,9 +58,9 @@ notes: >
   Geometry: route road 0 (lane -1, s=20 init, 80 m of straight approach) -> junction 100's
   connecting road 101 (lane -1, ~33.2 m, a RIGHT turn -- see the expect_dir comment above for
   the full heading-delta derivation) -> road 2 (lane 1, s=50, ~50 m of travel past the turn).
-  This is the long-connector twin of decelerate_for_right_turn (14.87 m connector, same
+  This is the long-connector twin of decelerate_for_left_turn (14.87 m connector, same
   matcher, expect_dir: left there) and the positive counterpart of cross_straight_junction
   (expect_dir: none) -- together the three anticipation_driving_batch.yaml entries bracket the
   defects junction_turn_signal.md section 1 measured: too-long-to-detect (this scenario, defect
-  1), too-short-a-lead (decelerate_for_right_turn, defects 1+2 on a short connector), and a
+  1), too-short-a-lead (decelerate_for_left_turn, defects 1+2 on a short connector), and a
   false positive on a straight crossing (cross_straight_junction).

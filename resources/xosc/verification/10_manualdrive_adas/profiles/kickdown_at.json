@@ -1,0 +1,10 @@
+{
+  "name": "kickdown_at",
+  "description": "Unresponsive (zero pedal) until t=5.0s, giving AEB a window in which to have already engaged against the reused cutin_hard_brake conflict (CutInTime=1.6, BrakeTime=2.4), then a fast ramp to full throttle (1.0, >= adas_kickdown_threshold=0.95) held to the end. Serves md-aeb-kickdown-suppression (REQ-AD-025 step d): the driver's unambiguous accelerate-intent after the conflict is already live is meant to suppress further AEB intervention, and the run is built to show suppression (AEB active before t=5.0, gone after) rather than merely 'nothing ever happened' -- see md_aeb_kickdown_suppress.expectations.yaml. t=5.0 onset is a GUESS about how long AebSafety takes to engage on this geometry -- not measured, needs calibration once buildable.",
+  "keyframes": [
+    { "t": 0.0, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 5.0, "throttle": 0.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 5.3, "throttle": 1.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 },
+    { "t": 21.0, "throttle": 1.0, "brake": 0.0, "steering": 0.0, "gear": 1, "buttons": 0 }
+  ]
+}

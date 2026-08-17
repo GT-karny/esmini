@@ -48,7 +48,7 @@ same opt-in-is-hard convention as -TelemetryGolden), as of 2026-07-28.
 
 History: at introduction (052c5782) the self-determinism control this script
 runs FIRST (same stub config, twice, in two fully separate processes) FAILED
-on 3 of the 6 scenarios (virtual_driver_basic, decelerate_for_right_turn,
+on 3 of the 6 scenarios (virtual_driver_basic, decelerate_for_left_turn,
 traffic_lights_junction) -- the identical config produced a different
 driver.brake decision (~1e-9 relative, at the exact frame braking begins) that
 then propagated and amplified through the closed control loop to ~1e-4 by the
@@ -98,7 +98,7 @@ SCENARIOS = [
     # (small AD steer command below breakaway friction → wheel stays at 0).
     "resources/xosc/virtual_driver_basic.xosc",
     "resources/xosc/verification/05_anticipation/decelerate_for_curve.xosc",
-    "resources/xosc/verification/05_anticipation/decelerate_for_right_turn.xosc",
+    "resources/xosc/verification/05_anticipation/decelerate_for_left_turn.xosc",
     "resources/xosc/verification/05_anticipation/cross_straight_junction.xosc",
     "resources/xosc/verification/05_anticipation/speed_limit_change.xosc",
     "resources/xosc/verification/05_anticipation/traffic_lights_junction.xosc",
@@ -179,7 +179,7 @@ SCENARIOS = [
 #               deadzone, so a hands-off wheel "moved" in states where a real
 #               one physically cannot, and it produced tracking shapes the
 #               servo could never actually command. Its two standing FAILs
-#               (decelerate_for_right_turn t=14.10, traffic_lights_junction
+#               (decelerate_for_left_turn t=14.10, traffic_lights_junction
 #               t=18.70 — hands-off MANUAL latches that the real machine does
 #               NOT produce on the same scenarios) were artifacts of that
 #               infidelity, not defects of the product. The plant's constants

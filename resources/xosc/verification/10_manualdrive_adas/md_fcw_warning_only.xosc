@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ManualDrive ADAS verification scenario 10_manualdrive_adas / md_fcw_warning_only
+  (REQ-AD-025 step e, slug md-fcw-warning-only-episode).
+
+  REDESIGNED 2026-08-05 after mdadas_run1 (2026-08-04) measured the original
+  cut-in-based version never even reached the FCW warning gate (max a_req_mps2
+  observed was 0.391 against a 2.0 threshold, min ttc_s was 9.914 against a 3.5
+  threshold - nowhere close). Root cause: the original geometry was softened so
+  aggressively (large gap, low speeds) to avoid tripping AEB that it also failed to
+  develop enough closing rate to trip FCW either, and mdadas_run1 additionally
+  surfaced that a fully-unresponsive ManualDrive vehicle is NOT constant-speed -
+  it coasts down at an empirically measured ~0.4-0.5 m/s^2 even at zero throttle
+  (see the arithmetic section below), which further worked against the original
+  design's already-thin margins.
+
+  Now uses the SAME same-lane-from-Init approach style as md_aeb_stationary_lead.xosc
+  (no lane change anywhere -> no lateral-encroachment candidate-admission debounce,
+  see that file's header for why this matters), but with a MOVING (not stationary)
+  slower lead, to keep this asset visibly distinct in flavour. The point of THIS
+  scenario is the opposite half of md_aeb_stationary_lead's: after FCW's warning
+  fires, the scripted driver reacts (profiles/brake_after_warning.json) and the
+  reaction must land within the analytically-derived warning-to-intervention lead
+  window so that AEB's own (tighter) gate never trips - "warning-only episode".
+
+  ARITHMETIC (full derivation in md_fcw_warning_only.md, mirrors
+  md_aeb_stationary_lead.xosc's derivation using the same compiled/config threshold
+  values - aeb_ttc_threshold=2.5 / aeb_min_a_req=3.0 from
+  GT_esmini/config/virtual_driver.json; warning_ttc_threshold_s=3.5 from
+  manual_drive_headless_stub.json; warning_min_a_req_mps2=2.0 compiled-in default,
+  AdasCoexistenceStack.hpp): with v_close=16.0 m/s (EgoSpeed=22.0, LeadSpeed=6.0) and
+  gap0=104.0 m (LeadStartS=134.0), the closed-form UNMANAGED prediction is
+  t_warn=3.0s / t_interv=4.0s (identical numbers to md_aeb_stationary_lead.xosc by
+  construction - same v_close/gap0 choice). mdadas_run2 (2026-08-05) MEASURED the
+  companion scenario md_aeb_stationary_lead.xosc's actual crossings instead:
+  gt.fcw ACTIVE at t=3.30 (not the derived 3.0), gt.aeb ACTIVE at t=4.75 (not the
+  derived 4.0) - both later than predicted, in the safe direction, but not exactly
+  on the closed form (see md_fcw_warning_only.md for why: the closed form doesn't
+  model the ~0.4-0.5 m/s^2 coast-down / first-frame transients). This scenario's
+  driver profile (profiles/brake_after_warning.json) is anchored to that MEASURED
+  t_warn=3.30, not the derived 3.0 - it reacts at t=3.5 (0.20s after the measured
+  warning), ramping to brake=0.6 by t=3.8, leaving ~0.95s of margin before the
+  companion run's measured t_interv=4.75 for the closing rate to be arrested. A
+  driver who reacted before t=3.30 would not be reacting to the warning at all
+  (the slug is md-fcw-warning-only-episode: the warning must exist first), which is
+  exactly the bug the first attempt at this profile had (reacted at derived t=3.1,
+  before the measured t=3.30, and the early braking suppressed the warning gate
+  entirely - FAIL, "no reported frame had gt.fcw.state_name == active").
+
+  Ego's ManeuverGroup carries no scripted longitudinal action (ManualDriveController
+  does not consume LongitudinalAction for a domain it owns).
+
+  Requires OSI capture (batch osi:true) for parity with the rest of the batch;
+  adas_state_matches / no_intervention_in_window both read HVD.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="3" date="2026-08-05T00:00:00"
+               description="ManualDrive ADAS verification: same-lane approach to slower lead, driver reacts to FCW before AEB's gate trips" author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed"    parameterType="double" value="22.0"/>   <!-- 79.2 km/h -->
+      <ParameterDeclaration name="LeadSpeed"   parameterType="double" value="6.0"/>    <!-- 21.6 km/h; v_close = 16.0 m/s -->
+      <ParameterDeclaration name="LeadStartS"  parameterType="double" value="134.0"/>  <!-- gap0 ~= 104.0 m (LeadStartS - EgoS=30); same gap0 as md_aeb_stationary_lead.xosc by construction -->
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_500m_2lane.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="ManualDriveController">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_headless_stub.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+      <ScenarioObject name="Lead">
+         <Vehicle name="car_red" vehicleCategory="car" model3d="../../../models/car_red.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="1"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-1" offset="0" s="30"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="ManualDriveController" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+            <Private entityRef="Lead">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-1" offset="0" s="$LeadStartS"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$LeadSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="WarningOnlyStory">
+         <Act name="WarningOnlyAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition><SimulationTimeCondition value="12" rule="greaterThan"/></ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

@@ -1,0 +1,42 @@
+scenario: md_aeb_no_conflict
+category: 10_manualdrive_adas
+# REQ-AD-025 step b (safety, negative / SOTIF), slug md-aeb-no-false-intervention:
+# a ManualDrive human cruising normally (steady_throttle, no braking, no steering)
+# with no collision course must never see AEB touch the pedals. SOTIF mirror of
+# md_aeb_unresponsive.xosc / step a, same relationship 07_aeb/normal_following.xosc
+# has to cutin_hard_brake.xosc.
+#
+# no_intervention_in_window: proves AEB output stayed silent AND the effective pedal
+# values matched the "steady_throttle" input profile (i.e. nothing else quietly
+# nudged the pedals either). Window starts after sim_time 0.5 to let
+# teleport/Init/controller-activation transients settle (same margin
+# normal_following.expectations.yaml uses).
+#
+# adas_state_matches (expect: standby, mode: all): the matcher this feature adds
+# specifically to prevent the "config OFF" false-positive -- a negative asset run
+# with AEB disabled would ALSO show no intervention, but for the wrong reason. This
+# checks the function's HVD state is STANDBY (armed, watching, not firing)
+# throughout the window, not UNAVAILABLE (never armed) or some other state. Together
+# with no_intervention_in_window this is the pair the verification plan calls out as
+# what makes the negative meaningful (§4-2).
+#
+# No numeric threshold on either matcher (both are structural/state checks), so there
+# is nothing here needing calibration in the usual sense -- the only guesses in this
+# asset are the "steady_throttle" profile's throttle magnitude and the widened
+# LeadStartS margin that absorbs it (see md_aeb_no_conflict.xosc's header comment and
+# the steady_throttle profile's description).
+must:
+  - event: no_intervention_in_window
+    function: gt.aeb
+    after: { sim_time: 0.5 }
+    before: { sim_time: 13.0 }  # StopTrigger
+    min_frames: 1
+    reason: "衝突コース不在の通常追従で、AEBが手動運転者のペダル指令に一切介入しないこと(md-aeb-no-false-intervention, REQ-AD-025段b)"
+  - event: adas_state_matches
+    function: gt.aeb
+    expect: standby
+    mode: all
+    after: { sim_time: 0.5 }
+    before: { sim_time: 13.0 }
+    min_frames: 1
+    reason: "AEBがOFFなのではなく、ARM(STANDBY)された状態で発火しなかったことを示す(REQ-AD-025段b、負例の意味を担保)"

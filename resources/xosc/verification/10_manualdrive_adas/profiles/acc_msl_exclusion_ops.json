@@ -1,0 +1,110 @@
+{
+  "name": "acc_msl_exclusion_ops",
+  "description": "design §6 / slug md-acc-msl-mutual-exclusion. Four operations in one run, each one a distinct edge: t=1.0 ACC on (512), t=1.3 ACC SET (1024) -> ACC ACTIVE and MSL untouched; t=6.0 MSL on (16384) -> the LATER one wins, so ACC must be demoted to STANDBY and MSL armed; t=11.0 ACC on again (512) -> the roles swap back and MSL is the demoted one.\n\nThe run visits the exclusion in BOTH directions on purpose. A one-direction run would pass on an implementation that simply always lets MSL win, and 'the later ON wins' is a claim about order, which needs at least one reversal to be tested at all. A steady 0.6 throttle from t=2.0 keeps both functions in a regime where they would visibly act if they were allowed to, so a demotion shows up as a change in the OUTPUT and not only in the state column.\n\nTHE RESUME AT t=11.3 COMPLETES THE ROUND TRIP. Reclaiming the stalk puts ACC back in STANDBY, not straight back into control -- it is still a function awaiting a set/resume, exactly as it would be after any other demotion. Measured without this press the sequence ended ...active -> standby and the second half of the exclusion read as a one-way street. With it, gt.acc walks ...active -> standby -> active while gt.msl walks ...active -> standby, so each row visits STANDBY at the moment the other takes over and neither ever reports UNAVAILABLE: demoted, never switched off, which is the distinction a driver would see on the dash.",
+  "keyframes": [
+    {
+      "t": 0.0,
+      "throttle": 0.0,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 1.0,
+      "throttle": 0.0,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 512
+    },
+    {
+      "t": 1.15,
+      "throttle": 0.0,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 1.3,
+      "throttle": 0.0,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 1024
+    },
+    {
+      "t": 1.45,
+      "throttle": 0.0,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 2.0,
+      "throttle": 0.6,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 6.0,
+      "throttle": 0.6,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 16384
+    },
+    {
+      "t": 6.15,
+      "throttle": 0.6,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 11.0,
+      "throttle": 0.6,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 512
+    },
+    {
+      "t": 11.15,
+      "throttle": 0.6,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 11.3,
+      "throttle": 0.6,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 1024
+    },
+    {
+      "t": 11.45,
+      "throttle": 0.6,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    },
+    {
+      "t": 30.0,
+      "throttle": 0.6,
+      "brake": 0.0,
+      "steering": 0.0,
+      "gear": 1,
+      "buttons": 0
+    }
+  ]
+}

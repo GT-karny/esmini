@@ -44,6 +44,7 @@ bool SDLFFBSink::Init(SDL_Joystick* joystick, const ManualDriveConfig& config)
     assist_low_speed_    = config.ffb.assist_low_speed;
     assist_high_speed_   = config.ffb.assist_high_speed;
     max_force_           = config.ffb.max_force;
+    steer_axis_          = config.sdl2.axes.steer;  // feature:F8 (readback axis + force polarity)
 
     // feature:F7 (F7b) target-tracking config.
     target_track_enabled_        = config.ffb.target_track.enabled;
@@ -394,10 +395,18 @@ void SDLFFBSink::SetSteerTarget(double target_norm, bool active)
 double SDLFFBSink::ReadPhysicalWheelNorm() const
 {
     if (!joystick_) return 0.0;
-    // Axis 0 is the steering axis; normalize to [-1, +1] exactly like
-    // SDL2WheelInput::NormalizeAxis so target and actual live in one unit space.
-    const int raw = SDL_JoystickGetAxis(joystick_, 0);
-    return static_cast<double>(raw) / 32767.0;
+    // feature:F8 — the steering axis is configurable, so read it through the
+    // same spec (index + calibration + polarity) SDL2WheelInput uses. Target
+    // and actual therefore live in one unit space, as before.
+    //
+    // Guarded independently of SDL2WheelInput's own validation: a spec naming
+    // an axis this device lacks reads as "centred" rather than reading some
+    // other function's axis.
+    if (!steer_axis_.IsAssigned() || steer_axis_.index >= SDL_JoystickNumAxes(joystick_))
+    {
+        return 0.0;
+    }
+    return steer_axis_.Normalize(SDL_JoystickGetAxis(joystick_, steer_axis_.index));
 }
 
 // --- feature:F7 unattended-run safety -------------------------------------
@@ -666,8 +675,19 @@ Uint32 SDLFFBSink::DeadManLengthMs() const
 
 void SDLFFBSink::UpdateConstantEffect(double force)
 {
-    // force: -1.0 ~ 1.0
-    Sint16 level = static_cast<Sint16>(std::clamp(force, -1.0, 1.0) * 32767.0);
+    // force: -1.0 ~ 1.0, in the LOGICAL steering frame (positive pushes the
+    // wheel left / toward negative raw on a G29).
+    //
+    // feature:F8 — the single point where a logical force becomes a device
+    // force, and therefore the only place the axis polarity is applied. An
+    // inverted steering axis must invert the force too; if it did not, the F7
+    // target servo would push away from its target (positive feedback on a
+    // powered actuator). See the steer_axis_ comment in SDLFFBSink.hpp.
+    //
+    // Only the CONSTANT effect is directional. SPRING/DAMPER take magnitude
+    // coefficients and centre on the device's own axis, so they need no flip.
+    const double device_force = force * steer_axis_.SignFactor();
+    Sint16 level = static_cast<Sint16>(std::clamp(device_force, -1.0, 1.0) * 32767.0);
 
     SDL_HapticEffect effect = {};
     effect.type = SDL_HAPTIC_CONSTANT;

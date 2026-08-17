@@ -45,6 +45,7 @@ bool SDL2WheelInput::Init(const ManualDriveConfig& config)
 {
     device_idx_             = config.sdl2.device_index;
     deadzone_               = config.sdl2.deadzone;
+    axes_                   = config.sdl2.axes;  // feature:F8
     upshift_button_         = config.sdl2.upshift_button;
     downshift_button_       = config.sdl2.downshift_button;
     override_button_        = config.sdl2.override_button;
@@ -55,6 +56,12 @@ bool SDL2WheelInput::Init(const ManualDriveConfig& config)
     fog_light_button_       = config.sdl2.fog_light_button;
     hazard_button_          = config.sdl2.hazard_button;
     auto_resume_button_     = config.sdl2.auto_resume_button;
+    acc_toggle_button_      = config.adas_buttons.acc_toggle_button;
+    acc_set_resume_button_  = config.adas_buttons.acc_set_resume_button;
+    acc_speed_up_button_    = config.adas_buttons.acc_speed_up_button;
+    acc_speed_down_button_  = config.adas_buttons.acc_speed_down_button;
+    acc_thw_cycle_button_   = config.adas_buttons.acc_thw_cycle_button;
+    msl_toggle_button_      = config.adas_buttons.msl_toggle_button;
 
     // Initialize SDL joystick + haptic subsystems (NOT video)
     if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) < 0)
@@ -106,6 +113,30 @@ bool SDL2WheelInput::Init(const ManualDriveConfig& config)
     // "seen a non-zero" latch below treats still-zero axes as "released"
     // (raw = 32767 equivalent for pedals) instead of phantom half-pressed.
     const int n_axes = SDL_JoystickNumAxes(joystick_);
+
+    // feature:F8 -- validate the configured axis mapping against THIS device
+    // before reading anything through it. A config copied from another wheel
+    // (the exact G29 -> G923 case this feature exists for) can name an axis
+    // this device does not have; the tempting "safe" fallback of reading axis 0
+    // instead is how a brake pedal ends up steering, so an out-of-range spec is
+    // DISABLED and reported. GT_WheelProbe is how the user finds the right
+    // indices.
+    {
+        std::vector<std::string> problems;
+        axes_.CollectProblems(n_axes, problems);
+        for (const std::string& p : problems)
+        {
+            LOG_WARN("SDL2WheelInput: axis mapping problem -- {}", p);
+        }
+        auto disable_if_absent = [&](PedalAxisSpec& spec) {
+            if (spec.index >= n_axes) spec.index = -1;
+        };
+        disable_if_absent(axes_.throttle);
+        disable_if_absent(axes_.brake);
+        disable_if_absent(axes_.clutch);
+        if (axes_.steer.index >= n_axes) axes_.steer.index = -1;
+    }
+
     const int max_settle_ms = 500;
     const int step_ms = 25;
     int total_ms = 0;
@@ -164,42 +195,19 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
 
     SDL_JoystickUpdate();
 
-    // Anti-phantom-half-throttle guard: if a pedal axis has NEVER reported a
-    // non-zero value since open, the driver has not yet sent its initial HID
-    // report and raw=0 does NOT mean "half-pressed" — it means "unknown". For
-    // pedals whose released convention is raw=+32767, treat still-uninitialized
-    // axes as released. Once ANY frame reports a real (non-zero) value, latch
-    // that axis as live for the rest of the session. Steering axis (0) is not
-    // pedal-inverted so this guard is confined to axes 1/2/3.
-    auto raw_axis_pedal = [&](int idx) -> int {
-        int raw = SDL_JoystickGetAxis(joystick_, idx);
-        if (raw != 0 && idx < (int)axis_seen_live_.size()) axis_seen_live_[idx] = true;
-        if (raw == 0 && idx < (int)axis_seen_live_.size() && !axis_seen_live_[idx])
-            return 32767;   // "released" sentinel
-        return raw;
-    };
-
     PedalSteerCommand cmd;
 
-    // Axis 0: Steering (-32768 ~ 32767). Guard-less: raw=0 is a legitimate
-    // "wheel at center" reading.
-    int raw_steer = SDL_JoystickGetAxis(joystick_, 0);
-    cmd.steering = NormalizeAxis(raw_steer);
-
-    // Axis 1: Throttle (G29: 32767=released, -32768=fully pressed — inverted)
-    int raw_throttle = raw_axis_pedal(1);
-    cmd.throttle = NormalizePedal(raw_throttle);
-
-    // Axis 2: Brake (same inversion as throttle)
-    int raw_brake = raw_axis_pedal(2);
-    cmd.brake = NormalizePedal(raw_brake);
-
-    // Axis 3: Clutch (same inversion)
-    if (SDL_JoystickNumAxes(joystick_) > 3)
+    // feature:F8 -- every axis read goes through the configured mapping. The
+    // steering read is guard-less: raw=0 is a legitimate "wheel at centre"
+    // reading, so there is no phantom to suppress (that guard lives in
+    // ReadPedal, whose axes have a non-zero released convention).
+    if (axes_.steer.IsAssigned())
     {
-        int raw_clutch = raw_axis_pedal(3);
-        cmd.clutch = NormalizePedal(raw_clutch);
+        cmd.steering = axes_.steer.Normalize(SDL_JoystickGetAxis(joystick_, axes_.steer.index));
     }
+    cmd.throttle = ReadPedal(axes_.throttle);
+    cmd.brake    = ReadPedal(axes_.brake);
+    cmd.clutch   = ReadPedal(axes_.clutch);
 
     // Apply deadzone to steering with rescaling
     // Without rescaling, output jumps from 0 to deadzone_ at the threshold boundary,
@@ -239,6 +247,19 @@ InputFrame SDL2WheelInput::Poll(double /*dt*/)
     // The physical toggle carries both directions. Web/UDP Resume injection
     // sets AUTO_RESUME alone and therefore remains a return-to-AUTO command.
     read_btn(auto_resume_button_,     ButtonBits::AUTO_RESUME | ButtonBits::TAKE_MANUAL);
+    // req-vd-ad:REQ-AD-026 step e/h, REQ-AD-030 (phase C) -- the ADAS stalk.
+    // Read as LEVELS here, exactly like every button above; the rising-edge
+    // semantics these six need live in AdasCoexistenceStack
+    // (DecodeAdasOperations), the same split the light toggles already use
+    // (ManualDriveCoordinator's `rising` lambda). Unassigned (-1) reads as
+    // never pressed, so a wheel with no spare buttons simply has no ADAS stalk
+    // and the functions stay driver-off.
+    read_btn(acc_toggle_button_,      ButtonBits::ACC_TOGGLE);
+    read_btn(acc_set_resume_button_,  ButtonBits::ACC_SET_RESUME);
+    read_btn(acc_speed_up_button_,    ButtonBits::ACC_SPEED_UP);
+    read_btn(acc_speed_down_button_,  ButtonBits::ACC_SPEED_DOWN);
+    read_btn(acc_thw_cycle_button_,   ButtonBits::ACC_THW_CYCLE);
+    read_btn(msl_toggle_button_,      ButtonBits::MSL_TOGGLE);
 
     frame.pedal_steer = cmd;
     return frame;
@@ -271,18 +292,33 @@ IFFBSink* SDL2WheelInput::GetFFBSink()
     return &ffb_sink_;
 }
 
-double SDL2WheelInput::NormalizeAxis(int raw) const
+double SDL2WheelInput::ReadPedal(const PedalAxisSpec& spec)
 {
-    // -32768 ~ 32767 → -1.0 ~ 1.0
-    return static_cast<double>(raw) / 32767.0;
-}
+    if (!spec.IsAssigned())
+    {
+        return 0.0;  // unassigned reads as released
+    }
 
-double SDL2WheelInput::NormalizePedal(int raw) const
-{
-    // G29 pedals: 32767=released, -32768=fully pressed
-    // Normalize to 0.0 (released) ~ 1.0 (fully pressed)
-    double normalized = (32767.0 - static_cast<double>(raw)) / 65535.0;
-    return std::clamp(normalized, 0.0, 1.0);
+    int raw = SDL_JoystickGetAxis(joystick_, spec.index);
+
+    // Anti-phantom-half-throttle guard (see axis_seen_live_ in the header).
+    // Only meaningful when the device's released reading is NOT 0: otherwise
+    // raw=0 already IS "released", and substituting a sentinel would pin the
+    // pedal there for the whole session because raw=0 can never latch the axis
+    // live.
+    if (spec.NeedsReleasedSentinel() && spec.index < static_cast<int>(axis_seen_live_.size()))
+    {
+        if (raw != 0)
+        {
+            axis_seen_live_[spec.index] = true;
+        }
+        else if (!axis_seen_live_[spec.index])
+        {
+            raw = spec.raw_released;
+        }
+    }
+
+    return spec.Normalize(raw);
 }
 
 

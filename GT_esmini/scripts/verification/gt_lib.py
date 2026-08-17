@@ -99,6 +99,10 @@ class GtLib:
                 os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
 
         self.lib = ctypes.CDLL(str(dll_path))
+        # Kept for diagnostics -- e.g. naming the DLL in the
+        # get_osi_host_vehicle_data() RuntimeError when this DLL predates
+        # GT_GetOSIHostVehicleData.
+        self.dll_path = dll_path
 
         self.lib.GT_InitWithArgs.argtypes = [
             ctypes.c_int,
@@ -141,6 +145,43 @@ class GtLib:
         self.lib.SE_SetOSIFrequency.restype = ctypes.c_int
         self.lib.SE_GetOSIGroundTruth.argtypes = [ctypes.POINTER(ctypes.c_int)]
         self.lib.SE_GetOSIGroundTruth.restype = ctypes.c_void_p
+
+        # GT_GetOSIHostVehicleData (req-vd-ad:REQ-AD-028 段c, vd-func:FUNC-075):
+        # in-process counterpart of SE_GetOSIGroundTruth above, but for HVD
+        # instead of GroundTruth.
+        #
+        # This WAS an eager, unwrapped binding (hard AttributeError at
+        # construction against a DLL that lacks the export). That reasoning
+        # was sound for one failure mode -- a stale DLL silently masking a
+        # capture bug -- but missed a different one: it makes GtLib
+        # structurally incapable of loading ANY older DLL at all, including
+        # via the harness's own `--dll` override. Concrete incident: while
+        # bisecting an intermittent native access-violation (dangling-pointer
+        # fingerprint, not null-deref) the decisive experiment was to rerun
+        # the same batch against the pre-session, known-good
+        # dist/GT_Sim_v0.14.3/bin/GT_esminiLib.dll. Every scenario died at
+        # GtLib.__init__ with "function 'GT_GetOSIHostVehicleData' not found"
+        # -- the eager binding blocked the one tool needed to attribute the
+        # regression to a change, before a single scenario could even run.
+        # A VirtualDriver batch never calls this API at all, so it should
+        # never pay for HVD's absence.
+        #
+        # The trade-off is therefore not "loud vs quiet" -- it is "loud at
+        # construction vs able to bisect at all". Resolved the same way
+        # GT_SetLogCallback below already resolves it for older DLLs: try the
+        # binding, record a flag, and defer the loud failure to first use
+        # (get_osi_host_vehicle_data), where it can name exactly what's
+        # missing and why, instead of a bare AttributeError with no context.
+        self._has_hvd_api = False
+        try:
+            self.lib.GT_GetOSIHostVehicleData.argtypes = [
+                ctypes.c_int,
+                ctypes.POINTER(ctypes.c_int),
+            ]
+            self.lib.GT_GetOSIHostVehicleData.restype = ctypes.c_void_p
+            self._has_hvd_api = True
+        except AttributeError:
+            pass
 
         self._buf = ctypes.create_string_buffer(buf_size)
         self._open = False
@@ -263,6 +304,58 @@ class GtLib:
         exactly `size` bytes regardless of content."""
         size = ctypes.c_int(0)
         ptr = self.lib.SE_GetOSIGroundTruth(ctypes.byref(size))
+        if not ptr or size.value <= 0:
+            return None
+        return ctypes.string_at(ptr, size.value)
+
+    def get_osi_host_vehicle_data(self, vehicle_id: int = -1) -> bytes | None:
+        """In-process retrieval of this frame's serialized OSI HostVehicleData
+        (GT_GetOSIHostVehicleData) for one vehicle. HVD's real transport is UDP
+        48199, which does not fit an in-process harness, so this mirrors
+        get_osi_ground_truth()'s no-socket approach for HVD instead. Unlike
+        get_osi_ground_truth(), there is no set_osi_frequency() equivalent to
+        call first: GT_Step keeps the DLL-side HVD buffer current every frame
+        unconditionally (HVD, unlike GroundTruth, is not frequency-gated).
+
+        vehicle_id=-1 resolves to the first/ego vehicle, same rule as
+        set_host_vehicle_inputs(). The DLL keeps exactly ONE HVD serialization
+        buffer -- whichever vehicle GT_Step most recently resolved as
+        ego/target -- so requesting any OTHER vehicle_id is refused by the DLL
+        (returns None here) rather than silently handed back a different
+        vehicle's bytes mislabeled as the one asked for.
+
+        Returns None both when the DLL reports zero bytes and when the
+        requested vehicle could not be served (wrong vehicle_id, HVD reporter
+        not initialized, _USE_OSI not built in). Nothing distinguishes these
+        cases at this layer -- treat None as a CAPTURE FAILURE for vehicle_id,
+        exactly as get_osi_ground_truth() documents for its own None, never as
+        "this vehicle legitimately has no HVD". None must never mean "this DLL
+        doesn't have the export" either -- that ambiguity is exactly what the
+        RuntimeError below exists to prevent; a caller that only checks for
+        None would otherwise silently treat "wrong DLL" as "no HVD this frame".
+
+        Raises RuntimeError, not a bare AttributeError, if this DLL predates
+        the export (binding is lazy/tolerant -- see __init__ -- specifically
+        so an older DLL can still be loaded and used for everything that
+        isn't ManualDrive ADAS, e.g. an A/B bisect against a historical
+        build). The message names the DLL path and states plainly that the
+        DLL needs rebuilding or replacing; a VirtualDriver caller that never
+        touches this method is unaffected either way.
+
+        restype is c_void_p (not c_char_p): the payload is a serialized
+        protobuf message that can contain embedded NUL bytes, which c_char_p
+        would silently truncate at. ctypes.string_at(ptr, size) copies exactly
+        `size` bytes regardless of content -- same reasoning as
+        get_osi_ground_truth()."""
+        if not self._has_hvd_api:
+            raise RuntimeError(
+                f"GT_GetOSIHostVehicleData is not exported by this DLL "
+                f"({self.dll_path}). This DLL predates the ManualDrive-ADAS "
+                f"C API (req-vd-ad:REQ-AD-028 段c) -- rebuild it, or point "
+                f"--dll at a newer one, before calling get_osi_host_vehicle_data()."
+            )
+        size = ctypes.c_int(0)
+        ptr = self.lib.GT_GetOSIHostVehicleData(vehicle_id, ctypes.byref(size))
         if not ptr or size.value <= 0:
             return None
         return ctypes.string_at(ptr, size.value)

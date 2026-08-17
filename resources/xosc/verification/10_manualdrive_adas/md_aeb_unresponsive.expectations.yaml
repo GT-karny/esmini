@@ -1,0 +1,67 @@
+scenario: md_aeb_unresponsive
+category: 10_manualdrive_adas
+# REQ-AD-025 step a (safety, positive), slug md-aeb-intervention-unresponsive-driver:
+# an unresponsive ManualDrive human never touches the pedals, so AEB must be the one
+# to intervene against the same physically-unavoidable-at-this-closing-speed conflict
+# 07_aeb/cutin_hard_brake.xosc documents (Ego 30 m/s, Lead cuts in then brakes at
+# 8 m/s^2; full avoidance needs ~13.5 m/s^2 / ~1.38g, beyond the model vehicle's
+# max_dec=10.0 m/s^2 -- see cutin_hard_brake.md).
+#
+# DOES NOT carry fcw_leads_intervention (moved out 2026-08-04 after the first real
+# run, test_results/mdadas_run1/md_aeb_unresponsive/telemetry.jsonl): gt.fcw and
+# gt.aeb both go ACTIVE on the SAME frame (t=1.75, measured lead=0.000s) on this
+# geometry -- see this asset's .md for the root-cause writeup and
+# md_aeb_stationary_lead.{xosc,expectations.yaml,md} for where that slug now lives.
+#
+# manual_aeb_fires: proves the HVD ADAS-function row for AEB actually goes ACTIVE
+# with a nonzero gt.aeb output during the conflict window -- independent of whatever
+# the scene geometry does (belt-and-suspenders with impact_speed_below below; a
+# geometry matcher alone can't distinguish "AEB fired and still didn't avoid it" from
+# "AEB never fired at all", which is exactly the gap this feature closes).
+# CONFIRMED PASS (mdadas_run1, 2026-08-04): gt.aeb ACTIVE from t=1.75 through t=2.85
+# (18 reported frames >= the after:2.0 window boundary).
+#
+# impact_speed_below: threshold 10.0 m/s was carried over UNCHANGED from
+# 07_aeb/cutin_hard_brake.expectations.yaml's VD baseline (VD measured 9.14 m/s,
+# ~8.6% margin, 2026-07-21) as an unverified guess at authoring time.
+# CONFIRMED PASS (mdadas_run1, 2026-08-04): ManualDrive's actuation chain (AEB
+# envelope clamps the human's brake pedal -> RealVehicleBackend::StepPedalSteer ->
+# AT/engine model) measured 8.26 m/s, a 17.4% margin under the 10.0 threshold --
+# comparable to (slightly better than) the VD path's 9.14 m/s. The threshold is
+# left as-is (not tightened) since 10.0 was never meant to be a tight bound, only a
+# "did AEB obviously fail to do anything" floor; do not read 8.26 as evidence the
+# margin should be narrowed without a second measurement.
+#
+# min_frames is set on the remaining event: an empty window here would be a silent
+# PASS that proves nothing.
+must:
+  - event: manual_aeb_fires
+    function: gt.aeb
+    after: { sim_time: 2.0 }    # from cut-in onset, matching cutin_hard_brake.expectations.yaml's window
+    before: { sim_time: 20.0 }  # StopTrigger
+    min_frames: 1
+    reason: "無反応ドライバでもAEBがHVD上でACTIVEになり介入量が出ること(md-aeb-intervention-unresponsive-driver, REQ-AD-025段a)"
+  - event: impact_speed_below
+    threshold: 10.0             # carried over from VD baseline; CONFIRMED PASS at 8.26 m/s measured (mdadas_run1, 2026-08-04) -- see rationale above
+    after: { sim_time: 2.0 }
+    reason: "完全回避不能な域でも、AEBが手動運転の実効ブレーキを経由して衝突速度を安全レベルまで低減すること(緩和・REQ-AD-025段a)"
+#
+# --- 観測列 / REQ-AD-028 段b、slug md-driver-override-accel-custom-state(負) ---
+# フェーズBで追加。unresponsive プロファイルは全区間でペダルに触れないので、
+# 上書き事象は一度も起きてはならない。md_aeb_kickdown_suppress の正例と対で
+# 初めて主張になる: 片方だけでは「常に active を返す計器」と「常に非作動を返す
+# 計器」のどちらも通してしまう。
+#
+# この負例が空虚に通らない理由: matcher は expect_active:false のとき
+# 「上書きチャネルが少なくとも1フレーム書かれていたこと(present)」を要求する。
+# populate 機構ごと消した実行では present が立たないので、この行は pass ではなく
+# skip になる — 「誰も書かなかったチャネル」は「運転者が上書きしなかった」ことの
+# 証拠にならない、というREQ-AD-028段aのSTANDBY/UNAVAILABLE規律と同じ形。
+  - event: driver_override_reported
+    function: gt.aeb
+    expect_active: false
+    mode: all
+    after: { sim_time: 0.5 }    # Init/コントローラ活性化の過渡を外す(他資産と同じ margin)
+    before: { sim_time: 20.0 }  # StopTrigger
+    min_frames: 1
+    reason: "ペダルに一切触れない運転者では上書き事象が観測されないこと=正例の対(md-driver-override-accel-custom-state 負, REQ-AD-028段b)"

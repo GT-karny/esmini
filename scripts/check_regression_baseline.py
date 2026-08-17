@@ -101,7 +101,17 @@ def read_batch_output(batch_out: Path) -> dict:
     scenarios: dict[str, dict] = {}
     order: list[str] = []
     for rec in bv.get("scenarios", []):
-        stem = Path(rec["scenario"]).stem
+        # Key by the batch's own RUN DIRECTORY name, not the bare scenario
+        # stem. A manifest may run the same scenario file under two configs
+        # (gt_sim_test.py's `variant` key -- how two-configuration polarity
+        # evidence is expressed), in which case the stems are identical and
+        # keying by stem would silently collapse the two rows into one:
+        # the baseline would then compare one variant against the other's
+        # recorded expectation, or drop a row entirely, with nothing in the
+        # output saying so. rec["run_dir"] is written by the batch itself and
+        # is unique by construction (the batch rejects a manifest whose
+        # entries collide there).
+        stem = Path(rec["run_dir"]).name if rec.get("run_dir") else Path(rec["scenario"]).stem
         status = _scenario_status(rec)
         matchers: list[dict] = []
         vpath = batch_out / stem / "verdict.json"

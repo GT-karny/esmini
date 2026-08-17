@@ -1,0 +1,38 @@
+scenario: md_msl_throttle_cap
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-030 step a (vd-func:FUNC-081), slugs md-msl-throttle-cap and
+# md-msl-no-brake-downhill.
+#
+# MEASURED (test_results/mdadas_measure, 2026-08-05): the limiter is switched on
+# at t=1.0 at 19.48 m/s (which becomes the cap), the driver holds 0.85 throttle
+# from t=2.0, and the limiter clamps it to 0.09-0.12 -- the ego holds
+# 19.24-19.97 m/s for the whole run and gt.msl.brake_out is 0.000 on every
+# frame.
+#
+# ON THE MISSING DOWNHILL. The verification plan originally reached the
+# no-brake claim via a descent (MDA-XODR-02). That asset was not built:
+# RealVehicle applies road pitch to attitude only, so a graded road would look
+# like a descent and behave like level ground, and the asset would have been
+# named for a phenomenon it cannot produce. The claim is reached here instead,
+# on the flat and while the cap is actively biting -- which is the condition
+# that matters, since a limiter that brakes would do it exactly then.
+must:
+  - event: speed_capped_at
+    function: gt.msl
+    cap_key: gt.msl.cap_mps
+    tolerance: 0.6
+    after: { sim_time: 3.0 }
+    before: { sim_time: 20.0 }
+    reason: "スロットル0.85を踏み続けても設定速度を超えないこと（REQ-AD-030段a）。cap_keyで実効キャップを毎フレーム読むので、キャップ側が動く構成にもそのまま乗る"
+  - event: no_brake_output
+    function: gt.msl
+    after: { sim_time: 3.0 }
+    before: { sim_time: 20.0 }
+    reason: "リミッターはスロットルを絞るだけでブレーキを出さないこと（REQ-AD-030段a・負系。ブレーキ変換を誤結線するとここで赤）"
+  - event: adas_state_matches
+    function: gt.msl
+    expect: active
+    mode: any
+    after: { sim_time: 3.0 }
+    before: { sim_time: 20.0 }
+    reason: "「有効だがまだ届いていない」(STANDBY)ではなく実際にクランプしている(ACTIVE)ことがHVDに出ること（REQ-AD-030段d）"

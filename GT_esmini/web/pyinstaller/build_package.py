@@ -42,7 +42,20 @@ VERIFICATION_BUILDER = (
 # Files to copy from build/GT_esmini/Release/
 # GT_RoadGen.exe: parallel OpenDRIVE->.osgb road-mesh generator. GT_esminiLib spawns it (co-located
 # in bin/) to pre-generate + cache the road model, so it MUST ship alongside GT_Sim.exe.
-BIN_GLOBS = ["GT_Sim.exe", "GT_RoadGen.exe", "*.dll", "*.pyd"]
+# GT_WheelProbe.exe (feature:F8): read-only SDL2 axis probe. The web UI's axis
+# mapping panel spawns it from bin/ for the live readout and the "Detect" button,
+# and config.py resolves it as PACKAGE_ROOT/bin/GT_WheelProbe.exe. Its absence is
+# WARNED about rather than fatal (see check_prerequisites): the panel degrades to
+# hand-editing and the API returns an explanatory 503, and the probe only exists
+# in a GT_ENABLE_SDL2=ON build.
+#
+# NOTE FOR WHOEVER ADDS THE NEXT EXECUTABLE: exes are enumerated here one by one
+# (only DLLs/PYDs are globbed), and build_package.ps1 has its OWN --target list
+# plus its own staging copy. All three have to be updated, and the failure mode of
+# forgetting this one is silent -- the package builds fine and the feature is just
+# missing at runtime (exactly what happened to GT_WheelProbe on its first
+# packaging, 2026-08-17).
+BIN_GLOBS = ["GT_Sim.exe", "GT_RoadGen.exe", "GT_WheelProbe.exe", "*.dll", "*.pyd"]
 
 # Extra files from the embedded Python distribution (thirdparty/python-embed/), not
 # build/GT_esmini/Release/: CMake links GT_esminiLib against Python3::Python when
@@ -75,6 +88,11 @@ CONFIG_FILES = [
     ),
     # auto_light.json: F6 environment-driven headlights, resolved beside the exe (v0.13)
     ("GT_esmini/config/auto_light.json", "config/auto_light.json"),
+    # feature:F9 SUMO background traffic. Added here by the feature:F8 session
+    # only because the coverage check below (correctly) refuses to package while
+    # a config file on disk is unaccounted for -- the F9 work that introduces
+    # this file owns its content and its runtime wiring.
+    ("GT_esmini/config/sumo_traffic.json", "config/sumo_traffic.json"),
     # feature:F7 per-domain split (lateral=ManualDrive / longitudinal=VirtualDriver).
     # Three ManualDrive variants selected per-scenario via the ConfigFile property,
     # so none of them replaces manual_drive.json: _stub has no input device and no
@@ -122,6 +140,110 @@ CONFIG_FILES = [
     ("GT_esmini/test/comparison_thresholds.yaml", "config/comparison_thresholds.yaml"),
 ]
 
+# --- Claude Code skills shipped with the package -------------------------------
+#
+# The authoring skills are written for the REPOSITORY layout (build/, scripts/,
+# DriverScript/.venv, externals/). Copying them verbatim would hand the user a
+# document whose every path is a dead end, so the packager renders a
+# package-layout variant instead. The repository copy stays the single source of
+# truth; nothing here is hand-maintained twice.
+#
+# Rendering does three things, in this order:
+#   1. splice: replace the whole "§0 前提の確認" section with a package-specific
+#      one (SKILL_SECTION0_OVERLAY) -- that section is about the toolchain and
+#      the venv, and in the package both statements are simply different facts,
+#      not different paths.
+#   2. substitute: literal path replacements (SKILL_REWRITES).
+#   3. check: fail the packaging if any repository-only path survived
+#      (FORBIDDEN_PATH_PREFIXES). Without this, adding a `build/...` command to
+#      the skill would silently ship a broken instruction -- the exact failure
+#      mode CONFIG_FILES' coverage check exists to prevent.
+SKILL_OVERLAY_DIR = PYINSTALLER_DIR / "skill_overlays"
+
+# Skills to ship: (source dir relative to REPO_ROOT, dest relative to package)
+SKILLS_TO_SHIP = [(".claude/skills/sumo-authoring", ".claude/skills/sumo-authoring")]
+
+# §0 splice: [start marker, end marker). Both must be present or the render aborts
+# -- a renamed heading must not silently skip the replacement.
+SKILL_SECTION0_START = "## §0. 前提の確認（着手前に必ず）"
+SKILL_SECTION0_END = "## §A. 機械チェッカーで担保できる部分 → 必ず回す"
+SKILL_SECTION0_OVERLAY = SKILL_OVERLAY_DIR / "sumo_authoring_section0.md"
+
+# Literal (not regex) replacements, applied in order.
+SKILL_REWRITES = [
+    # Design doc: GT_esmini/docs/ ships as docs/ at the package root, and the
+    # skill sits at the same depth (.claude/skills/<name>/), so the relative
+    # form keeps working once GT_esmini/ is dropped.
+    (
+        "../../../GT_esmini/docs/features/sumo_background_traffic.md",
+        "../../../docs/features/sumo_background_traffic.md",
+    ),
+    (
+        "`GT_esmini/docs/features/sumo_background_traffic.md`",
+        "`docs/features/sumo_background_traffic.md`",
+    ),
+    # §A note: in the package the checkers are not merely unimplemented, they
+    # cannot be implemented (no sumolib, no odrplot, no pip).
+    (
+        "> **注意: A1〜A4 の実行スクリプトはこのリポジトリにまだ無い**（`feature:F9` 未実装）。\n"
+        "> ここに書いてあるのは「何を検査しなければならないか」の仕様。\n"
+        "> 実装するときは `scripts/` に置き、`/gates` のラダーとは別建て（実験機能なので常設ゲート非対象）。\n"
+        "> **検査を書いたら、意図的に壊したデータで発火することを実証してから完了とする**\n"
+        "> （通るデータで通ることだけ見た検査は、無いより悪い）。",
+        "> **注意: 配布版で回せるのは A5 だけ。** A1〜A4 は実行スクリプトが存在せず、\n"
+        "> 依存する `sumolib` / `odrplot` も同梱されていない（§0-1）。\n"
+        "> 表に残してあるのは「何を検査しなければならないか」を知っておくため。\n"
+        "> A1〜A4 に相当する確認が要る作業は、開発環境側で済ませてから持ち込むこと。",
+    ),
+    (
+        "未実装（`odrplot.exe` はビルド済み: "
+        "`build/EnvironmentSimulator/Applications/odrplot/Release/odrplot.exe`）",
+        "配布版では実行不可（`odrplot.exe` は同梱されていない）",
+    ),
+    # A5 smoke: the package ships GT_Sim.exe only.
+    (
+        "build/EnvironmentSimulator/Applications/esmini/Release/esmini.exe",
+        "bin\\GT_Sim.exe",
+    ),
+    # §B4 links to the netconvert reference, which ships but cannot be acted on
+    # here. Say so at the point of use, not only in §0-1.
+    (
+        "**xodr から net.xml を作るときは必ずそちらを開くこと。**",
+        "**xodr から net.xml を作るときは必ずそちらを開くこと。**\n"
+        "ただし **配布版に netconvert は同梱されていない**（§0-1）。"
+        "この工程は開発環境側で行い、できた net.xml を `resources/sumo_inputs/` へ持ち込む。",
+    ),
+    # /kg is a repository-side Claude Code skill and is not shipped.
+    (
+        "- 知識グラフ: `feature:F9`（`/kg` で照会）",
+        "- 機能 ID `feature:F9` の背景: `docs/features/sumo_background_traffic.md`",
+    ),
+    # netconvert_traps.md: the patch lives in the reference implementation, which
+    # is not part of any distribution.
+    (
+        "パッチ本体は参照実装の `scripts/netconvert-lefthand-opendrive.patch`。",
+        "パッチ本体は参照実装側にあり、配布版には含まれない。",
+    ),
+]
+
+# A rendered skill must not mention any of these: they are repository-only trees
+# that do not exist beside the extracted package.
+FORBIDDEN_PATH_PREFIXES = [
+    "build/",
+    "scripts/",
+    "externals/",
+    "DriverScript/",
+    "GT_esmini/",
+]
+
+# Banner prepended to every rendered skill file. Added AFTER the forbidden-path
+# check, so that naming the repository source here does not trip it.
+SKILL_BANNER = """<!-- 配布版向けにパッケージ作成時に生成されたコピーです。
+     原本はリポジトリの {source} で、編集はそちらに対して行ってください。
+     パスは配布版のレイアウト（bin/ resources/ config/ docs/）へ書き換えてあります。 -->
+
+"""
+
 IGNORE_PATTERNS = shutil.ignore_patterns(
     "__pycache__",
     "*.pyc",
@@ -152,6 +274,17 @@ def verify_prerequisites() -> None:
         )
     if not FRONTEND_DIST.is_dir() or not (FRONTEND_DIST / "index.html").exists():
         errors.append(f"Frontend not built. Run 'npm run build' in {FRONTEND_DIR}.")
+    # feature:F8 -- warn, do not fail: the axis-mapping panel works without the
+    # probe (hand-edited values, plus an explanatory 503 from /api/wheel-probe),
+    # and the probe only exists in a GT_ENABLE_SDL2=ON build. A silent omission is
+    # what this check exists to prevent -- the first packaged build shipped
+    # without it and nothing anywhere said so.
+    if not (BUILD_RELEASE / "GT_WheelProbe.exe").exists():
+        print(
+            f"[WARN] GT_WheelProbe.exe not found at {BUILD_RELEASE} -- the wheel "
+            "axis mapping panel will have no live axis readout and no Detect "
+            "button (build with -DGT_ENABLE_SDL2=ON to include it)."
+        )
     if not EMBEDDED_PYTHON.is_dir():
         errors.append(f"Embedded Python not found at {EMBEDDED_PYTHON}.")
     else:
@@ -198,6 +331,102 @@ def check_config_coverage() -> None:
             print(f"    - GT_esmini/config/{name}")
         print("  Add them to CONFIG_FILES in build_package.py before packaging.")
         sys.exit(1)
+
+
+def render_skill_for_package(text: str, source_rel: str) -> str:
+    """Rewrite a repository Claude Code skill into its package-layout form.
+
+    Raises ValueError when the source cannot be rendered faithfully -- either
+    because the §0 splice markers moved, or because a repository-only path
+    survived the substitutions. Both are packaging-time failures on purpose: a
+    skill that ships with a dead path is worse than one that is absent, because
+    the reader follows it.
+    """
+    # 1. §0 splice (SKILL.md only -- reference files carry no §0).
+    if SKILL_SECTION0_START in text:
+        end = text.find(SKILL_SECTION0_END)
+        if end == -1:
+            raise ValueError(
+                f"{source_rel}: found the §0 start marker but not the end marker "
+                f"({SKILL_SECTION0_END!r}). The package overlay cannot be spliced in."
+            )
+        overlay = (
+            SKILL_SECTION0_OVERLAY.read_text(encoding="utf-8").rstrip() + "\n\n---\n\n"
+        )
+        text = text[: text.find(SKILL_SECTION0_START)] + overlay + text[end:]
+
+    # 2. literal path substitutions
+    for old, new in SKILL_REWRITES:
+        text = text.replace(old, new)
+
+    # 3. residual repository-only paths
+    leftovers: list[str] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        for prefix in FORBIDDEN_PATH_PREFIXES:
+            if prefix in line:
+                leftovers.append(f"    line {lineno}: {line.strip()}")
+                break
+    if leftovers:
+        raise ValueError(
+            f"{source_rel}: repository-only paths survived the rewrite:\n"
+            + "\n".join(leftovers)
+            + "\n  Add a rule to SKILL_REWRITES in build_package.py "
+            "(or fix the skill) before packaging."
+        )
+
+    # 4. banner -- AFTER the YAML frontmatter, never before it. Claude Code
+    # reads a skill's frontmatter from the very first line, so a banner at the
+    # top turns SKILL.md into a file with no frontmatter at all: the skill stops
+    # being discovered, silently, in the package only.
+    banner = SKILL_BANNER.format(source=source_rel)
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end == -1:
+            raise ValueError(
+                f"{source_rel}: frontmatter opens with '---' but never closes. "
+                "Cannot place the package banner without breaking skill discovery."
+            )
+        cut = end + len("\n---\n")
+        return text[:cut] + "\n" + banner + text[cut:].lstrip("\n")
+    return banner + text
+
+
+def copy_skills(pkg_dir: Path) -> None:
+    """Render and copy the shipped Claude Code skills into the package."""
+    for src_rel, dst_rel in SKILLS_TO_SHIP:
+        src_dir = REPO_ROOT / src_rel
+        if not src_dir.is_dir():
+            print(f"[FAIL] skill source not found: {src_rel}")
+            sys.exit(1)
+        dst_dir = pkg_dir / dst_rel
+        count = 0
+        for src_file in sorted(src_dir.rglob("*.md")):
+            rel = src_file.relative_to(src_dir)
+            try:
+                rendered = render_skill_for_package(
+                    src_file.read_text(encoding="utf-8"),
+                    f"{src_rel}/{rel.as_posix()}",
+                )
+            except ValueError as exc:
+                print("[FAIL] skill render failed.")
+                print(f"  {exc}")
+                sys.exit(1)
+            # A skill whose SKILL.md loses its frontmatter is not "a skill with a
+            # cosmetic problem", it is a skill Claude Code never sees. Check the
+            # rendered bytes, not the intent: the first shipped build put the
+            # banner above the frontmatter and the package looked perfectly fine.
+            if rel.name == "SKILL.md" and not rendered.startswith("---\n"):
+                print("[FAIL] rendered SKILL.md does not begin with YAML frontmatter.")
+                print(
+                    f"  {src_rel}/{rel.as_posix()} would not be discovered as a skill."
+                )
+                print(f"  first line: {rendered.splitlines()[0]!r}")
+                sys.exit(1)
+            out = dst_dir / rel
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(rendered, encoding="utf-8")
+            count += 1
+        log(f"{dst_rel}/: {count} files (rendered for the package layout)")
 
 
 def build_frontend() -> None:
@@ -390,6 +619,11 @@ def assemble_package(version: str, output_dir: Path) -> Path:
         shutil.copytree(docs_src, pkg_dir / "docs", ignore=IGNORE_PATTERNS)
         log("docs/: copied")
 
+    # 7b-2. .claude/skills/ — authoring skills, rendered for the package layout.
+    # Ships next to docs/ deliberately: docs/ is what a human reads, this is what
+    # Claude Code loads if the user runs it in the extracted package directory.
+    copy_skills(pkg_dir)
+
     # 7c. data/projects/VirtualDriver Verification — packaged as its own GUI
     # project (see _build_verification_project docstring), distinct from the
     # Built-in Samples project backed by resources/.
@@ -425,6 +659,8 @@ resources/     - Scenarios (.xosc), Roads (.xodr), 3D Models
 config/        - Configuration files (editable)
 data/          - Runtime data, simulation results, projects
 docs/          - Documentation
+.claude/       - Claude Code skills (SUMO traffic authoring). Only used if you
+                 run Claude Code in this directory; ignore otherwise.
 
 Projects
 --------

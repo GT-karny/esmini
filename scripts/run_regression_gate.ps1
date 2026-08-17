@@ -80,6 +80,32 @@
                both hard); the intent is to promote AEB to hard once it has a
                few green runs on record.
 
+      Steps 2.7 - 2.10 - further behavioural batches (reported, skippable)
+               Identical recipe to Step 2.6 -- same Invoke-BehavioralBatch,
+               own manifest, own committed baseline, own -Skip<Name> switch,
+               WARN by default. Each exists as its OWN step for Step 2.6's two
+               reasons: a red names the broken claim without opening a report,
+               and no batch's known-red can mask another's regression.
+
+                 2.7  anticipation_driving    mid/long-horizon anticipation
+                 2.8  scenario_handoff        feature:F7 scenario-driven handover
+                 2.9  stop_line_pairing       stop-line paired stop targets
+                 2.10 manualdrive_adas        ADAS running alongside a HUMAN
+                                              driver (AEB/FCW/ACC/LKA/LDW/MSL;
+                                              req-vd-ad:REQ-AD-025..031)
+
+               The numbers are SEQUENCE LABELS, not decimals: 2.10 follows 2.9.
+               (Step 2.5 is out of sequence on purpose -- it is the opt-in
+               telemetry-golden oracle, not a batch, and predates this family.)
+
+               Step 2.10 differs from its siblings in one respect worth
+               knowing: its scenarios run under ManualDriveController, so the
+               harness takes frames from the OSI scene + HostVehicleData rather
+               than VirtualDriver telemetry, and every feature it exercises
+               ships DEFAULT OFF (the batch enables them per scenario through
+               injected config). A red there therefore means the ManualDrive
+               ADAS stack changed -- not that default behaviour changed.
+
 .PARAMETER Config
     Build configuration for Step 1 ctest. Default: Release.
 
@@ -117,6 +143,35 @@
 .PARAMETER AebBaseline
     Committed baseline for Step 2.6. Default:
     GT_esmini/test/regression_baseline/aeb_safety_expected.yaml.
+
+.PARAMETER SkipAnticipation
+    Skip Step 2.7 (anticipation-driving batch) only.
+
+.PARAMETER SkipHandoff
+    Skip Step 2.8 (scenario-driven control handover batch) only.
+
+.PARAMETER SkipStopLine
+    Skip Step 2.9 (stop-line pairing batch) only.
+
+.PARAMETER SkipManualAdas
+    Skip Step 2.10 (ManualDrive ADAS batch) only, leaving the other batches in
+    place.
+
+.PARAMETER ManualAdasBatch
+    Path to the ManualDrive ADAS batch manifest for Step 2.10. Default:
+    resources/xosc/verification/manualdrive_adas_batch.yaml.
+
+.PARAMETER ManualAdasOutDir
+    Output directory for Step 2.10 batch artifacts. Default:
+    test_results/regression/manualdrive_adas.
+
+.PARAMETER ManualAdasBaseline
+    Committed baseline for Step 2.10. Default:
+    GT_esmini/test/regression_baseline/manualdrive_adas_expected.yaml.
+
+    Each of Steps 2.7 - 2.10 also takes -<Name>Batch / -<Name>OutDir /
+    -<Name>Baseline overrides shaped exactly like the Aeb* trio above; they are
+    not repeated here.
 
 .PARAMETER TelemetryGolden
     OPTIONAL (P6 S0 oracle; default OFF keeps the gate byte-compatible). After
@@ -193,6 +248,10 @@ param(
     [string]$StopLineBatch = "resources/xosc/verification/stop_line_pairing_batch.yaml",
     [string]$StopLineOutDir = "test_results/regression/stop_line_pairing",
     [string]$StopLineBaseline = "GT_esmini/test/regression_baseline/stop_line_pairing_expected.yaml",
+    [switch]$SkipManualAdas,
+    [string]$ManualAdasBatch = "resources/xosc/verification/manualdrive_adas_batch.yaml",
+    [string]$ManualAdasOutDir = "test_results/regression/manualdrive_adas",
+    [string]$ManualAdasBaseline = "GT_esmini/test/regression_baseline/manualdrive_adas_expected.yaml",
     [string]$Dll = ""
 )
 
@@ -205,7 +264,9 @@ function Resolve-RepoPath([string]$p) {
 }
 
 $overallOk = $true
-# Coverage accounting for the behavioural steps (2 / 2.6 / 2.7). These ACCUMULATE
+# Coverage accounting for EVERY behavioural step (2 and the 2.6-2.10 family --
+# stated as a range on purpose: this comment named "2 / 2.6 / 2.7" while three
+# more batches had been added past it). These ACCUMULATE
 # across every batch: an earlier version assigned instead of adding, so the final
 # summary line reported only the LAST batch (5/5) while 22 scenarios had run --
 # the same class of under-reporting as the bug this whole block exists to prevent.
@@ -322,6 +383,40 @@ if (-not $SkipBehavioral) {
 # whenever overall=fail, which some batches do BY DESIGN (a discriminating case
 # recorded as a known red in the baseline). The DEVIATION vs baseline is the gate.
 # ----------------------------------------------------------------------------
+# Run a native command and tee BOTH its streams into the gate log.
+#
+# Why this exists rather than `& $exe @args 2>&1 | ForEach-Object { Write-Host $_ }`
+# written inline: `2>&1` turns the child's stderr into ErrorRecords, and under
+# $ErrorActionPreference = "Stop" the FIRST one throws NativeCommandError and
+# kills the whole gate. Both of our python steps write ordinary progress to
+# stderr -- gt_sim_test routes the DLL log callback there
+# (gt_lib.py _ensure_default_handler), and check_regression_baseline.py writes
+# its summary there. The line that killed the gate was literally
+# "no deviations vs baseline (14 scenarios)".
+#
+# It only bites when this script's own stderr is redirected, which is exactly
+# what the mandated detached launch does (Start-Process -RedirectStandardError,
+# see the build skill). In a console the gate runs to the end; run it the way
+# long jobs are supposed to be run and it dies mid-step with a PowerShell error
+# that reads as infrastructure noise rather than as a red gate.
+#
+# Suppressing the throw hides nothing. A harness that really dies produces no
+# batch_verdict.json and the NOT MEASURED branch fails the batch, and the
+# baseline checker is judged by $LASTEXITCODE, which this preserves.
+function Invoke-NativeTee {
+    param([string]$Exe, [string[]]$Arguments)
+
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Exe @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
+}
+
+# ----------------------------------------------------------------------------
 function Invoke-BehavioralBatch {
     # CAUTION (2026-08-03 incident: -FailOnBehavioral could never turn the gate
     # red): this function's return value is consumed as a boolean by the caller
@@ -347,7 +442,7 @@ function Invoke-BehavioralBatch {
     $argList = @($Harness, "batch", $BatchPath, "--out", $OutPath)
     if (-not [string]::IsNullOrWhiteSpace($Dll)) { $argList += @("--dll", $DllPath) }
     Write-Host "${Label}: $PyExe $($argList -join ' ')" -ForegroundColor Cyan
-    & $PyExe @argList 2>&1 | ForEach-Object { Write-Host $_ }
+    Invoke-NativeTee $PyExe $argList
 
     $verdictFile = Join-Path $OutPath "batch_verdict.json"
     $verdictText = "(no batch_verdict.json)"
@@ -428,7 +523,7 @@ function Invoke-BehavioralBatch {
     $checker = Resolve-RepoPath "scripts/check_regression_baseline.py"
     $regArgs = @($checker, "--batch-out", $OutPath, "--baseline", $BaselinePath, "--max-age-seconds", "1800")
     Write-Host "${Label}: $PyExe $($regArgs -join ' ')" -ForegroundColor Cyan
-    & $PyExe @regArgs 2>&1 | ForEach-Object { Write-Host $_ }
+    Invoke-NativeTee $PyExe $regArgs
     $reg = $LASTEXITCODE
 
     if ($reg -eq 0) {
@@ -799,6 +894,71 @@ if ($SkipBehavioral) {
         foreach ($m in $stopLineMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
     } else {
         if (-not (Invoke-BehavioralBatch -Label "Step 2.9" -BatchPath $stopLineBatchPath -OutPath $stopLineOutPath -BaselinePath (Resolve-RepoPath $StopLineBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
+            $overallOk = $false
+        }
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Step 2.10 - ManualDrive ADAS batch (reported gate, skippable)
+#
+# gate:manualdrive-adas-regression. Same recipe as Steps 2.6 / 2.7 / 2.8 / 2.9
+# (shared Invoke-BehavioralBatch) on a SEPARATE manifest + baseline. Covers ADAS
+# running ALONGSIDE a human driver -- AEB+FCW, ACC (incl. Stop&Go a/b), LKA+LDW,
+# MSL, plus the face-3 observability those claims are read through
+# (req-vd-ad:REQ-AD-025/026/027/028/030/031, realized by vd-func:FUNC-075/079/
+# 080/081; design docs/virtualdriver/design/manualdrive_adas_design.md).
+#
+# Why its own step rather than more scenarios in Step 2: identical to 2.6's
+# reasoning -- a red names the broken claim without opening a report, and Step
+# 2's recorded known-red cannot mask it. It also keeps a whole controller's
+# worth of scenarios (30, the largest of the batches) out of the report a
+# reader opens for car-following.
+#
+# TWO THINGS ARE DIFFERENT HERE and both matter when reading a red:
+#
+#   (1) The scenarios run under ManualDriveController, so the harness does NOT
+#       use VirtualDriver telemetry for frames -- it takes them from the OSI
+#       scene plus in-process HostVehicleData (design sec8-5). A VD-side change
+#       cannot go red here through the frame path; an HVD-side one can.
+#   (2) Every feature this batch exercises ships DEFAULT OFF. The batch turns
+#       them on per scenario through injected ManualDrive config, so a red means
+#       the ManualDrive ADAS stack changed -- NOT that default behaviour did.
+#
+# The baseline is 30/30 green with no known-red, and it holds both directions of
+# each claim in one file (positives and negatives, plus same-xosc `variant`
+# pairs) so "loosen a threshold to pass the positive" breaks a negative instead
+# of sneaking through. It was frozen only after a three-run self-determinism
+# control (measurements/manualdrive_adas_determinism_2026-08-06.md).
+#
+# NON-BLOCKING to start, like every batch above (-FailOnBehavioral makes it
+# hard); promote once CI has shown the baseline stable across a few runs.
+# ----------------------------------------------------------------------------
+if ($SkipBehavioral) {
+    Write-Host "==== Step 2.10: ManualDrive ADAS batch - SKIPPED (-SkipBehavioral) ====" -ForegroundColor Yellow
+} elseif ($SkipManualAdas) {
+    Write-Host "==== Step 2.10: ManualDrive ADAS batch - SKIPPED (-SkipManualAdas) ====" -ForegroundColor Yellow
+} else {
+    Write-Host "==== Step 2.10: ManualDrive ADAS batch (gt_sim_test) ====" -ForegroundColor Cyan
+
+    # Same prerequisites as Steps 2 / 2.6 / 2.7 / 2.8 / 2.9 (venv + Release DLL); reuse resolution.
+    $mdAdasBatchPath = Resolve-RepoPath $ManualAdasBatch
+    $mdAdasOutPath = Resolve-RepoPath $ManualAdasOutDir
+
+    $mdAdasMissing = @()
+    if ([string]::IsNullOrWhiteSpace($pyExe) -or -not (Test-Path $pyExe)) {
+        $mdAdasMissing += "verification venv python (DriverScript/.venv or GT_esmini/web/.venv)"
+    }
+    if (-not (Test-Path $dllPath)) {
+        $mdAdasMissing += "GT_esminiLib.dll at $dllPath (requires a completed $Config build)"
+    }
+    if (-not (Test-Path $mdAdasBatchPath)) { $mdAdasMissing += "batch manifest $mdAdasBatchPath" }
+
+    if ($mdAdasMissing.Count -gt 0) {
+        Write-Host "Step 2.10: SKIPPED - prerequisites missing:" -ForegroundColor Yellow
+        foreach ($m in $mdAdasMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
+    } else {
+        if (-not (Invoke-BehavioralBatch -Label "Step 2.10" -BatchPath $mdAdasBatchPath -OutPath $mdAdasOutPath -BaselinePath (Resolve-RepoPath $ManualAdasBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
             $overallOk = $false
         }
     }

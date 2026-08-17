@@ -1,0 +1,449 @@
+name: manualdrive_adas
+origin: vd-func:FUNC-075 / req-vd-ad:REQ-AD-025,REQ-AD-028   # 由来はメタデータ。名前には工程・採番を焼き込まない — capability_model.md §7.1 規約2/4
+# 手動運転中ADAS(REQ-AD-025 AEB列、フェーズA)の常設回帰バッチ候補。
+#
+# 【何を主張し、何を主張しないか】
+# 主張する: REQ-AD-025 段a-eの6つの検証観点(2-1節、slug md-aeb-* / md-fcw-*)。
+# ManualDriveController配下でも AEB/FCW が独立に監視・介入し、人間のペダル入力との
+# 合成規則(max合成・キックダウン抑制)を守ること。
+# 主張する(フェーズBで追加): REQ-AD-028 観測列のうち2観点 —
+#   md-driver-override-accel-custom-state (段b): アクセル起因の上書き事象が
+#     DriverOverride + custom_state=DRIVER_OVERRIDE_ACCEL として面3から読めること。
+#     正=md_aeb_kickdown_suppress(キックダウン保持中)、負=md_aeb_unresponsive
+#     (ペダル不触)、同一実行内の対照=同 kickdown 行の gt.fcw。
+#   md-state-three-value-discipline (段a): 「切ってあった」(UNAVAILABLE)と
+#     「見張っていて撃たなかった」(STANDBY)が区別されること。
+#     md_aeb_no_conflict.xosc を adas_aeb_enabled の true/false 2構成で回す対。
+# 主張しない: 段a-eの数値閾値の最終校正(§5参照 — このバッチの資産の一部は依然として
+# 実測未確認の推測を含む。各 .md の「未検証部分」節を参照)。
+# 主張する(フェーズCで追加): REQ-AD-026(手動ACC 段a-h)/ REQ-AD-030(MSL 段a-d)/
+#   REQ-AD-031(Stop&Go 段a/b)の各観点と、REQ-AD-028 段b の**ブレーキ起因**上書き。
+#   ブレーキ起因の producer は ACC の解除であり、本フェーズで初めて存在する
+#   (フェーズBまでは機構だけがあって刺激が無かった)。
+# 主張しない: REQ-AD-028 段b のうち**ステア起因**の上書き。producer は LKA の中断
+#   (フェーズD)にしか無く、本バッチには実証する刺激が依然として存在しない。
+# 主張しない: REQ-AD-031 段c/d(時限・自動再発進)は将来段であり実装スコープ外。
+# 主張しない: LKA/LDW/HMI列(REQ-AD-027/029)。フェーズDで別途行を追加する
+# (manualdrive_adas_verification_plan.md §3-4: バッチは1本を育てる、機能別に分けない)。
+#
+# 【フェーズCの閾値はすべて実測由来】停止保持の保持ブレーキ量・停止判定の速度しきい値・
+# 各シナリオの窓は GT_esmini/docs/virtualdriver/measurements/
+# manualdrive_creep_stop_hold_2026-08-05.md と test_results/mdadas_measure の
+# 計測パスから決めた。matcher のパラメータを緑になるまで動かしたものは無い —
+# 動かしたのは幾何・タイミング・入力プロファイルと、構造的に到達不能だった
+# 既定値1つ(adas_acc_stop_speed_eps_mps: クリープ床0.16m/sより下だったため
+# 停止保持が原理的に成立しなかった)である。
+#
+# 【2026-08-05 改版】mdadas_run1(2026-08-04、初回実ハーネス実行)の結果を受けて
+# 6本構成へ変更。旧5本のうち3本の欠陥を実測telemetryに基づき是正・再設計した:
+#   - md_aeb_unresponsive: fcw_leads_intervention を撤去(実測リード=0.000s、
+#     候補確定デバウンスがカットイン幾何では閾値差を消費し尽くす — 恒久知見)。
+#   - md_aeb_stationary_lead: 新設。fcw_leads_intervention の担い手を、カットイン無しの
+#     緩やかな同一レーン接近幾何へ移し、リードをしきい値から算術的に導出(≈1.0s)。
+#   - md_aeb_strong_brake_driver: ブレーキ入力タイミングを実測AEB作動区間
+#     (t=1.75-2.85)に合わせてretune(旧タイミングは作動区間の外にありSKIPしていた)。
+#   - md_fcw_warning_only: 全面再設計(カットイン無し同一レーン接近へ)。旧幾何は
+#     FCWのゲートにすら届いていなかった(実測 min ttc=9.914 vs 閾値3.5)。
+#   詳細と算術導出は各シナリオの .md 参照。matcherのパラメータ(閾値・tolerance・
+#   min_lead_s)は一切変更していない — 変更したのは幾何・タイミング・入力プロファイルのみ。
+#
+# 【なぜ正例と負例が1本のマニフェストか】
+# aeb_safety_batch.yaml が確立した前例と同じ理由(検証計画§3-4)。AEBは「衝突コースで
+# 介入する」と「衝突コース不在で介入しない」が対で初めて主張になる。片方だけを回帰に
+# 載せると、他方を犠牲にする退行(閾値を緩めて正例を通し負例を壊す取引)がゲートを
+# 素通りする。正負を同一マニフェスト・同一ベースラインに置くことで、その取引を
+# per-matcher照合が必ず捕まえる。
+#
+# 【controller / manualdrive_config キー】
+# controller: manualdrive を指定したシナリオは、gt_sim_test のVDテレメトリ必須の
+# 前提から外れ(VirtualDriverController前提のフレーム取得を使わない)、代わりに
+# OSI scene と HVD(in-process C API 経由)からフレームを取る
+# (manualdrive_adas_verification_plan.md §7-1/§7-3、ハーネス改修=他エージェント担当)。
+# manualdrive_config のキーはFLATかつグローバルに一意 — C++側ローダーは行単位の
+# 部分文字列スキャナであってJSONパーサではないため、ネストしたキー名を使わない
+# (コーディネータ確定の契約、変更しないこと)。base = GT_esmini/config/manual_drive_headless_stub.json
+# にこのキー集合をマージして per-run config を生成する想定(_prepare_policy_xosc の
+# ManualDrive版、§7-2)。
+#
+# 【osi:true / dt / max_time / snapshots】
+# osi:true -> 幾何駆動のmatcher(impact_speed_below)がOSI groundtruth scene を
+# 必要とするため必須。他のmatcher(manual_aeb_fires等)はHVD駆動だが、バッチ内の
+# 一貫性のためosiは全シナリオで有効にする(aeb_safety_batch.yamlと同じ方針)。
+# dt=0.05 は aeb_safety_batch.yaml / 他の常設回帰バッチと揃えた既定値。
+# max_time=22.0 は本バッチ内の最長StopTrigger(md_aeb_unresponsive / strong_brake_driver /
+# kickdown_suppress = 20.0s)+ ~2sグレース。aeb_safety_batch.yamlの同じ理屈・同じ数値。
+# snapshots=3 は他バッチと揃えた既定値。
+#
+# 【常設ゲートとしての位置づけ】
+# ステータス=候補(manualdrive_adas_verification_plan.md冒頭: 実装は未ビルド)。
+# 実装(ScriptedInputSource / ManualDrive config注入 / HVD読み取り / matcher新設)が
+# 揃い、waypoint規律・スキーマ検証・実行時グリーンを確認してから
+# gate_catalog.yaml への登録・run_regression_gate.ps1への配線を検討する
+# (aeb前例の前例=検証計画§8「常設ゲートのStep番号とCI配線はフェーズEで確定」)。
+#
+# Run (実装完了後):
+#   DriverScript/.venv/Scripts/python.exe GT_esmini/scripts/verification/gt_sim_test.py batch \
+#       resources/xosc/verification/manualdrive_adas_batch.yaml --out test_results/web/manualdrive_adas
+defaults:
+  dt: 0.05
+  max_time: 34.0   # >= 最長StopTrigger(フェーズC md_sng_lead_stop_restart / md_sng_stop_sign = 30.0s)+ ~4sグレース。
+                   # フェーズA行(20.0s以下)は余裕内。StopTriggerで止まるので、長いmax_timeがA行の実行時間を延ばすことはない
+  snapshots: 3
+  osi: true
+scenarios:
+  # ---- 正例 / REQ-AD-025 段a: 無反応ドライバへのAEB介入 ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_unresponsive.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_unresponsive.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/unresponsive.json
+      adas_aeb_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-025 段e: 警報(FCW)が介入(AEB)に先行する(緩やかな同一レーン接近) ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_stationary_lead.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_stationary_lead.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/unresponsive.json
+      adas_aeb_enabled: true
+    osi: true
+  # ---- 負例 / REQ-AD-025 段b: 衝突コース不在でAEBが誤介入しない ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_no_conflict.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_no_conflict.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/steady_throttle.json
+      adas_aeb_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-025 段c: 人間の強ブレーキにAEBが上乗せしない(max合成) ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_strong_brake_driver.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_strong_brake_driver.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/strong_brake_at.json
+      adas_aeb_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-025 段d: 全踏み(キックダウン)によるAEB抑制 ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_kickdown_suppress.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_kickdown_suppress.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/kickdown_at.json
+      adas_aeb_enabled: true
+      adas_aeb_kickdown_suppress_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-025 段e: 警報単独エピソード(FCWのみ、AEB非介入) ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_fcw_warning_only.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_fcw_warning_only.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/brake_after_warning.json
+      adas_aeb_enabled: true
+    osi: true
+  # ---- 負例 / REQ-AD-028 段a: 「切ってあった」(UNAVAILABLE)と「見張っていて撃たなかった」(STANDBY)の区別 ----
+  # フェーズBで追加。md_aeb_no_conflict.xosc を*同じファイルのまま*2構成で回す
+  # (variant キー): 上の既定行が adas_aeb_enabled=true で STANDBY、この行が
+  # false で UNAVAILABLE。同一刺激で観測量だけが変わることが主張の全部であり、
+  # 幾何を複製すると「絶対に食い違ってはいけない2ファイル」が生まれるので
+  # 複製しない(検証計画§7-2、md_aeb_no_conflict_adas_off.expectations.yaml 冒頭)。
+  # このペアは片方だけでは何も主張しない — どちらか一方を消さないこと。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_aeb_no_conflict.xosc
+    variant: adas_off
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_aeb_no_conflict_adas_off.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/steady_throttle.json
+      adas_aeb_enabled: false   # ← 既定行との唯一の差分
+    osi: true
+
+  # ====================================================================
+  # フェーズC (2026-08-05): ACC / Stop&Go / MSL列
+  # req-vd-ad:REQ-AD-026 / REQ-AD-030 / REQ-AD-031、vd-func:FUNC-079 / FUNC-081
+  # 期待値の窓はすべて test_results/mdadas_measure の計測パス由来(冒頭の注記参照)
+  # ====================================================================
+
+  # ---- 正例 / REQ-AD-026 段a+h: 先行車追従と車間段階の走行中変更 ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_acc_follow_lead.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_acc_follow_lead.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_setting_changes.json
+      adas_acc_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-026 段b+c + REQ-AD-028 段b(ブレーキ起因の初の実証) ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_acc_cancel_resume.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_acc_cancel_resume.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_cancel_resume.json
+      adas_acc_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-026 段e: 走行中の設定速度増減が実効値に反映される ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_acc_setting_changes.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_acc_setting_changes.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_setting_changes.json
+      adas_acc_enabled: true
+    osi: true
+  # ---- 両極性ペア / REQ-AD-026 段g: 制限速度キャップの有無 ----
+  # 同一 xosc を variant で2構成。片方だけでは何も主張しない(常に制限を守る実装でも
+  # 正例は通り、道路を一度も読まない実装でも負例は通る)。どちらも消さないこと。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_acc_speed_limit_cap.xosc
+    variant: respect_limit
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_acc_speed_limit_cap.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_engage.json
+      adas_acc_enabled: true
+      adas_acc_respect_speed_limit: true
+    osi: true
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_acc_speed_limit_cap.xosc
+    variant: ignore_limit
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_acc_speed_limit_cap_ignore.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_engage.json
+      adas_acc_enabled: true
+      adas_acc_respect_speed_limit: false   # ← 上の行との唯一の差分
+    osi: true
+  # ---- 正例+負系 / REQ-AD-026 段f: 利用可能速度域の域外で降格し介入が止む ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_acc_speed_range_gate.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_acc_speed_range_gate.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_engage.json
+      adas_acc_enabled: true
+      adas_acc_min_speed_mps: 12.0
+    osi: true
+  # ---- 正例 / REQ-AD-026 段d: ACC作動中のAEB独立発火(safetyが勝つ) ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_acc_aeb_independence.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_acc_aeb_independence.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_engage.json
+      adas_acc_enabled: true
+      adas_aeb_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-031 段a: 停止保持(クリープ抑止)と人間トリガ再発進 ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_sng_lead_stop_restart.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_sng_lead_stop_restart.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_stop_restart.json
+      adas_acc_enabled: true
+    osi: true
+  # ---- 両極性ペア / REQ-AD-031 段b: 停止対象の構成(一時停止標識を含む/含まない) ----
+  # 負側では StopYieldSignAware がそもそも生成されない(構成が policy の有無を決める)
+  # ため、フィルタの緩和で漏れる余地が構造的に無い。どちらも消さないこと。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_sng_stop_sign.xosc
+    variant: stop_sign_target
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_sng_stop_sign.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_engage.json
+      adas_acc_enabled: true
+      adas_acc_stop_at_stop_sign: true
+    osi: true
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_sng_stop_sign.xosc
+    variant: lead_only_target
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_sng_stop_sign_lead_only.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_engage.json
+      adas_acc_enabled: true
+      adas_acc_stop_at_stop_sign: false   # ← 上の行との唯一の差分
+    osi: true
+  # ---- 正例+負系 / REQ-AD-030 段a: スロットルキャップとブレーキ非出力 ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_msl_throttle_cap.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_msl_throttle_cap.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/msl_ops_steady_throttle.json
+      adas_msl_enabled: true
+    osi: true
+  # ---- 正例 / REQ-AD-030 段b + 設計§3-3: キックダウン一時解除とAEBとの検出共有 ----
+  # AEB を有効にしているのは撃たせるためではなく、同一のキックダウン検出で
+  # 両機能の上書き欄が同時に立つことを1実行で見るため(md-kickdown-shared-consistency)。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_msl_kickdown.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_msl_kickdown.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/msl_ops_kickdown.json
+      adas_msl_enabled: true
+      adas_aeb_enabled: true
+    osi: true
+  # ---- 両極性ペア / REQ-AD-030 段c: 実効キャップの出どころ(道路の制限速度 / 運転者の設定) ----
+  # フェーズCで実装済み・刺激だけが無かった行(フェーズD着手時のウォームアップで追加)。
+  # 8m/s で ON → 設定は 8m/s、道路(50km/h区間)の制限は 13.889m/s。連動側だけが
+  # 設定を超えて加速できる。両極とも「キャップ未満から加速して当たる」構成にしてある —
+  # リミッターはブレーキを出さないので、キャップ超過から入る構成では惰性減速を
+  # 測ることになり、リミッターを測ったことにならない(xosc冒頭の注記)。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_msl_speed_limit_linked.xosc
+    variant: linked
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_msl_speed_limit_linked.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/msl_ops_steady_throttle.json
+      adas_msl_enabled: true
+      adas_msl_speed_limit_linked: true
+    osi: true
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_msl_speed_limit_linked.xosc
+    variant: set_speed_only
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_msl_speed_limit_linked_set_speed_only.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/msl_ops_steady_throttle.json
+      adas_msl_enabled: true
+      adas_msl_speed_limit_linked: false   # ← 上の行との唯一の差分
+    osi: true
+  # ---- 正例 / REQ-AD-031 段b(信号側): 赤信号の停止線手前で停止・保持 ----
+  # 同上のウォームアップ行。フェーズCが射程外と明記した2点(TrafficLightAware本体、
+  # および分岐路での CopyRoute 起点歩行)をここで実走する。RoutingAction を
+  # 意図的に持たせていない — 経路を与えると測ろうとしている当のものが消える。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_sng_traffic_light.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_sng_traffic_light.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_ops_engage.json
+      adas_acc_enabled: true
+      adas_acc_stop_at_traffic_light: true
+    osi: true
+  # ---- 正例 / 設計§6: ACCとMSLの排他(後からONにした側が先の側をSTANDBYへ) ----
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_acc_msl_exclusion.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_acc_msl_exclusion.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/acc_msl_exclusion_ops.json
+      adas_acc_enabled: true
+      adas_msl_enabled: true
+    osi: true
+
+  # ====================================================================
+  # フェーズD (2026-08-05): LKA / LDW列
+  # req-vd-ad:REQ-AD-027 / REQ-AD-028 段b(ステア経路)、vd-func:FUNC-080
+  #
+  # 【閾値はどこから来たか】LKA は既存 policy と閾値を1つも共有しない新設部品なので、
+  # 全パラメータが自前・全て要校正。うち2つは「実測ではなく算術」で決めた:
+  #   - margin/release (0.15/0.30): 車線幅3.07m・車幅2.00m → 中心での余裕は0.535m。
+  #     当初の 0.30/0.50 は解除条件が中心±3.5cm を意味し、ヒステリシスが黙って
+  #     ラッチに化けていた。
+  #   - 補正ゲインと上限 (0.012/0.020, max 0.03): steer_gain 0.61 のこの車では
+  #     25m/s で 0.3m/s の横流れを消すのに必要な正規化操舵は 0.0024。補正は 0.01
+  #     の桁であって 0.1 ではなく、当初値は1桁以上大きかった。
+  #   - steer_override_rate (0.03/s): 通常の車線変更の入力レートが約0.01/s なので
+  #     その3倍。当初の 0.35/s は通常運転で到達不能＝検出器として死んでいた。
+  # 窓と期待値は test_results/mdadas_lka の計測パス由来。matcher のパラメータを
+  # 緑になるまで動かしたものは無い。
+  #
+  # 【1本の xosc を5構成で回す】md_lka_drift.xosc は幾何が同一で、変わるのは
+  # 入力プロファイルの符号と LKA config だけ。左右対は符号誤りの検出、
+  # warning_only と below_band は「補正が無ければ同じ刺激で逸脱する」ことの対照で、
+  # これが無いと正例の「車線内に留まった」は刺激が弱いだけの可能性を排除できない。
+  # ====================================================================
+
+  # ---- 正例 / REQ-AD-027 段a: 弱ドリフトに補正が入り車線内に留まる(左右対) ----
+  # 実測: 両極とも |offset| ピーク 0.363m・レーン-1不変。符号量は完全な鏡像
+  # (t=5.0 で offset +0.317/補正 +0.004 対 -0.317/-0.004)。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.xosc
+    variant: left
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/weak_drift_left.json
+      adas_lka_enabled: true
+    osi: true
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.xosc
+    variant: right
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/weak_drift_right.json
+      adas_lka_enabled: true
+    osi: true
+  # ---- 両極性 / REQ-AD-027 段f: 警報のみモード(警報は出るが cmd.steering 不変) ----
+  # この行は段fと同時に段aの負極も担う。実測: 同一刺激で |offset| 4.330m・
+  # レーン -1→-2 の逸脱。上の正例が「刺激が弱かっただけ」でないことをこれが示す。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.xosc
+    variant: warning_only
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_drift_warning_only.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/weak_drift_right.json
+      adas_lka_enabled: true
+      adas_lka_warning_only: true   # ← right 行との唯一の差分
+    osi: true
+  # ---- 両極性ペア / REQ-AD-027 段e: 利用可能速度域(域外/域内) ----
+  # 差分は adas_lka_min_speed_mps の値だけ(自車速25m/sの上か下か)。
+  # 域外側だけでは「LKAが壊れている実装」でも通るので、域内側を必ず併走させる。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.xosc
+    variant: below_band
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_drift_below_band.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/weak_drift_right.json
+      adas_lka_enabled: true
+      adas_lka_min_speed_mps: 30.0
+    osi: true
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_drift.xosc
+    variant: in_band
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_drift_in_band.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/weak_drift_right.json
+      adas_lka_enabled: true
+      adas_lka_min_speed_mps: 10.0   # ← below_band 行との唯一の差分
+    osi: true
+  # ---- 負例 / REQ-AD-027 段b + REQ-AD-028 段b(ステア経路): 明確な操舵入力 ----
+  # **この行が REQ-AD-028 段b の3経路目**。アクセル起因はフェーズB、ブレーキ起因は
+  # フェーズC、ステア起因の producer は LKA の中断にしか無く、ここで初めて存在する。
+  # 実測: 抑制は t=6.30-10.3 で途切れず、判定窓の61フレーム全てで
+  # DriverOverride active + reasons=[steering_input]。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_human_steer.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_human_steer.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/deliberate_steer.json
+      adas_lka_enabled: true
+    osi: true
+  # ---- 負例 / REQ-AD-027 段b: 指示器つき車線変更(補正も警報も出さない) ----
+  # 上の行との違いは警報側。操舵入力は補正だけを止め警報は残すが、指示器は両方止める。
+  # 実測でも指示器抑制のみが立ち(suppressed_indicator=true / suppressed_steer=false)、
+  # gt.ldw は全窓 STANDBY。同じ操舵量で verdict が割れることがこの非対称の実体。
+  - scenario: resources/xosc/verification/10_manualdrive_adas/md_lka_lane_change_with_indicator.xosc
+    expectations: resources/xosc/verification/10_manualdrive_adas/md_lka_lane_change_with_indicator.expectations.yaml
+    controller: manualdrive
+    manualdrive_config:
+      input_type: scripted
+      input_scripted_profile_file: resources/xosc/verification/10_manualdrive_adas/profiles/indicator_lane_change.json
+      adas_lka_enabled: true
+    osi: true

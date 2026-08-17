@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ManualDrive ADAS verification scenario 10_manualdrive_adas / md_aeb_unresponsive
+  (REQ-AD-025 step a, slug md-aeb-intervention-unresponsive-driver).
+
+  Geometry is 07_aeb/cutin_hard_brake.xosc verbatim (composite cut-in + hard-brake,
+  Euro NCAP Cut-in + CCRb) with the Ego's controller swapped from
+  VirtualDriverController to ManualDriveController and a scripted "unresponsive"
+  human input profile (all pedals held at 0.0 for the whole run) paired via the
+  batch manifest's manualdrive_config. Ego's ManeuverGroup carries no scripted
+  longitudinal action (unlike the VD original's redundant Story-level
+  CruiseManeuver) because ManualDriveController does not consume LongitudinalAction
+  for a domain it owns - longitudinal state instead comes from the Init
+  TeleportAction/SpeedAction (which seeds RealVehicleBackend's initial speed, see
+  GT_esmini/src/control/common/RealVehicleBackend.cpp SetInitialState) and then
+  from the scripted pedal input via ScriptedInputSource for every subsequent frame.
+
+  Because the driver never reacts, AEB is the ONLY thing that can prevent/mitigate
+  the same physically-unavoidable-at-this-closing-speed collision that
+  cutin_hard_brake.xosc documents (~13.5 m/s^2 / ~1.38g required for full avoidance,
+  beyond the model vehicle's max_dec=10.0 m/s^2 cap) - see cutin_hard_brake.md for
+  the avoidance-vs-mitigation physics.
+
+  DOES NOT carry md-fcw-leads-intervention (moved out, 2026-08-04 first-run finding):
+  on this violent cut-in geometry the measured lead between gt.fcw and gt.aeb going
+  ACTIVE is 0.000s (both on the SAME frame, t=1.75). Root cause and the replacement
+  asset (md_aeb_stationary_lead.xosc) are documented in this file's .md.
+
+  Controller name is EXACTLY "ManualDriveController" (telemetry/HVD lookup matches
+  by name, not by type). revMinor=3 so objectControllerRef is honoured (at
+  revMinor<=2 only bare controllerRef is read; see 08_handoff/scenario_split_domain_md_vd.xosc
+  header for the full landmine writeup). Only one controller is declared here so
+  a plain controllerRef would likely also resolve correctly via controllers_.back(),
+  but objectControllerRef is used anyway per the coordinator's hard-fact discipline.
+
+  Requires OSI capture (batch osi:true) for the geometry-driven matcher
+  (impact_speed_below); manual_aeb_fires / fcw_leads_intervention read HVD.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="3" date="2026-08-04T00:00:00"
+               description="ManualDrive ADAS verification: unresponsive driver, cut-in + hard brake (AEB intervention)" author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed"   parameterType="double" value="30.0"/>  <!-- 108 km/h -->
+      <ParameterDeclaration name="LeadSpeed"  parameterType="double" value="12.0"/>  <!-- ~43 km/h -->
+      <ParameterDeclaration name="LeadStartS" parameterType="double" value="78.0"/>  <!-- ~48 m gap; ego closes at ~18 m/s -->
+      <ParameterDeclaration name="CutInTime"  parameterType="double" value="1.6"/>
+      <ParameterDeclaration name="CutInDur"   parameterType="double" value="1.4"/>  <!-- slow cut-in = late same-lane detection -->
+      <ParameterDeclaration name="BrakeTime"  parameterType="double" value="2.4"/>
+      <ParameterDeclaration name="BrakeRate"  parameterType="double" value="8.0"/>
+      <ParameterDeclaration name="BrakeTarget" parameterType="double" value="0.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_500m_2lane.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="ManualDriveController">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_headless_stub.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+      <ScenarioObject name="Lead">
+         <Vehicle name="car_red" vehicleCategory="car" model3d="../../../models/car_red.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="1"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-1" offset="0" s="30"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="ManualDriveController" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+            <Private entityRef="Lead">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-2" offset="0" s="$LeadStartS"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$LeadSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="CutInBrakeStory">
+         <Act name="CutInBrakeAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+            </ManeuverGroup>
+            <ManeuverGroup maximumExecutionCount="1" name="LeadSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Lead"/></Actors>
+               <Maneuver name="CutInManeuver">
+                  <Event name="CutIn" priority="overwrite">
+                     <Action name="CutInAction">
+                        <PrivateAction>
+                           <LateralAction>
+                              <LaneChangeAction>
+                                 <LaneChangeActionDynamics dynamicsShape="sinusoidal" value="$CutInDur" dynamicsDimension="time"/>
+                                 <LaneChangeTarget><RelativeTargetLane entityRef="Ego" value="0"/></LaneChangeTarget>
+                              </LaneChangeAction>
+                           </LateralAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="CutInTrigger" delay="0" conditionEdge="none">
+                              <ByValueCondition><SimulationTimeCondition value="$CutInTime" rule="greaterThan"/></ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+               <Maneuver name="LeadBrakeManeuver">
+                  <Event name="LeadBrake" priority="overwrite">
+                     <Action name="LeadBrakeAction">
+                        <PrivateAction>
+                           <LongitudinalAction>
+                              <SpeedAction>
+                                 <SpeedActionDynamics dynamicsShape="linear" value="$BrakeRate" dynamicsDimension="rate"/>
+                                 <SpeedActionTarget><AbsoluteTargetSpeed value="$BrakeTarget"/></SpeedActionTarget>
+                              </SpeedAction>
+                           </LongitudinalAction>
+                        </PrivateAction>
+                     </Action>
+                     <StartTrigger>
+                        <ConditionGroup>
+                           <Condition name="BrakeTrigger" delay="0" conditionEdge="none">
+                              <ByValueCondition><SimulationTimeCondition value="$BrakeTime" rule="greaterThan"/></ByValueCondition>
+                           </Condition>
+                        </ConditionGroup>
+                     </StartTrigger>
+                  </Event>
+               </Maneuver>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition><SimulationTimeCondition value="20" rule="greaterThan"/></ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

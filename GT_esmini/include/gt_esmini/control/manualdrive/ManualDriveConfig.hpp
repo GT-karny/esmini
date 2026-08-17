@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gt_esmini/control/manualdrive/WheelAxisMapping.hpp"
+
 #include <string>
 
 namespace gt_esmini
@@ -8,9 +10,18 @@ namespace gt_esmini
 struct ManualDriveConfig
 {
     // Top-level type selection
-    std::string input_type   = "sdl2_wheel";     // "sdl2_wheel", "network", "stub"
+    std::string input_type   = "sdl2_wheel";     // "sdl2_wheel", "network", "stub", "headless_ffb", "scripted"
     std::string physics_type = "real_vehicle";    // "real_vehicle", "network"
     bool        ffb_enabled  = true;
+
+    // Populated by LoadFromFile() itself: the directory containing the file
+    // that was loaded (not a JSON key). Lets an input source resolve a
+    // config-relative path (e.g. input_scripted.profile_file below) without
+    // ControllerManualDrive having to thread the config path through a second
+    // channel -- LoadFromFile already receives the full path. Empty if
+    // LoadFromFile was never called (or was called with a bare filename with
+    // no directory component).
+    std::string config_dir;
 
     // Input: SDL2 wheel
     struct
@@ -31,6 +42,20 @@ struct ManualDriveConfig
         int    fog_light_button     = -1;
         int    hazard_button        = -1;
         int    auto_resume_button   = -1;  // feature:F7 — resume AD after manual override
+
+        // feature:F8 — per-device axis assignment + raw-range calibration.
+        // Defaults reproduce the pre-F8 hardcoded G29 layout (0=steer,
+        // 1=throttle, 2=brake, 3=clutch, pedals inverted with released=+32767),
+        // so every existing config file behaves exactly as before.
+        //
+        // On-disk keys are FLAT and live in the same "input" block as the
+        // button mapping (steer_axis / throttle_axis / throttle_raw_released
+        // / ...). See the PARSER NOTE on the `adas` member below for why they
+        // must be flat and globally unique regardless of JSON nesting; the
+        // keyboard block's own "throttle"/"brake"/"clutch" keys do NOT alias
+        // with these because the scanner matches the quoted key including its
+        // closing quote.
+        WheelAxisMapping axes;
     } sdl2;
 
     // Input: SDL2 keyboard
@@ -69,6 +94,27 @@ struct ManualDriveConfig
         int         port           = 9100;
         std::string level          = "pedal_steer";  // "pedal_steer", "motion_request"
     } input_network;
+
+    // Input: scripted profile playback (req-vd-ad:REQ-AD-025..031, vd-func:
+    // FUNC-075; manualdrive_adas_verification_plan.md §7-4). Deterministic,
+    // piecewise-linear replay of a recorded input profile against SIMULATION
+    // time -- see ScriptedInputSource.hpp for the profile file schema and
+    // interpolation rules. No socket: self-determinism (identical replay
+    // every run) is the property the whole ManualDrive-ADAS batch judgment
+    // rests on (verification plan §7-5), and a socket cannot give that
+    // guarantee the way a file replayed against sim-time dt can.
+    struct
+    {
+        // Path to the profile JSON. A relative path resolves against
+        // config_dir above (the directory of THIS config file); an absolute
+        // path (gt_esmini::ConfigLoader::IsAbsolutePath) passes through
+        // unchanged. Empty (the shipped default) means "no profile" --
+        // ScriptedInputSource::Init() fails loudly if input_type=="scripted"
+        // and this is empty, rather than silently falling back to all-zero
+        // input (a silently-zeroed run is a fabricated measurement, not a
+        // real one -- project convention).
+        std::string profile_file;
+    } input_scripted;
 
     // Physics: RealVehicle
     struct
@@ -409,7 +455,8 @@ struct ManualDriveConfig
             // reached 1.0.
             //
             // Re-measuring needs the physical wheel, so it is on
-            // test_results/f7_realmachine_checklist.md (R-1), not fixable
+            // GT_esmini/docs/virtualdriver/field-test/realmachine_open_items.md
+            // (R-1), not fixable
             // here. Until then, treat any conclusion that leans on these
             // constants as resting on one session's data.
             double override_shadow_v_max                = 1.0;   // axis-frac / s
@@ -538,6 +585,301 @@ struct ManualDriveConfig
         bool   button_override     = true;
         bool   button_takeover     = false;  // physical toggle: AUTO -> MANUAL
     } override_cfg;
+
+    // ManualDrive ADAS -- PHASE A ONLY (AEB + the shared kickdown detector +
+    // the §3-4 decel->brake PI conversion). req-vd-ad:REQ-AD-025,
+    // vd-func:FUNC-075. manualdrive_adas_design.md §9 sketches the FULL
+    // config skeleton across every phase (A-D); this struct implements ONLY
+    // the phase-A subset (design §10 phase table) -- do NOT add acc/lka/msl
+    // blocks here until those phases actually land, per the phase-A task
+    // scope ("do not add config keys for functions phase A does not
+    // implement").
+    //
+    // Every key below ships at a default-OFF / harmless value, same
+    // convention as F6 AutoLight and lane_change_initiation: adding this
+    // struct must not change any existing config file's runtime behaviour
+    // (design §9 "全機能とも既定 OFF").
+    //
+    // PARSER NOTE -- READ BEFORE ADDING A KEY HERE. LoadFromFile() below is
+    // NOT a real JSON parser: it scans the file LINE BY LINE and matches a
+    // key by flat substring search (`line.find("\"" + key + "\"")`),
+    // ignoring which JSON object the key is textually nested inside. Two
+    // fields using the same on-disk key name -- e.g. this struct's "aeb
+    // enabled" and override_cfg's existing "enabled" -- would silently alias
+    // (whichever line the scanner is on assigns to BOTH C++ fields). The
+    // existing ffb block already hit this and solved it the same way this
+    // struct does: flat, prefixed, globally-unique on-disk key names
+    // (ffb_enabled / target_track_enabled, not bare "enabled") even though
+    // the JSON nests them for human readability. See LoadFromFile's parse_*
+    // calls for the exact on-disk key strings used for each field below.
+    struct
+    {
+        struct
+        {
+            // On-disk key: adas_aeb_enabled (see PARSER NOTE above -- bare
+            // "enabled" would alias with override_cfg.enabled's own
+            // "enabled" key).
+            bool enabled = false;
+
+            // Driver-override suppression (design §3-2): while the shared
+            // KickdownDetector (kickdown_threshold/kickdown_release_threshold
+            // below) is active, AEB does not intervene -- a translation of
+            // UN R152's driver-override provision (SECONDARY SOURCE, original
+            // text unread, no conformance claimed; see KickdownDetector.hpp).
+            bool kickdown_suppress_enabled = true;
+
+            // REQUIRES CALIBRATION -- verification plan §5. Must stay
+            // LOOSER (numerically larger) than AebSafetyConfig::ttc_threshold
+            // (2.5s, AebSafety.hpp) so FCW warns strictly before AEB
+            // intervenes (design §3-2, slug md-fcw-leads-intervention); the
+            // >=0.8s lead time itself is also unanchored (secondary-source
+            // UN R152 concept, same §5 entry). 3.5s is a placeholder chosen
+            // only to satisfy that ordering constraint, not a measured value.
+            double warning_ttc_threshold_s = 3.5;
+
+            // On-disk key: adas_aeb_warning_min_a_req_mps2.
+            //
+            // The OTHER half of the FCW gate. DeriveFcwGateConfig
+            // (AdasCoexistenceStack.cpp) clamps BOTH warning_ttc_threshold_s
+            // and this value to build the warning-path AebSafetyConfig, so the
+            // warning fires only where both thresholds admit it. Phase A
+            // exposed only the first of the pair, which made the calibration
+            // the verification plan §5 asks for structurally impossible: on
+            // any encounter where required deceleration is the binding side,
+            // moving warning_ttc_threshold_s alone cannot move the warning
+            // point at all (design §9/§12's recorded gap, closed here in
+            // phase B).
+            //
+            // REQUIRES CALIBRATION -- verification plan §5. Must stay LOOSER
+            // (numerically SMALLER) than AebSafetyConfig::min_a_req (3.0
+            // m/s^2); DeriveFcwGateConfig clamps rather than rejects a value
+            // that is not, so a mis-set key degrades the warning lead instead
+            // of breaking the run. 2.0 mirrors ManualAdasStackConfig::
+            // warning_min_a_req_mps2's own compiled-in default, the same
+            // "config file overrides the C++-side default" relationship
+            // brake_control below has with PedalArbitratorConfig.
+            double warning_min_a_req_mps2 = 2.0;   // [m/s^2]
+        } aeb;
+
+        // §3-4: required-deceleration -> brake-pedal PI conversion.
+        // PedalArbitrator (control/manualdrive/PedalArbitrator.hpp, owned by
+        // another agent and deliberately NOT included from this header) is
+        // the C++-side single source of truth for these three constants --
+        // the same relationship VirtualDriverConfig has with
+        // AdSteeringEnvelopeConfig (see AdSteeringEnvelope.hpp's "Single
+        // source of truth ON THE C++ SIDE" paragraph). These fields exist
+        // only so the config *file* can override PedalArbitrator's
+        // compiled-in defaults; the numeric values below are copied from
+        // PedalArbitratorConfig's own default member initializers on
+        // 2026-08-04 and a recalibration must update both places by hand.
+        struct
+        {
+            // On-disk key: adas_brake_full_decel_mps2.
+            // REQUIRES CALIBRATION (verification plan §5) -- mirrors
+            // PedalArbitratorConfig::full_brake_decel_mps2: a textbook
+            // full-ABS dry-pavement figure, not measured against
+            // RealVehicleBackend's actual brake model.
+            double full_brake_decel_mps2 = 8.0;   // [m/s^2]
+            // REQUIRES CALIBRATION -- mirrors PedalArbitratorConfig::brake_kp:
+            // a placeholder picked only to give the PI loop a visibly-
+            // converging shape.
+            double brake_kp = 0.05;
+            // REQUIRES CALIBRATION -- mirrors PedalArbitratorConfig::brake_ki.
+            double brake_ki = 0.6;   // [1/s]
+        } brake_control;
+
+        // Shared by AEB suppression (above) and, in phase C, MSL's temporary
+        // cap release (design §3-3 -- ONE detector so the two edges can never
+        // disagree). Mirrors KickdownDetectorConfig's own default member
+        // initializers (KickdownDetector.hpp) for the same "config overrides
+        // the C++-side default" relationship as brake_control above.
+        // REQUIRES CALIBRATION (verification plan §5): placeholders picked to
+        // be obviously "floored" vs "not floored", not measured values.
+        // kickdown_threshold is compared directly against the normalized
+        // throttle axis ([0,1]). A real G29 pedal may never reach 0.95 after
+        // deadzone/axis calibration, even though synthetic input
+        // (ScriptedInputSource) can always emit exactly 1.0 -- see
+        // GT_esmini/docs/virtualdriver/field-test/realmachine_open_items.md
+        // R-4 for the real-pedal measurement that resolves this (2026-08-05).
+        double kickdown_threshold         = 0.95;  // engage, accelerator fraction [0,1]
+        double kickdown_release_threshold = 0.80;  // release (hysteresis band), [0,1]
+
+        // ==================================================================
+        // PHASE C -- ACC (req-vd-ad:REQ-AD-026 / REQ-AD-031, vd-func:FUNC-079)
+        // ==================================================================
+        // Every field mirrors AccLonControllerConfig / AccStopAndGoConfig,
+        // which stay the C++-side single source of truth for the DEFAULTS
+        // (same relationship brake_control has with PedalArbitratorConfig);
+        // these exist only so the config FILE can override them. A
+        // recalibration must update both places by hand.
+        //
+        // On-disk keys are flat and prefixed (adas_acc_*) for the PARSER NOTE's
+        // reason. Note in particular `adas_acc_enabled` rather than a nested
+        // "enabled": the scanner is scope-blind and a bare "enabled" would
+        // alias with override_cfg's.
+        struct
+        {
+            bool   enabled            = false;
+            double set_speed_step_mps = 1.39;   // ~5 km/h
+
+            // Following-distance stages, as THREE FLAT KEYS rather than the
+            // design sketch's JSON array (design §9's "thw_stages_s": [...]).
+            // The loader cannot read an array at all -- it is a line scanner --
+            // so an array in the file would parse as nothing and leave every
+            // stage at its compiled-in default, silently. Three keys make the
+            // 3-stage count explicit, which is the count the design specifies.
+            // REQUIRES CALIBRATION (verification plan §5).
+            double thw_stage_short_s = 1.0;
+            double thw_stage_mid_s   = 1.6;
+            double thw_stage_long_s  = 2.2;
+            int    thw_default_stage = 1;
+
+            // REQ-AD-026 step f. max <= 0 means no upper bound; min 0 means
+            // down to standstill (correct for an ACC with Stop&Go).
+            double min_speed_mps = 0.0;
+            double max_speed_mps = 0.0;
+
+            // REQ-AD-026 step g. Same key vocabulary as the VD overtake
+            // ceiling's respect_speed_limit (req-vd-ad:REQ-AD-023), as that
+            // requirement's note asks.
+            bool   respect_speed_limit = false;
+
+            // ACC's OWN comfort envelope. Deliberately NOT the VD
+            // comfort_decel (design §4-2/§12: that number means "how smoothly
+            // the VD slows itself", which carries no meaning for a car a human
+            // is driving). REQUIRES CALIBRATION.
+            double accel_max_mps2 = 1.2;
+            double decel_max_mps2 = 2.0;
+
+            // Pedal references. These are what make the two limits above real:
+            // the speed loop commands an ACCELERATION and divides by these to
+            // get a pedal, so a large speed error can no longer saturate the
+            // command past the envelope. See AccLonControllerConfig's own
+            // "Pedal references" block for the measurement that motivated it.
+            // REQUIRES CALIBRATION.
+            double full_brake_decel_mps2    = 8.0;
+            double full_throttle_accel_mps2 = 3.0;
+
+            // Speed loop, in the ACCELERATION domain (kp: 1/s, ki: 1/s^2).
+            // REQUIRES CALIBRATION.
+            double speed_kp           = 0.45;
+            double speed_ki           = 0.12;
+            double speed_deadband_mps = 0.20;
+
+            // Driver-input thresholds: accelerator = temporary override
+            // (state retained), brake = cancel (ACTIVE -> STANDBY).
+            double accel_override_threshold = 0.05;
+            double brake_cancel_threshold   = 0.05;
+
+            // Stop&Go (REQ-AD-031 段a/b).
+            struct
+            {
+                bool   enabled = true;
+                // 段b targets. Each one ADDS a policy to the manual stack;
+                // leaving it false means the policy is never instantiated, so
+                // the negative direction of md-sng-target-config-polarity is
+                // structural rather than a filter (AdasCoexistenceStack's
+                // constructor).
+                bool   stop_at_traffic_light = false;
+                bool   stop_at_stop_sign     = false;
+                double restart_accel_threshold = 0.10;
+                // MEASURED against RealVehicle's automatic-transmission creep
+                // (design §12), 2026-08-05: hold_brake 0.30 keeps the vehicle
+                // inside 0.032 m over an 11.6 s hold. stop_speed_eps_mps 0.5
+                // must stay ABOVE the ~0.16 m/s creep floor or the hold can
+                // never engage at all -- see AccLonController.hpp's field
+                // comment and GT_esmini/docs/virtualdriver/measurements/
+                // manualdrive_creep_stop_hold_2026-08-05.md.
+                double hold_brake              = 0.30;
+                double stop_speed_eps_mps      = 0.5;
+            } stop_and_go;
+        } acc;
+
+        // ==================================================================
+        // PHASE C -- MSL (req-vd-ad:REQ-AD-030, vd-func:FUNC-081)
+        // ==================================================================
+        // Mirrors SpeedLimiterConfig. There is deliberately no set-speed key:
+        // the limiter's cap is SET FROM THE VEHICLE'S OWN SPEED when the
+        // driver switches it on and adjusted with the same stalk buttons as
+        // ACC's (design §9's shared-vocabulary note), exactly like a real
+        // limiter -- a config-file cap would be a fourth way to set the same
+        // number and none of the requirement's steps ask for one.
+        struct
+        {
+            bool   enabled            = false;
+            bool   speed_limit_linked = false;  // REQ-AD-030 step c
+            double taper_band_mps     = 2.0;    // REQUIRES CALIBRATION
+        } msl;
+
+        // ==================================================================
+        // PHASE D -- LKA / LDW (req-vd-ad:REQ-AD-027, vd-func:FUNC-080)
+        // ==================================================================
+        // Mirrors LaneKeepAssistConfig, which stays the C++-side single source
+        // of truth for the DEFAULTS (same relationship acc/msl above have with
+        // their own controller configs); these exist only so the config FILE
+        // can override them. A recalibration must update both places by hand.
+        //
+        // On-disk keys are flat and prefixed (adas_lka_*) for the PARSER NOTE's
+        // reason. `adas_lka_enabled` in particular, never a bare "enabled".
+        //
+        // NOTE ON warning_only: it is a MODE of this one block, not a second
+        // function with its own enable. Setting warning_only=true keeps the
+        // departure judgement (and therefore the gt.ldw row and every
+        // gt.lka.* diagnostic) running and suppresses only the correction --
+        // which is what makes REQ-AD-027 step f's two configurations differ in
+        // exactly one observable (see LaneKeepAssist.hpp).
+        struct
+        {
+            bool   enabled      = false;
+            bool   warning_only = false;
+
+            // REQ-AD-027 step e. Same key vocabulary as ACC (REQ-AD-026 step f)
+            // by the shared decision on those two requirements. max <= 0 means
+            // no upper bound. REQUIRES CALIBRATION -- the customary production
+            // figure of ~60 km/h for the lower bound is second-hand, and the
+            // shipped default is 0 so that enabling the function never silently
+            // does nothing on a slower scenario.
+            double min_speed_mps = 0.0;
+            double max_speed_mps = 0.0;
+
+            // Departure judgement (design §5-1). REQUIRES CALIBRATION.
+            double tlc_threshold_s     = 1.5;
+            double margin_threshold_m  = 0.15;
+            double release_margin_m    = 0.30;
+
+            // Correction law + the lateral envelope (design §5-2).
+            // REQUIRES CALIBRATION. See LaneKeepAssistConfig for the arithmetic
+            // these were sized from -- in particular why the gains are ~0.01
+            // and not ~0.1 (a normalized correction of 0.0024 already nulls a
+            // 0.3 m/s drift at 25 m/s).
+            double kp_offset          = 0.012;
+            double kd_lateral         = 0.020;
+            double correction_max     = 0.03;
+            double correction_rate_max = 0.10;
+
+            // Human steering priority (design §5-3). REQUIRES CALIBRATION;
+            // the real-wheel figure is a G29 item
+            // (GT_esmini/docs/virtualdriver/field-test/realmachine_open_items.md).
+            double steer_override_rate   = 0.03;
+            double steer_override_hold_s = 2.0;
+        } lka;
+    } adas;
+
+    // ADAS operating controls (req-vd-ad:REQ-AD-026 step e/h, REQ-AD-030).
+    // Physical wheel button indices, -1 = unassigned -- the same convention
+    // and the same place as the existing sdl2 button mapping, per design
+    // §4-1 ("manual_drive.json の既存ボタンマッピング流儀に乗せる"). Kept in
+    // their own struct rather than appended to `sdl2` so the on-disk keys stay
+    // greppable as a group; the loader is scope-blind either way.
+    struct
+    {
+        int acc_toggle_button     = -1;
+        int acc_set_resume_button = -1;
+        int acc_speed_up_button   = -1;
+        int acc_speed_down_button = -1;
+        int acc_thw_cycle_button  = -1;
+        int msl_toggle_button     = -1;
+    } adas_buttons;
 
     bool LoadFromFile(const std::string& filepath);
 };

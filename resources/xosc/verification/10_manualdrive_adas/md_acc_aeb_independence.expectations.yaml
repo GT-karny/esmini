@@ -1,0 +1,32 @@
+scenario: md_acc_aeb_independence
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-026 step d (vd-func:FUNC-079 + FUNC-075), slug
+# md-acc-aeb-independence. The tier arbitration of the manual-driving case:
+# ACC is a comfort function and AEB is a safety one, and when they disagree the
+# safety one decides.
+#
+# MEASURED (test_results/mdadas_measure, 2026-08-05): the lead brakes at
+# 8 m/s^2 from 35 m -- far outside ACC's own 2.0 m/s^2 budget -- and gt.aeb
+# first goes ACTIVE at t=6.25 while gt.acc stays ACTIVE for the entire run.
+#
+# WHY BOTH ASSERTIONS ARE NEEDED. "The car braked" proves nothing: both
+# functions are reacting to the same lead. The separable evidence is that TWO
+# rows are ACTIVE at once and neither cancelled the other -- ACC was never
+# demoted, the driver never touched a pedal, and the safety stage still set the
+# outcome. This is also what EvaluateAccCeiling's exclusion of SAFETY-tier
+# constraints buys: if ACC folded AEB's stop demand into its own ceiling, the
+# two would be reacting to one constraint and this scenario could not tell them
+# apart.
+must:
+  - event: manual_aeb_fires
+    function: gt.aeb
+    after: { sim_time: 4.0 }
+    before: { sim_time: 20.0 }
+    reason: "ACC作動中でもAEBが独立に監視して発火すること（REQ-AD-026段d）"
+  - event: adas_state_matches
+    function: gt.acc
+    expect: active
+    mode: all
+    after: { sim_time: 2.0 }
+    before: { sim_time: 20.0 }
+    reason: "AEB発火はACCを解除しない＝2機能が同時にACTIVEであること（tier調停であって排他ではない、REQ-AD-026段d）"

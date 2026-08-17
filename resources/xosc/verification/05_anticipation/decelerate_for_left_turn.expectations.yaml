@@ -1,4 +1,4 @@
-scenario: decelerate_for_right_turn
+scenario: decelerate_for_left_turn
 category: 05_anticipation
 # No Default baseline: mid/long judgment is from VirtualDriver telemetry only.
 # Tight-junction turn anticipation. This is the Phase-1 residual-bug scenario:
@@ -33,17 +33,16 @@ must:
                             # the same slack, same reason as section 11-9's lane-change
                             # min_lead_s: 2.9 vs the legal 3.0s -- code lights on the first frame
                             # dist <= 30.0, so the measured lead is always a shade under 30.0)
-    expect_dir: left       # NOT a mislabeling of this matcher: despite the filename
-                            # "decelerate_for_right_turn", the maneuver IS geometrically a LEFT
-                            # turn (junction_turn_signal.md section 5). Connecting road 13 in
+    expect_dir: left       # Correct: the maneuver IS geometrically a LEFT turn
+                            # (junction_turn_signal.md section 5). Connecting road 13 in
                             # fabriksgatan_traffic_lights.xodr is <arc curvature="+0.108108">,
                             # length 14.8696, entry hdg 0.1457 rad: heading delta =
                             # 0.108108 * 14.8696 = +1.608 rad (+92 deg), so the ego turns from
                             # ~8.3 deg (east-ish) to ~100.5 deg (north-ish) -- OpenDRIVE positive
                             # curvature is counter-clockwise, i.e. a left turn. The indicator is
-                            # therefore correct to light LEFT here; do not "fix" this to `right`
-                            # just because the filename says right turn. Renaming the asset is
-                            # deliberately out of scope for this cycle (section 5/7).
+                            # therefore correct to light LEFT here. The scenario was renamed from
+                            # decelerate_for_right_turn to decelerate_for_left_turn on 2026-08-04
+                            # to match this geometry (junction_turn_signal.md section 5/7).
     reason: "req-vd-ad:REQ-AD-021 defect regression guard: indicator anticipates the (geometric
       left) junction turn by the legal >=30 m, not just the old ~7 m short-connector distance"
 notes: >

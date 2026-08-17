@@ -1,0 +1,46 @@
+scenario: md_msl_speed_limit_linked
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-030 step c, the speed_limit_linked=FALSE pole. Same xosc, same
+# road, same driver as md_msl_speed_limit_linked.expectations.yaml - the ONLY
+# difference is the config switch (manifest `variant: set_speed_only`).
+#
+# WHY THIS ROW EXISTS. Without it the linked row would pass just as happily on an
+# implementation that ALWAYS caps at the road limit and never reads the config at
+# all. Step c's claim is about configurability, so the evidence has to be a
+# DIFFERENCE between two runs, not a value in one. Do not delete either row.
+#
+# THE SECOND speed_capped_at IS THE POLARITY ROW, AND IT IS NOT REDUNDANT WITH THE
+# FIRST. The first says "the limiter honoured whatever cap it reported"; a
+# road-linked implementation would satisfy that too, just with a bigger number.
+# The second names an absolute ceiling of 9.0 m/s at ZERO tolerance, which sits
+# between this pole's actual cap (~7.4) and the road's 13.889 - so an
+# implementation that read the road here would run straight through it. That is
+# what makes this pole a measurement rather than a restatement.
+#
+# WHY THE CAP IS ~7.4 AND NOT THE 8.0 THE Init SpeedAction ASKS FOR. The limiter
+# takes its setting from the vehicle's speed AT THE INSTANT THE STALK IS PRESSED
+# (t=1.0), and by then the vehicle has bled a little speed with the driver's foot
+# off the pedal. MEASURED (test_results/mdadas_warmup, 2026-08-05): cap 7.431,
+# peak speed 7.31, gt.msl ACTIVE from t=3.00. The scenario's 8.0 is therefore the
+# APPROACH speed, never the cap, and nothing here may hard-code it as one.
+must:
+  - event: speed_capped_at
+    function: gt.msl
+    cap_key: gt.msl.cap_mps
+    tolerance: 0.6
+    after: { sim_time: 3.0 }
+    before: { sim_time: 15.0 }
+    reason: "非連動時も実効キャップ（運転者の設定）を超えないこと（REQ-AD-030段a/c）"
+  - event: speed_capped_at
+    cap: 9.0
+    tolerance: 0.0
+    after: { sim_time: 3.0 }
+    before: { sim_time: 15.0 }
+    reason: "非連動時は道路の制限速度（13.889m/s）が実効キャップにならないこと。9.0m/sは設定側キャップ（実測7.43）と道路側（13.889）の間に置いた判別線＝道路を読む実装ならここを突き抜ける（REQ-AD-030段c・両極性）"
+  - event: adas_state_matches
+    function: gt.msl
+    expect: active
+    mode: any
+    after: { sim_time: 3.0 }
+    before: { sim_time: 15.0 }
+    reason: "両極性の対照として、状態は連動時と同じACTIVEであること（違いはキャップの出どころだけ）"

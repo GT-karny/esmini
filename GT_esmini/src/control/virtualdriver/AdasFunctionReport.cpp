@@ -104,4 +104,266 @@ std::vector<AdasFunctionState> BuildAdasFunctionReport(const VdPolicyEnableFlags
     return report;
 }
 
+// ============================================================================
+// ManualDrive ADAS coexistence report (req-vd-ad:REQ-AD-025 REQ-AD-028,
+// vd-func:FUNC-075, phase A). See AdasFunctionReport.hpp for the full design
+// rationale (no aggregate row, decision-boolean input, domain-ownership gate).
+// ============================================================================
+std::vector<AdasFunctionState> BuildManualAdasFunctionReport(const ManualAdasEnableFlags& flags,
+                                                              bool                         owns_longitudinal_domain,
+                                                              bool                         owns_lateral_domain,
+                                                              const ManualAdasDecision&    decision,
+                                                              const PolicyDetail&          detail)
+{
+    std::vector<AdasFunctionState> report;
+    report.reserve(6);  // AEB + FCW always; ACC / MSL / LKA / LDW when config-enabled
+
+    // design §2-3 (slug md-split-no-double-equipment): not owning the
+    // longitudinal domain collapses to the same UNAVAILABLE verdict as a
+    // config-disabled function -- both AEB and FCW are longitudinal-domain
+    // functions in phase A, so the same ownership flag gates both rows.
+    const bool domain_gate = owns_longitudinal_domain;
+
+    // AEB (design §8-2: NAME_AUTOMATIC_EMERGENCY_BRAKING). State follows the
+    // 3-value discipline: UNAVAILABLE (off / not owning) / STANDBY (armed,
+    // quiet) / ACTIVE (intervening this frame).
+    {
+        AdasFunctionState f;
+        f.name        = osi_adas::NAME_AUTOMATIC_EMERGENCY_BRAKING;
+        f.custom_name = "gt.aeb";
+
+        const bool gate_open = flags.aeb && domain_gate;
+
+        if (!gate_open)
+            f.state = osi_adas::STATE_UNAVAILABLE;
+        else if (decision.aeb_intervening)
+            f.state = osi_adas::STATE_ACTIVE;
+        else
+            f.state = osi_adas::STATE_STANDBY;
+
+        // req-vd-ad:REQ-AD-028 段b -- see the header's DRIVER OVERRIDE block.
+        // reported only while the gate is open (a function that was never
+        // running cannot have been overridden); active + custom_state only
+        // for the accelerator-origin override, whose `reasons` stays empty
+        // because OSI's Reason enum has no accelerator value.
+        if (gate_open)
+        {
+            f.driver_override.reported = true;
+            f.driver_override.active   = decision.driver_override_accel;
+            if (decision.driver_override_accel)
+            {
+                f.custom_state = kDriverOverrideAccel;
+            }
+        }
+
+        // design §8-4: gt.aeb.* diagnostics (ttc_s / a_req_mps2 / triggered /
+        // ..., plus gt.aeb.warning -- the FCW flag; see below) all route here
+        // by key prefix, regardless of this row's own state -- a consumer
+        // reading a STANDBY or UNAVAILABLE AEB row still gets the numbers
+        // that produced the verdict (same convention as BuildAdasFunctionReport
+        // above).
+        for (const auto& kv : detail)
+            if (StartsWith(kv.first, "gt.aeb.")) f.detail.push_back(kv);
+
+        report.push_back(std::move(f));
+    }
+
+    // FCW (design §8-2: NAME_FORWARD_COLLISION_WARNING). Built from the same
+    // AebSafety output as AEB, one threshold earlier (design §3-2): a frame
+    // can have fcw_warning=true while aeb_intervening stays false (warning
+    // precedes intervention, REQ-AD-025 step e), so this row's state is
+    // computed independently of the AEB row's above, from decision.fcw_warning.
+    {
+        AdasFunctionState f;
+        f.name        = osi_adas::NAME_FORWARD_COLLISION_WARNING;
+        f.custom_name = "gt.fcw";
+
+        const bool gate_open = flags.fcw && domain_gate;
+
+        if (!gate_open)
+            f.state = osi_adas::STATE_UNAVAILABLE;
+        else if (decision.fcw_warning)
+            f.state = osi_adas::STATE_ACTIVE;
+        else
+            f.state = osi_adas::STATE_STANDBY;
+
+        // req-vd-ad:REQ-AD-028 段b: evaluated, never active. Kickdown
+        // suppresses INTERVENTION, not the WARNING -- see the header's DRIVER
+        // OVERRIDE block for why, and why this row is the in-run negative
+        // control for the accelerator override on the AEB row above.
+        if (gate_open)
+        {
+            f.driver_override.reported = true;
+        }
+
+        // No "gt.fcw." keys exist yet in phase A (design §8-4's table has no
+        // FCW-specific quantity; gt.aeb.warning -- the FCW flag itself --
+        // routes to the AEB row above by key prefix, intentionally, per the
+        // design table). Routing "gt.fcw." here anyway (rather than omitting
+        // it) keeps this row symmetric with AEB's and future-proofs it for a
+        // later phase that adds one, at zero cost today since no caller emits
+        // such a key.
+        for (const auto& kv : detail)
+            if (StartsWith(kv.first, "gt.fcw.")) f.detail.push_back(kv);
+
+        report.push_back(std::move(f));
+    }
+
+    // ---- phase C rows (req-vd-ad:REQ-AD-026 / 030 / 031) -------------------
+    // Emitted ONLY when the corresponding function is config-enabled, so a
+    // phase-A/B config keeps producing exactly the two rows above and the
+    // committed ManualDrive baselines are unmoved. See the header's PHASE C
+    // ROWS block for the state mapping and for why "switched off by the
+    // driver" collapses onto UNAVAILABLE.
+    auto stateful_row = [&](int name, const char* custom_name, const char* detail_prefix, int fn_state,
+                            bool override_brake_reason, bool override_accel_token)
+    {
+        AdasFunctionState f;
+        f.name        = name;
+        f.custom_name = custom_name;
+
+        // Not owning the longitudinal domain collapses to UNAVAILABLE exactly
+        // as it does for AEB/FCW above (slug md-split-no-double-equipment) --
+        // the row is still EMITTED so a split run can be seen to have declined,
+        // rather than the function silently disappearing from the stream.
+        // `fn_state` 0 (driver has not switched it on) reports UNAVAILABLE too
+        // -- the collapse the header documents.
+        if (!domain_gate || fn_state == 0)
+            f.state = osi_adas::STATE_UNAVAILABLE;
+        else if (fn_state == 2)
+            f.state = osi_adas::STATE_ACTIVE;
+        else
+            f.state = osi_adas::STATE_STANDBY;
+
+        // req-vd-ad:REQ-AD-028 段b. `reported` follows the CONFIG+DOMAIN gate,
+        // NOT the function's own on/off state: a config-enabled function on an
+        // owned domain really was evaluated for an override this frame, so "no
+        // override" is a measurement even while the driver has it switched
+        // off. This is also what keeps the two facts the header's state
+        // collapse merges (never installed vs installed-and-driver-off)
+        // separable from outside.
+        if (domain_gate)
+        {
+            f.driver_override.reported = true;
+            f.driver_override.active   = override_brake_reason || override_accel_token;
+            if (override_brake_reason)
+            {
+                f.driver_override.reasons.push_back(osi_adas::REASON_BRAKE_PEDAL);
+            }
+            if (override_accel_token)
+            {
+                f.custom_state = kDriverOverrideAccel;
+            }
+        }
+
+        for (const auto& kv : detail)
+            if (StartsWith(kv.first, detail_prefix)) f.detail.push_back(kv);
+
+        report.push_back(std::move(f));
+    };
+
+    if (flags.acc)
+    {
+        // Both override producers can be live at once (a driver with one foot
+        // on each pedal), so `active` is their OR and the two channels -- a
+        // Reason for the brake, a custom_state token for the accelerator --
+        // are populated independently. Collapsing them would force a choice
+        // between two true statements.
+        stateful_row(osi_adas::NAME_ADAPTIVE_CRUISE_CONTROL, "gt.acc", "gt.acc.", decision.acc_state,
+                     decision.acc_driver_override_brake, decision.acc_driver_override_accel);
+    }
+
+    if (flags.msl)
+    {
+        stateful_row(osi_adas::NAME_SPEED_LIMIT_CONTROL, "gt.msl", "gt.msl.", decision.msl_state,
+                     /*override_brake_reason=*/false, decision.msl_driver_override_accel);
+    }
+
+    // ---- phase D rows (req-vd-ad:REQ-AD-027) -------------------------------
+    // Gated by the LATERAL ownership flag, not the longitudinal one. See the
+    // header's PHASE D ROWS block for the state mapping and for why the LKA row
+    // survives warning_only as STANDBY instead of being withdrawn.
+    const bool lat_gate = owns_lateral_domain;
+
+    if (flags.lka)
+    {
+        AdasFunctionState f;
+        f.name        = osi_adas::NAME_LANE_KEEPING_ASSIST;
+        f.custom_name = "gt.lka";
+
+        const bool gate_open = flags.lka && lat_gate;
+
+        if (!gate_open)
+            f.state = osi_adas::STATE_UNAVAILABLE;
+        else if (decision.lka_correcting)
+            f.state = osi_adas::STATE_ACTIVE;
+        else
+            f.state = osi_adas::STATE_STANDBY;
+
+        // req-vd-ad:REQ-AD-028 段b, the STEERING half -- the producer that has
+        // been missing since phase B built the mechanism. `reasons` IS
+        // populated here (unlike the accelerator overrides, which have no OSI
+        // enum value and fall back to custom_state): REASON_STEERING_INPUT
+        // exists, so using it is what keeps this observation comparable across
+        // AD stacks instead of GT-private.
+        if (gate_open)
+        {
+            f.driver_override.reported = true;
+            f.driver_override.active   = decision.lka_driver_override_steering;
+            if (decision.lka_driver_override_steering)
+            {
+                f.driver_override.reasons.push_back(osi_adas::REASON_STEERING_INPUT);
+            }
+        }
+
+        for (const auto& kv : detail)
+            if (StartsWith(kv.first, "gt.lka.")) f.detail.push_back(kv);
+
+        report.push_back(std::move(f));
+    }
+
+    if (flags.ldw)
+    {
+        AdasFunctionState f;
+        f.name        = osi_adas::NAME_LANE_DEPARTURE_WARNING;
+        f.custom_name = "gt.ldw";
+
+        const bool gate_open = flags.ldw && lat_gate;
+
+        if (!gate_open)
+            f.state = osi_adas::STATE_UNAVAILABLE;
+        else if (decision.ldw_warning)
+            f.state = osi_adas::STATE_ACTIVE;
+        else
+            f.state = osi_adas::STATE_STANDBY;
+
+        // Evaluated, never active -- the same shape as the FCW row, and for the
+        // same reason: what the driver's steering overrides is the CORRECTION,
+        // not the warning. A driver hauling the wheel across a line without
+        // signalling is exactly who the warning is still for. This row is
+        // therefore also the in-run negative control for the steering override
+        // on the LKA row above (one frame, one run, one active and one not).
+        if (gate_open)
+        {
+            f.driver_override.reported = true;
+        }
+
+        // design §8-4 routes every gt.lka.* diagnostic to the LKA row by prefix
+        // (including gt.lka.warning, the LDW flag itself) -- exactly as
+        // gt.aeb.warning routes to the AEB row rather than the FCW one. Routing
+        // "gt.ldw." here anyway keeps the row symmetric and costs nothing
+        // today, since no caller emits such a key.
+        for (const auto& kv : detail)
+            if (StartsWith(kv.first, "gt.ldw.")) f.detail.push_back(kv);
+
+        report.push_back(std::move(f));
+    }
+
+    // No aggregate row here -- see BuildManualAdasFunctionReport's doc comment
+    // in AdasFunctionReport.hpp for why (unlike BuildAdasFunctionReport above,
+    // which does add one).
+
+    return report;
+}
+
 }  // namespace gt_esmini

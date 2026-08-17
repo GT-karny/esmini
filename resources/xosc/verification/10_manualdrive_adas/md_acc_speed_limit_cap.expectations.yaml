@@ -1,0 +1,26 @@
+scenario: md_acc_speed_limit_cap
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-026 step g (vd-func:FUNC-079), slug md-acc-speed-limit-cap.
+# THE respect_speed_limit=TRUE HALF of the two-configuration pair; the other
+# half is md_acc_speed_limit_cap_ignore.expectations.yaml, run from the SAME
+# xosc through the manifest's `variant` key. Neither file asserts anything on
+# its own: step g's claim is that one switch changes the effective cap, and a
+# single configuration cannot show that.
+#
+# MEASURED (test_results/mdadas_measure, 2026-08-05): ego enters at 24 m/s under
+# the 90 km/h section, crosses the limit step at s=250 (~t=9), and settles at
+# 13.52-13.68 m/s -- the road's 50 km/h (13.889) minus the loop's deadband.
+must:
+  - event: speed_capped_at
+    cap: 13.889
+    tolerance: 0.6
+    after: { sim_time: 16.0 }
+    before: { sim_time: 20.0 }
+    reason: "respect_speed_limit有効時、設定速度24m/sではなく道路の制限速度13.889m/sで実効上限がキャップされること（REQ-AD-026段g）"
+  - event: adas_state_matches
+    function: gt.acc
+    expect: active
+    mode: all
+    after: { sim_time: 2.0 }
+    before: { sim_time: 20.0 }
+    reason: "制限速度キャップは実効上限の変更であって解除ではないこと"

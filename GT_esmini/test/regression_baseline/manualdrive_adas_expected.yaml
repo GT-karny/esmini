@@ -1,0 +1,297 @@
+manifest: resources/xosc/verification/manualdrive_adas_batch.yaml
+note: 'Committed baseline for ADAS running ALONGSIDE a human driver (gate:manualdrive-adas-regression,
+  run_regression_gate.ps1 Step 2.10). Scope: req-vd-ad:REQ-AD-025 (AEB+FCW), REQ-AD-026 (ACC),
+  REQ-AD-027 (LKA+LDW), REQ-AD-028 (face-3 observability incl. DriverOverride), REQ-AD-030 (MSL),
+  REQ-AD-031 (Stop&Go a/b) -- realized by vd-func:FUNC-075 / FUNC-079 / FUNC-080 / FUNC-081.
+  ALL THIRTY ARE GREEN as recorded (2026-08-06): this baseline carries NO known-red, so ANY
+  deviation is a real regression -- including an unexpected PASS, which on the negative rows
+  (md_aeb_no_conflict, md_aeb_no_conflict [adas_off], md_lka_drift [below_band],
+  md_lka_lane_change_with_indicator, ...) would mean a discriminator stopped discriminating.
+
+  Positives and negatives share ONE manifest and ONE baseline deliberately: nearly every claim
+  here is only a claim as a pair ("intervenes on a collision course" needs "does not intervene
+  otherwise"; "assists lane keeping" needs "yields instantly to a steering driver"). Splitting
+  them would let the trade "loosen a threshold, pass the positive, break the negative" walk
+  through the gate. Several rows are the SAME xosc run under two configurations (the batch
+  ''variant'' key, shown as `<scenario>__<variant>` run dirs): those pairs are how the
+  UNAVAILABLE-vs-STANDBY three-value discipline and the speed-limit/speed-band gates are
+  asserted at all, so a variant row going missing is itself a regression.
+
+  EVERY new feature in this batch ships DEFAULT OFF; the batch turns them on per scenario via
+  injected ManualDrive config. So a red here means the ManualDrive ADAS stack changed -- it does
+  not mean default behaviour changed.
+
+  Freeze provenance (2026-08-06, build from commit 2937062d): the batch was run THREE times
+  back to back before this file was written. All three were 30/30 pass with error=0 and no
+  access violation, and their decision fields (post-arbitration throttle/brake/steering/gear
+  plus the per-function State, DriverOverride and custom_state columns) were byte-identical
+  across all 20400 frames of each run -- the self-determinism control that verification plan
+  sec7-5 requires BEFORE any expectation is frozen. Freezing on a single run risks baking in
+  either the intermittent native crash recorded in docs/virtualdriver/measurements/
+  gt_sim_test_intermittent_crash_2026-08-05.md (which makes scenarios error out, not fail) or
+  a non-deterministic frame. If a future red shows `error`, check for an access violation
+  FIRST and re-run that scenario alone: deviations are not evidence about a scenario that never
+  got measured.
+
+  Compared per-scenario/per-matcher by scripts/check_regression_baseline.py. Refresh ONLY after
+  an intentional behaviour change, with --update, and review the diff before committing.'
+expected_summary:
+  pass: 30
+  fail: 0
+  needs-review: 0
+  error: 0
+scenarios:
+  md_aeb_unresponsive:
+    status: pass
+    matchers:
+    - event: manual_aeb_fires
+      status: pass
+    - event: impact_speed_below
+      status: pass
+    - event: driver_override_reported
+      status: pass
+  md_aeb_stationary_lead:
+    status: pass
+    matchers:
+    - event: fcw_leads_intervention
+      status: pass
+    - event: manual_aeb_fires
+      status: pass
+  md_aeb_no_conflict:
+    status: pass
+    matchers:
+    - event: no_intervention_in_window
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_aeb_strong_brake_driver:
+    status: pass
+    matchers:
+    - event: brake_not_stacked
+      status: pass
+  md_aeb_kickdown_suppress:
+    status: pass
+    matchers:
+    - event: manual_aeb_fires
+      status: pass
+    - event: no_intervention_in_window
+      status: pass
+    - event: driver_override_reported
+      status: pass
+    - event: driver_override_reported
+      status: pass
+  md_fcw_warning_only:
+    status: pass
+    matchers:
+    - event: adas_state_matches
+      status: pass
+    - event: no_intervention_in_window
+      status: pass
+  md_aeb_no_conflict__adas_off:
+    status: pass
+    matchers:
+    - event: adas_state_matches
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_acc_follow_lead:
+    status: pass
+    matchers:
+    - event: adas_state_matches
+      status: pass
+    - event: speed_capped_at
+      status: pass
+    - event: setting_reflected
+      status: pass
+  md_acc_cancel_resume:
+    status: pass
+    matchers:
+    - event: adas_state_sequence
+      status: pass
+    - event: driver_override_reported
+      status: pass
+    - event: no_intervention_in_window
+      status: pass
+    - event: driver_override_reported
+      status: pass
+    - event: adas_state_matches
+      status: pass
+    - event: driver_override_reported
+      status: pass
+  md_acc_setting_changes:
+    status: pass
+    matchers:
+    - event: adas_state_matches
+      status: pass
+    - event: setting_reflected
+      status: pass
+  md_acc_speed_limit_cap__respect_limit:
+    status: pass
+    matchers:
+    - event: speed_capped_at
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_acc_speed_limit_cap__ignore_limit:
+    status: pass
+    matchers:
+    - event: min_speed_above
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_acc_speed_range_gate:
+    status: pass
+    matchers:
+    - event: adas_state_sequence
+      status: pass
+    - event: no_intervention_in_window
+      status: pass
+  md_acc_aeb_independence:
+    status: pass
+    matchers:
+    - event: manual_aeb_fires
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_sng_lead_stop_restart:
+    status: pass
+    matchers:
+    - event: stop_hold_stationary
+      status: pass
+    - event: restart_after_trigger
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_sng_stop_sign__stop_sign_target:
+    status: pass
+    matchers:
+    - event: stop_hold_stationary
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_sng_stop_sign__lead_only_target:
+    status: pass
+    matchers:
+    - event: min_speed_above
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_msl_throttle_cap:
+    status: pass
+    matchers:
+    - event: speed_capped_at
+      status: pass
+    - event: no_brake_output
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_msl_kickdown:
+    status: pass
+    matchers:
+    - event: adas_state_sequence
+      status: pass
+    - event: driver_override_reported
+      status: pass
+    - event: driver_override_reported
+      status: pass
+    - event: driver_override_reported
+      status: pass
+  md_msl_speed_limit_linked__linked:
+    status: pass
+    matchers:
+    - event: speed_capped_at
+      status: pass
+    - event: min_speed_above
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_msl_speed_limit_linked__set_speed_only:
+    status: pass
+    matchers:
+    - event: speed_capped_at
+      status: pass
+    - event: speed_capped_at
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_sng_traffic_light:
+    status: pass
+    matchers:
+    - event: stop_hold_stationary
+      status: pass
+    - event: speed_below
+      status: pass
+    - event: adas_state_matches
+      status: pass
+  md_acc_msl_exclusion:
+    status: pass
+    matchers:
+    - event: adas_state_sequence
+      status: pass
+    - event: adas_state_sequence
+      status: pass
+  md_lka_drift__left:
+    status: pass
+    matchers:
+    - event: lane_kept_within
+      status: pass
+    - event: adas_state_matches
+      status: pass
+    - event: driver_override_reported
+      status: pass
+  md_lka_drift__right:
+    status: pass
+    matchers:
+    - event: lane_kept_within
+      status: pass
+    - event: adas_state_matches
+      status: pass
+    - event: driver_override_reported
+      status: pass
+  md_lka_drift__warning_only:
+    status: pass
+    matchers:
+    - event: steer_output_absent
+      status: pass
+    - event: adas_state_matches
+      status: pass
+    - event: adas_state_matches
+      status: pass
+    - event: lane_kept_within
+      status: pass
+  md_lka_drift__below_band:
+    status: pass
+    matchers:
+    - event: steer_output_absent
+      status: pass
+    - event: adas_state_matches
+      status: pass
+    - event: lane_kept_within
+      status: pass
+  md_lka_drift__in_band:
+    status: pass
+    matchers:
+    - event: adas_state_matches
+      status: pass
+    - event: lane_kept_within
+      status: pass
+  md_lka_human_steer:
+    status: pass
+    matchers:
+    - event: driver_override_reported
+      status: pass
+    - event: steer_output_absent
+      status: pass
+    - event: adas_state_matches
+      status: pass
+    - event: driver_override_reported
+      status: pass
+  md_lka_lane_change_with_indicator:
+    status: pass
+    matchers:
+    - event: steer_output_absent
+      status: pass
+    - event: adas_state_matches
+      status: pass
+    - event: driver_override_reported
+      status: pass

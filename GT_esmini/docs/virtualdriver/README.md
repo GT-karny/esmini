@@ -29,6 +29,7 @@
 | 横=人 / 縦=AI（ハンドルに力は出ない） | [field-test/realwheel_split_test.md](field-test/realwheel_split_test.md) |
 | 横=AI / 縦=人（ハンドルに力が出る） | [field-test/realwheel_reverse_test.md](field-test/realwheel_reverse_test.md) |
 | AUTO_RESUME の戻り方を体感で判定する | [field-test/resume_merge_user_check.md](field-test/resume_merge_user_check.md) |
+| **実機でしか確かめられない未消化項目**（F7 の残差検出 R-1〜R-3／手動運転中 ADAS の R-4〜R-8） | [field-test/realmachine_open_items.md](field-test/realmachine_open_items.md) |
 
 ## 実装する
 
@@ -63,6 +64,8 @@
 | 計測を始める前の規律と器具の検定手順 | 同上 §1, §5 |
 | AEB の Car-to-Car グリッド採点 | [measurements/aeb_c2c_grid_matrix.md](measurements/aeb_c2c_grid_matrix.md) |
 | 実機ホイールで移管を測った一次記録 | [measurements/realwheel_handover_results_2026-07.md](measurements/realwheel_handover_results_2026-07.md) |
+| 手動運転中 ADAS の回帰ベースラインを凍結してよいと判断した根拠 | [measurements/manualdrive_adas_determinism_2026-08-06.md](measurements/manualdrive_adas_determinism_2026-08-06.md) |
+| 手動運転中 ADAS が運転席 UI にどう出るか（実走スクリーンショット） | [measurements/manualdrive_adas_hmi_2026-08-06.md](measurements/manualdrive_adas_hmi_2026-08-06.md) |
 
 ## 経緯をたどる
 

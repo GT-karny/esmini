@@ -27,14 +27,25 @@ namespace gt_esmini
 
 // Mirrors osi3::HostVehicleData_VehicleAutomatedDrivingFunction_{Name,State}
 // (osi_hostvehicledata.proto, OSI 3.7.0). Only the values GT_esmini emits.
+//
+// req-vd-ad:REQ-AD-025 / REQ-AD-028 (ManualDrive ADAS phase A/B) add the 4 FCW/
+// LDW/LKA/MSL values below (design doc manualdrive_adas_design.md §8-2). Values
+// cross-checked against test/unit/realdriver/test_AdasSlotTable.cpp, which pins
+// the same OSI 3.7.0 enum independently for the RealDriver 24-slot path. As with
+// the pre-existing 3 values, the coordinator pins these against the real .proto
+// with static_assert in GT_esminiLib.cpp (control must not depend on osi).
 namespace osi_adas
 {
 enum Name
 {
     NAME_OTHER                       = 1,
-    NAME_AUTOMATIC_EMERGENCY_BRAKING = 7,
+    NAME_FORWARD_COLLISION_WARNING   = 3,   // vd-func:FUNC-075 FCW (phase A)
+    NAME_LANE_DEPARTURE_WARNING      = 4,   // vd-func:FUNC-080 LDW (phase D)
+    NAME_AUTOMATIC_EMERGENCY_BRAKING = 7,   // vd-func:FUNC-075 AEB (phase A)
     NAME_ADAPTIVE_CRUISE_CONTROL     = 10,
+    NAME_LANE_KEEPING_ASSIST         = 11,  // vd-func:FUNC-080 LKA (phase D)
     NAME_URBAN_DRIVING               = 22,
+    NAME_SPEED_LIMIT_CONTROL         = 25,  // vd-func:FUNC-081 MSL (phase C)
 };
 
 enum State
@@ -45,7 +56,52 @@ enum State
     STATE_STANDBY     = 5,
     STATE_ACTIVE      = 6,
 };
+
+// Mirrors osi3::HostVehicleData_VehicleAutomatedDrivingFunction_DriverOverride_
+// Reason (req-vd-ad:REQ-AD-028 段b, design §8-3). The enum has EXACTLY TWO
+// values in OSI 3.7.0 -- brake pedal and steering input. There is NO
+// accelerator value; that is a standard-level constraint, not an omission
+// here, and it is why accelerator-origin overrides (AEB kickdown suppression,
+// MSL cap release, ACC temporary override) are reported through `custom_state`
+// (kDriverOverrideAccel below) instead of a third Reason. Pinned against the
+// real proto by static_assert in GT_esminiLib.cpp, same as Name/State above.
+enum OverrideReason
+{
+    REASON_BRAKE_PEDAL    = 0,
+    REASON_STEERING_INPUT = 1,
+};
 }  // namespace osi_adas
+
+// custom_state token for the accelerator-origin driver override (design §8-3's
+// third bullet). A STRING token rather than an enum value precisely because
+// OSI has no enum slot for it -- see osi_adas::OverrideReason's comment. The
+// exact spelling is part of the observation contract: verification matchers
+// (driver_override_reported) compare against this literal, so changing it is a
+// breaking change to face-3 assets, not an internal rename.
+inline constexpr const char* kDriverOverrideAccel = "DRIVER_OVERRIDE_ACCEL";
+
+// One row's DriverOverride submessage (req-vd-ad:REQ-AD-028 段b).
+//
+// `reported` is NOT redundant with `active`. It distinguishes "this row's
+// override channel was evaluated this frame and found nothing" (reported=true,
+// active=false) from "nothing ever populated this channel" (reported=false) --
+// the same absent-key-is-not-zero discipline AdasCoexistenceStack.hpp applies
+// to `detail` on a bypassed frame, and the same STANDBY-vs-UNAVAILABLE
+// distinction REQ-AD-028 段a makes for State. A consumer cannot evidence "the
+// driver did not override" from a channel that was never written, so
+// reported=false must reach OSI as an ABSENT submessage (GT_HostVehicleReporter
+// only emits driver_override when reported is true), never as an explicit
+// active=false that would look like a measurement.
+//
+// This is also what keeps every non-ManualDrive caller byte-identical: the
+// RealDriver 24-slot rows and the VirtualDriver rows leave this default-
+// constructed, so their serialized HVD is unchanged by phase B.
+struct AdasDriverOverride
+{
+    bool             reported = false;  // false -> do not emit the submessage at all
+    bool             active   = false;
+    std::vector<int> reasons;           // osi_adas::OverrideReason values
+};
 
 // One row of vehicle_automated_driving_function[].
 struct AdasFunctionState
@@ -54,6 +110,12 @@ struct AdasFunctionState
     std::string  custom_name;  // always set — the only label for NAME_OTHER rows
     int          state = osi_adas::STATE_UNAVAILABLE;
     PolicyDetail detail;       // -> custom_detail (KeyValuePair), see PolicyDetail.hpp
+
+    // req-vd-ad:REQ-AD-028 段b (phase B). Empty custom_state = field not set
+    // on the wire (OSI `optional string custom_state`); only ManualDrive's
+    // accelerator-origin override writes it today (kDriverOverrideAccel).
+    AdasDriverOverride driver_override;
+    std::string        custom_state;
 };
 
 // Which policies the controller actually instantiated (config flags). A policy
@@ -74,5 +136,267 @@ struct VdPolicyEnableFlags
 // testable, which is the part that carries the semantics.
 std::vector<AdasFunctionState> BuildAdasFunctionReport(const VdPolicyEnableFlags&   flags,
                                                        const TrafficPolicySnapshot& snapshot);
+
+// ============================================================================
+// ManualDrive ADAS coexistence stack (req-vd-ad:REQ-AD-025 REQ-AD-028,
+// vd-func:FUNC-075). Phase A wires only AEB + its FCW warning pre-stage
+// (design doc manualdrive_adas_design.md §10 phase table); ACC/LKA/MSL land
+// in phases C/D and are deliberately NOT declared here yet.
+// ============================================================================
+
+// Which manual-stack functions are configured ON (config, not domain
+// ownership -- see owns_longitudinal_domain below). Mirrors
+// VdPolicyEnableFlags' UNAVAILABLE-vs-STANDBY discipline: a function that was
+// never enabled can never fire, and "switched off" must stay distinguishable
+// from "watching and chose not to fire" (REQ-AD-028 step a).
+//
+// `fcw` is declared separately from `aeb` even though phase A's config skeleton
+// (design §9) only exposes a single `adas.aeb.enabled` key: FCW is the warning
+// PRE-STAGE built from AebSafety's own output (design §3-2, same policy, looser
+// threshold), not a separately-instantiated policy, but the report-building
+// function should not assume the two are always co-enabled -- the caller
+// (AdasCoexistenceStack) decides how config maps onto these two booleans, this
+// function only consumes the result.
+struct ManualAdasEnableFlags
+{
+    bool aeb = false;
+    bool fcw = false;
+    // req-vd-ad:REQ-AD-026 / REQ-AD-030 (phase C). Config-enabled, NOT
+    // "currently controlling" -- the same distinction `aeb` already carries.
+    // ACC's own OFF/STANDBY/ACTIVE machine (AccState) rides on top of this
+    // flag: `acc == false` means the function does not exist in this run at
+    // all (UNAVAILABLE), whereas acc==true with AccState::OFF means it exists
+    // and the driver has not switched it on. Both report UNAVAILABLE -- see
+    // BuildManualAdasFunctionReport's own comment for why that collapse is
+    // correct rather than a lost distinction.
+    bool acc = false;
+    bool msl = false;
+
+    // req-vd-ad:REQ-AD-027 (phase D). Declared as TWO flags for the same reason
+    // aeb/fcw are: LDW is not a separately-instantiated function but a MODE of
+    // the same judgement, and the caller (AdasCoexistenceStack) decides how the
+    // single `adas.lka` config block maps onto the pair.
+    //
+    // The mapping it uses, and why:
+    //   ldw = cfg.lka.enabled                    -- the judgement runs in both
+    //                                               modes, so the warning row
+    //                                               exists in both.
+    //   lka = cfg.lka.enabled                    -- ALSO both. The LKA row is
+    //                                               NOT withdrawn under
+    //                                               warning_only; it reports
+    //                                               STANDBY forever instead.
+    //
+    // That second choice is deliberate and load-bearing for REQ-AD-027 step f.
+    // If warning_only made the LKA row UNAVAILABLE, the row would carry no
+    // detail and gt.lka.correction would be ABSENT -- and "the assist produced
+    // no correction" would then be indistinguishable from "nobody looked",
+    // which is exactly the vacuous pass steer_output_absent must refuse. With
+    // the row present and reporting a measured 0.000, the negative is a
+    // measurement. STANDBY is also the honest state: the function is installed
+    // and watching, it just cannot act in this configuration.
+    bool lka = false;
+    bool ldw = false;
+};
+
+// Per-frame decisions the manual stack (AdasCoexistenceStack / AebSafety) has
+// already computed. Deliberately booleans, not a TrafficPolicySnapshot search
+// by PolicyConstraint::source string like BuildAdasFunctionReport() above:
+// ManualDrive calls AebSafety::Evaluate() directly (design §2-1 "policy bodies
+// are reused with zero modification") and already knows whether this frame
+// intervened / warned, so re-deriving that from a source-string search would
+// just be a slower, more roundabout way to read the same fact the caller
+// already holds. (A source-string mechanism would also be a worse fit for FCW,
+// which is not itself a PolicyConstraint emitter -- see design §3-2.)
+struct ManualAdasDecision
+{
+    bool aeb_intervening = false;  // AEB safety stage fired this frame (brake authority raised)
+    bool fcw_warning     = false;  // FCW pre-stage: TTC below the (looser) warning threshold
+
+    // req-vd-ad:REQ-AD-028 段b (phase B) -- the accelerator-origin driver
+    // override, i.e. "the human's floored accelerator is currently holding
+    // AEB off" (design §3-2/§8-3). True while the shared KickdownDetector is
+    // latched AND kickdown suppression is configured on, NOT merely while AEB
+    // happened to be suppressed on this particular frame.
+    //
+    // WHY THE WIDER CONDITION: OSI's DriverOverride asks "has the driver
+    // overridden this FUNCTION", which is a property of the function's
+    // availability, not of one frame's arbitration outcome. AEB is genuinely
+    // overridden -- it cannot intervene -- for as long as the kickdown holds,
+    // whether or not a target happens to be in front right now. Reporting
+    // only the frames where a request was actually vetoed
+    // (PedalArbitrationSnapshot::aeb_suppressed) would make the override
+    // channel blink on and off with the traffic situation rather than track
+    // the driver's input, and the narrower fact remains separately observable
+    // anyway as the gt.aeb.suppressed custom_detail key. Neither fact is lost;
+    // they are reported in the two places whose semantics each one fits.
+    bool driver_override_accel = false;
+
+    // ===================== phase C (req-vd-ad:REQ-AD-026 / 030 / 031) =======
+    //
+    // ACC and MSL are STATEFUL functions with their own OFF/STANDBY/ACTIVE
+    // machines (AccLonController's AccState, and the limiter's
+    // enabled/limiting pair), unlike AEB/FCW whose state is a pure function of
+    // this frame's decision. The stack therefore hands the ALREADY-RESOLVED
+    // state in, rather than a "fired this frame" boolean the report function
+    // would have to interpret -- the state machine's semantics live in one
+    // place (AccLonController) and this projection stays a mapping.
+    //
+    // 0 = OFF (driver has not switched it on), 1 = STANDBY, 2 = ACTIVE.
+    // An int rather than the AccState enum because this header must not
+    // include a manualdrive/ header: control/virtualdriver/ is included by
+    // GT_esminiLib.cpp's dispatch and by the VD path, neither of which should
+    // acquire a dependency on the ManualDrive controller's internals.
+    // AdasCoexistenceStack owns the (one-line) translation and its unit test
+    // pins the three values.
+    int  acc_state = 0;
+    int  msl_state = 0;
+
+    // ACC's brake-origin driver override (design §8-3's first bullet) -- the
+    // producer REQ-AD-028 段b's REASON_BRAKE_PEDAL half has been waiting for
+    // since phase B. True while the driver's brake is holding ACC off, NOT
+    // merely on the cancelling frame; see AccFrameOutput::driver_override_brake
+    // for why the latched (input-tracking) condition is the honest one.
+    bool acc_driver_override_brake = false;
+
+    // ACC's accelerator-origin temporary override (design §3-1's generate
+    // stage). Same custom_state token as the AEB kickdown override, for the
+    // same standard-level reason (no accelerator value exists in OSI's Reason
+    // enum) -- one token, two producers, which is why kDriverOverrideAccel is
+    // a shared constant rather than a per-function string.
+    bool acc_driver_override_accel = false;
+
+    // MSL's kickdown release (REQ-AD-030 step b). Accelerator-origin, so it
+    // reports through custom_state exactly like the two above.
+    bool msl_driver_override_accel = false;
+
+    // ===================== phase D (req-vd-ad:REQ-AD-027) ===================
+    //
+    // LKA/LDW are LATERAL-domain functions. Their gate is the SEPARATE
+    // owns_lateral_domain argument below, never the longitudinal one -- the
+    // whole content of md-split-no-double-equipment in a split configuration is
+    // that the two domains answer differently.
+    //
+    // TWO booleans rather than one "state", because the LKA row and the LDW row
+    // are driven by DIFFERENT ones and collapsing them would make REQ-AD-027
+    // step f (警報は出るが cmd.steering は不変) unobservable:
+    //   * lka_correcting -- a correction actually reached cmd.steering. Always
+    //                       false under warning_only, by construction
+    //                       (LaneKeepAssist.cpp fences the output block), and
+    //                       also false whenever a suppression or the speed band
+    //                       held the assist off. It is therefore the honest
+    //                       basis for the LKA row's ACTIVE.
+    //   * ldw_warning    -- what the LDW row reports ACTIVE on: the departure
+    //                       verdict minus the indicator suppression.
+    //
+    // The DEPARTURE verdict itself, the speed-band flag and the two suppression
+    // flags are deliberately NOT carried here. No row's state is a function of
+    // them, and a field in this struct that nothing reads would be a claim the
+    // report does not make. They are observable in their own right as
+    // gt.lka.departure / in_speed_band / suppressed_* custom_detail keys, which
+    // is where a consumer asking "why is the row STANDBY" should look.
+    bool lka_correcting    = false;
+    bool ldw_warning       = false;
+
+    // req-vd-ad:REQ-AD-028 段b's THIRD and last producer -- the steering-origin
+    // driver override (REASON_STEERING_INPUT). Accelerator arrived in phase B,
+    // brake in phase C; with this one the step's three-path claim is complete.
+    // Latched on the driver's INPUT, like the other two (see
+    // LkaFrameOutput::driver_override_steering for why the indicator
+    // suppression deliberately does NOT raise it).
+    bool lka_driver_override_steering = false;
+};
+
+// Projects one frame of the ManualDrive ADAS stack onto the OSI AD-function
+// rows. Pure: no engine, no OSI, no controller state.
+//
+// `owns_longitudinal_domain`: design §2-3's split-configuration rule. AEB and
+// FCW are both longitudinal-domain functions; in a split configuration where
+// VirtualDriver owns LONGITUDINAL (DomainOwnershipLedger::OwnerOf), ManualDrive
+// must not double-equip -- both rows report UNAVAILABLE regardless of the
+// config flags above, exactly like a config-disabled function (slug
+// md-split-no-double-equipment). This is intentionally a single flag for phase
+// A: both functions this phase implements share one domain.
+//
+// DRIVER OVERRIDE (req-vd-ad:REQ-AD-028 段b, phase B). Every row whose gate is
+// OPEN (config-enabled AND owning the domain, i.e. the row is not UNAVAILABLE)
+// gets driver_override.reported = true, because on such a frame the manual
+// stack really did evaluate the override question -- an answer of "no
+// override" is then a measurement, not silence. Rows behind a closed gate
+// (config off / domain not owned) leave it default (reported=false), matching
+// the empty-not-zeroed `detail` rule AdasCoexistenceStack applies to the same
+// bypass: a function that was never running cannot have been overridden.
+//
+// Only the AEB row carries the accelerator override (decision.
+// driver_override_accel -> active=true + custom_state=kDriverOverrideAccel).
+// FCW does not: kickdown suppresses INTERVENTION, and suppressing the warning
+// as well would remove the driver's last cue precisely when they are
+// accelerating toward a hazard. The FCW row therefore reports an evaluated-
+// but-inactive override, which doubles as the in-run negative control for the
+// driver_override_reported matcher (same frame, same run, one row active and
+// one not).
+//
+// `reasons` stays EMPTY for the accelerator override -- see
+// osi_adas::OverrideReason: OSI has only brake/steering values, and picking
+// the "closest" one would misreport which pedal the human used. Brake-origin
+// (ACC cancel, phase C) and steering-origin (LKA interrupt, phase D) overrides
+// are the producers that will populate it; phase B builds the mechanism and
+// exercises the accelerator path only.
+//
+// PHASE C ROWS (gt.acc, gt.msl). Emitted only when the corresponding enable
+// flag is set, so a phase-A/B-era config produces the SAME TWO ROWS it always
+// did and the committed ManualDrive baselines stay unmoved. The state mapping
+// is:
+//
+//   gate closed (config off / domain not owned) -> UNAVAILABLE
+//   gate open, function state OFF               -> UNAVAILABLE
+//   gate open, function state STANDBY           -> STANDBY
+//   gate open, function state ACTIVE            -> ACTIVE
+//
+// The first two lines collapse two different facts onto one OSI value, and
+// that is deliberate. OSI's State enum has no "installed but switched off by
+// the driver" value distinct from UNAVAILABLE, and inventing one (AVAILABLE,
+// say) would misuse a value that means something else. The distinction is not
+// lost: `driver_override.reported` is written for the config-enabled+owned
+// rows only, so "the run had ACC compiled in and the driver left it off" is
+// still separable from "this run had no ACC" by reading the override channel's
+// presence -- the same mechanism REQ-AD-028 段b built for a different question.
+//
+// NO aggregate row: unlike BuildAdasFunctionReport()'s "gt.virtual_driver" /
+// NAME_URBAN_DRIVING row (§8-1), a manual-context report must NOT claim "an
+// automated driving function has control" as a whole-stack summary -- the
+// human is driving. Emitting that row here would misreport who is in control
+// to any face-3 consumer that trusts it, so this function omits it entirely
+// rather than trying to redefine its meaning.
+// PHASE D ROWS (gt.lka, gt.ldw) are gated by `owns_lateral_domain`, a SECOND
+// ownership flag. Phase A's doc comment above says "this is intentionally a
+// single flag for phase A: both functions this phase implements share one
+// domain" -- phase D is where that stops being true. In a lat=manual/lon=VD
+// split the longitudinal rows go UNAVAILABLE while gt.lka/gt.ldw stay live, and
+// in the reverse split the opposite; one flag could express neither.
+//
+// State mapping for the pair:
+//   gate closed (config off / lateral not owned) -> UNAVAILABLE   (both rows)
+//   gt.lka: warning_only                         -> STANDBY  (always; see
+//                                                   ManualAdasEnableFlags::lka)
+//           outside the speed band               -> STANDBY  (step e)
+//           correcting this frame                -> ACTIVE
+//           otherwise                            -> STANDBY
+//   gt.ldw: warning raised this frame            -> ACTIVE
+//           otherwise                            -> STANDBY
+//
+// The LKA row carries the steering-origin DriverOverride
+// (decision.lka_driver_override_steering -> active=true + reasons=
+// [REASON_STEERING_INPUT]). Unlike the accelerator override, this one DOES
+// populate `reasons`: OSI has a steering value, so using custom_state here
+// would be inventing a channel the standard already provides. The LDW row
+// reports an evaluated-but-inactive override, mirroring what the FCW row does
+// for the AEB kickdown -- the warning is not what the driver's steering
+// overrides, and having one active and one inactive row in the same frame is a
+// free in-run negative control.
+std::vector<AdasFunctionState> BuildManualAdasFunctionReport(const ManualAdasEnableFlags& flags,
+                                                              bool                         owns_longitudinal_domain,
+                                                              bool                         owns_lateral_domain,
+                                                              const ManualAdasDecision&    decision,
+                                                              const PolicyDetail&          detail);
 
 }  // namespace gt_esmini

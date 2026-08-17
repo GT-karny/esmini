@@ -1,0 +1,32 @@
+scenario: md_acc_setting_changes
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-026 step e (vd-func:FUNC-079), slug
+# md-acc-set-speed-runtime-change.
+#
+# MEASURED (test_results/mdadas_measure, 2026-08-05): four SPEED_UP presses at
+# t=4/5/6/7 walk the setting 17.361 -> 18.751 -> 20.141 -> 21.531 -> 22.921, and
+# the effective cap tracks it EXACTLY frame for frame (empty road, no lead, no
+# speed limit honoured -- nothing else can bind the min()).
+must:
+  - event: adas_state_matches
+    function: gt.acc
+    expect: active
+    mode: all
+    after: { sim_time: 2.0 }
+    before: { sim_time: 20.0 }
+    reason: "走行中の設定変更でACCが解除されないこと（設定操作は状態遷移ではない）"
+
+  # min_step 1.0 sits between one press (1.39 m/s) and the deadband/noise
+  # floor, so each press is counted once and nothing else can register as a
+  # change. NOTE the matcher FAILS (not passes) if no change is found at all:
+  # a run whose ops profile silently stopped working produces the same constant
+  # columns as a controller that stored the setting and ignored it.
+  - event: setting_reflected
+    function: gt.acc
+    setting_key: gt.acc.set_speed_mps
+    effective_key: gt.acc.effective_cap_mps
+    min_step: 1.0
+    settle_s: 2.0
+    after: { sim_time: 3.0 }
+    before: { sim_time: 12.0 }
+    reason: "設定速度の増減が実効上限に即座に反映されること（REQ-AD-026段e）。「設定した」と「効いた」を別の観測量で見る"

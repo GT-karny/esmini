@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ManualDrive ADAS verification scenario 10_manualdrive_adas / md_lka_drift
+  (req-vd-ad:REQ-AD-027 steps a/e/f, vd-func:FUNC-080; slugs md-lka-drift-correction,
+  md-lka-speed-range-gate and md-ldw-warning-without-steer). Added 2026-08-05 (phase D).
+
+  Road: straight_500m_2lane.xodr (the 07_aeb road, reused). Lanes are 3.07 m wide and
+  the vehicle is 2.00 m, so there is 0.535 m of margin at dead centre - the number the
+  assist's margin/release thresholds are sized against.
+
+  ONE FILE, FIVE CONFIGURATIONS (manifest `variant`). The GEOMETRY is identical in all
+  five; what changes is the input profile's sign and the LKA config:
+
+    * variant: left / right - the MIRROR PAIR (weak_drift_left / weak_drift_right,
+      LKA on). Both must keep the lane. A sign error in the correction law does not
+      make the assist weaker, it makes it push the car OUT - and a single-sided asset
+      cannot see that, because "left the lane" is also what a too-weak assist looks
+      like. Two mirrored runs separate the two.
+    * variant: warning_only - same stimulus, adas_lka_warning_only=true. The
+      judgement still runs (the LDW row still warns) and the correction is gone, so
+      the ego departs. This is BOTH halves of REQ-AD-027 step f AND the negative pole
+      of step a: it is what proves the drift stimulus was strong enough to matter,
+      which the positive rows alone cannot.
+    * variant: below_band - same stimulus, adas_lka_min_speed_mps=30 against an
+      ego at 25 m/s. Step e's negative: outside the band the assist does not act, and
+      reports STANDBY rather than UNAVAILABLE (it is installed and armed, just out of
+      range).
+    * variant: in_band - the same speed-band configuration with the bound moved
+      BELOW the ego. Without it, `below_band` would pass on a build where LKA never
+      works at all.
+
+  The drift is not scripted as a lane change: the driver applies a small input and
+  RELEASES it (profiles/weak_drift_*.json), leaving a standing heading error and no
+  hand on the wheel. That is what makes the assist's job finite and what keeps the
+  input rate far below the human-steering-priority threshold - a steeper ramp would
+  suppress the very assist this scenario measures, and would still look plausible from
+  outside.
+
+  20 s at 25 m/s from s=30 covers 500 m of road exactly, so the run is bounded by its
+  StopTrigger and not by running out of road.
+-->
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="3" date="2026-08-05T00:00:00"
+               description="ManualDrive ADAS verification: weak lateral drift, left/right mirror pair, LKA on vs warning-only vs out-of-band" author="GT_esmini"/>
+   <ParameterDeclarations>
+      <ParameterDeclaration name="EgoSpeed" parameterType="double" value="25.0"/>
+   </ParameterDeclarations>
+   <CatalogLocations/>
+   <RoadNetwork>
+      <LogicFile filepath="../../../xodr/straight_500m_2lane.xodr"/>
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../../../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9"/>
+               <Dimensions width="2.0" length="5.0" height="1.8"/>
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10"/>
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98" positionZ="0.4"/>
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0" positionZ="0.4"/>
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0"/>
+               <Property name="scaleMode" value="ModelToBB"/>
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="ManualDriveController">
+               <Properties>
+                  <Property name="esminiController" value="ManualDriveController"/>
+                  <Property name="ConfigFile" value="manual_drive_headless_stub.json"/>
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position><LanePosition roadId="1" laneId="-1" offset="0" s="30"/></Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
+                        <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoSpeed"/></SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction objectControllerRef="ManualDriveController" lateral="true" longitudinal="true"/>
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="LkaDriftStory">
+         <Act name="LkaDriftAct">
+            <ManeuverGroup maximumExecutionCount="1" name="EgoSequence">
+               <Actors selectTriggeringEntities="false"><EntityRef entityRef="Ego"/></Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="ActStart" delay="0" conditionEdge="none">
+                     <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="StopCondition" delay="0" conditionEdge="rising">
+               <ByValueCondition><SimulationTimeCondition value="20" rule="greaterThan"/></ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>

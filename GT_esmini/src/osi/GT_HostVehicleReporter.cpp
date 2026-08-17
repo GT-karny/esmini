@@ -167,7 +167,8 @@ void GT_HostVehicleReporter::AddADASFunctionEx(int                              
                                                int                                                     osi_name,
                                                const std::string&                                      custom_name,
                                                int                                                     state,
-                                               const std::vector<std::pair<std::string, std::string>>& detail)
+                                               const std::vector<std::pair<std::string, std::string>>& detail,
+                                               const AdasFunctionOverride&                             driver_override)
 {
     auto& cache = input_cache_[vehicle_id];
 
@@ -175,18 +176,20 @@ void GT_HostVehicleReporter::AddADASFunctionEx(int                              
     {
         if (func.name == custom_name)
         {
-            func.state    = state;
-            func.osi_name = osi_name;
-            func.detail   = detail;
+            func.state           = state;
+            func.osi_name        = osi_name;
+            func.detail          = detail;
+            func.driver_override = driver_override;
             return;
         }
     }
 
     InputCache::ADASFunction func;
-    func.name     = custom_name;
-    func.state    = state;
-    func.osi_name = osi_name;
-    func.detail   = detail;
+    func.name            = custom_name;
+    func.state           = state;
+    func.osi_name        = osi_name;
+    func.detail          = detail;
+    func.driver_override = driver_override;
     cache.adas_functions.push_back(func);
 }
 
@@ -392,6 +395,35 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* 
                     pair->set_key(kv.first);
                     pair->set_value(kv.second);
                 }
+
+                // req-vd-ad:REQ-AD-028 段b (design §8-3). BOTH fields are
+                // written only when the producer actually has something to
+                // say (see AdasFunctionOverride's doc comment): a
+                // default-constructed override leaves the row's serialized
+                // bytes exactly as they were before phase B, which is what
+                // makes this change a no-op for the RealDriver 24-slot rows
+                // and the VirtualDriver rows.
+                //
+                // set_active() is called EXPLICITLY even for false: OSI's
+                // `active` is an `optional bool`, so an explicit false is
+                // present-on-the-wire and readable as "evaluated, no
+                // override", distinct from the absent submessage that means
+                // "never evaluated".
+                if (func.driver_override.reported)
+                {
+                    auto* ovr = adas_func->mutable_driver_override();
+                    ovr->set_active(func.driver_override.active);
+                    for (int reason : func.driver_override.reasons)
+                    {
+                        ovr->add_override_reason(
+                            static_cast<osi3::HostVehicleData_VehicleAutomatedDrivingFunction_DriverOverride_Reason>(
+                                reason));
+                    }
+                }
+                if (!func.driver_override.custom_state.empty())
+                {
+                    adas_func->set_custom_state(func.driver_override.custom_state);
+                }
             }
         }
     }
@@ -452,6 +484,22 @@ void GT_HostVehicleReporter::Send()
 int GT_HostVehicleReporter::GetUDPClientStatus() const
 {
     return (udp_client_ ? udp_client_->GetStatus() : -1);
+}
+
+const char* GT_HostVehicleReporter::GetSerializedHostVehicleData(int* size) const
+{
+    // Guard a null size, matching the header's documented contract.
+    if (size)
+    {
+        *size = static_cast<int>(serialized_data_.size);
+    }
+
+    if (serialized_data_.data.empty())
+    {
+        return nullptr;
+    }
+
+    return serialized_data_.data.data();
 }
 
 } // namespace gt_esmini

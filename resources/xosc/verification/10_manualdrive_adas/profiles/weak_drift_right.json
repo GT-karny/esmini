@@ -1,0 +1,12 @@
+{
+  "name": "weak_drift_right",
+  "description": "req-vd-ad:REQ-AD-027 step a. The exact MIRROR of weak_drift_left.json -- same throttle, same timing, same magnitude, opposite sign (+ = right). See that file for the sizing argument; only the sign differs here.\n\nThe pair is the point. LaneKeepAssist's correction law has positive gains on vehicle-left-positive inputs and emits a steer-right-positive output, and a sign error anywhere in that chain does not make the assist weaker, it makes it push the vehicle OUT of the lane. A single-sided asset cannot see that: it would simply be a run where the ego left the lane, indistinguishable from an assist that is too weak. Two mirrored runs make an inverted sign show up as one side held and the other thrown out.",
+  "keyframes": [
+    { "t": 0.0,  "throttle": 0.30, "brake": 0.0, "steering": 0.000, "gear": 1, "buttons": 0 },
+    { "t": 2.0,  "throttle": 0.30, "brake": 0.0, "steering": 0.000, "gear": 1, "buttons": 0 },
+    { "t": 3.0,  "throttle": 0.30, "brake": 0.0, "steering": 0.002, "gear": 1, "buttons": 0 },
+    { "t": 5.0,  "throttle": 0.30, "brake": 0.0, "steering": 0.002, "gear": 1, "buttons": 0 },
+    { "t": 6.0,  "throttle": 0.30, "brake": 0.0, "steering": 0.000, "gear": 1, "buttons": 0 },
+    { "t": 30.0, "throttle": 0.30, "brake": 0.0, "steering": 0.000, "gear": 1, "buttons": 0 }
+  ]
+}

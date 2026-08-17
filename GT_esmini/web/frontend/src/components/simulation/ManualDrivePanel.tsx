@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { useGamepadButtonCapture } from '../../hooks/useGamepadButtonCapture';
 import { api, type ManualDriveConfig, type ManualDrivePreset } from '../../api/client';
 import { MANUAL_DRIVE_DEFAULT_PORTS } from '../../lib/manualDrive';
+import { WheelAxisMappingSection, DEFAULT_AXIS_MAPPING } from './WheelAxisMappingSection';
 
 interface ManualDrivePanelProps {
   open: boolean;
@@ -27,6 +28,11 @@ const DEFAULT_CONFIG: ManualDriveConfig = {
     // into the per-run config, so -1 here would hand C++ "unassigned" and
     // re-create gap #5 through the control meant to expose it.
     button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1, auto_resume: 3 },
+    // feature:F8 -- the G29 layout, i.e. what C++ hardcoded before the mapping
+    // existed. Same reasoning as auto_resume above: a defaulted value here is
+    // written straight into the per-run config, so it must be the shipped
+    // layout and not a placeholder.
+    axis_mapping: DEFAULT_AXIS_MAPPING,
   },
   keyboard: {
     steer_left: 'A', steer_right: 'D', throttle: 'W', brake: 'S', clutch: 'LShift',
@@ -351,6 +357,20 @@ export function ManualDrivePanel({ open, onClose, config, onChange }: ManualDriv
               })}
             </div>
           </section>
+        )}
+
+        {/* Axis Mapping (SDL2 only) — feature:F8. Placed after the buttons
+            because it is the same kind of per-device binding, and before the
+            takeover thresholds because a wheel whose axes are misassigned makes
+            every threshold below meaningless. */}
+        {config.input_type === 'sdl2_wheel' && (
+          <WheelAxisMappingSection
+            mapping={config.sdl2.axis_mapping ?? DEFAULT_AXIS_MAPPING}
+            deviceIndex={config.sdl2.device_index}
+            onChange={(axis_mapping) =>
+              onChange({ ...config, sdl2: { ...config.sdl2, axis_mapping } })
+            }
+          />
         )}
 
         {/* Takeover thresholds + misc (feature:F7 gap #6)

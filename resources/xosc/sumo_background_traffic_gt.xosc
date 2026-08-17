@@ -1,0 +1,132 @@
+<?xml version="1.0" ?>
+<!-- feature:F9 smoke scenario for the GT SUMO background traffic controller.
+
+     Deliberately NOT a copy of cut-in_sumo.xosc: that one selects upstream's
+     "SumoController" and must keep doing so. This one selects
+     "GTSumoTrafficController".
+
+     It sets no "enabled" Property on purpose, so this scenario exercises the
+     shipped default in config/sumo_traffic.json. If that default is ever turned
+     off, the smoke does not quietly pass with an empty road — it spawns zero
+     vehicles and the count check fails.
+
+     What it is meant to show: exit 0 AND SUMO vehicles actually appearing.
+     Either alone is a silent pass -- the upstream controller exits 0 with zero
+     vehicles too. The Ego ramps 3 -> 20 m/s past the 13.89 m/s lane limit of
+     the e6mini SUMO net, which is the condition under which SUMO would clip the
+     ego speed it shows to its own traffic (design doc section 2-4). -->
+<OpenSCENARIO>
+    <FileHeader author="GT_esmini" date="2026-08-17T00:00:00" description="GT SUMO background traffic smoke" revMajor="1" revMinor="3"/>
+    <ParameterDeclarations/>
+    <CatalogLocations>
+        <VehicleCatalog>
+            <Directory path="../xosc/Catalogs/Vehicles"/>
+        </VehicleCatalog>
+        <ControllerCatalog>
+            <Directory path="../xosc/Catalogs/Controllers"/>
+        </ControllerCatalog>
+    </CatalogLocations>
+    <RoadNetwork>
+        <LogicFile filepath="../xodr/e6mini.xodr"/>
+        <SceneGraphFile filepath="../models/e6mini.osgb"/>
+    </RoadNetwork>
+    <Entities>
+        <ScenarioObject name="Ego">
+            <CatalogReference catalogName="VehicleCatalog" entryName="car_white"/>
+        </ScenarioObject>
+        <!-- Host of the controller and 3D-model template for spawned vehicles.
+             It has no Init action on purpose: it is not a participant, and the
+             controller takes it out of the scene at Init. -->
+        <ScenarioObject name="SumoVehicles">
+            <CatalogReference catalogName="VehicleCatalog" entryName="car_yellow"/>
+            <ObjectController>
+                <Controller name="gtSumoTraffic">
+                    <Properties>
+                        <Property name="esminiController" value="GTSumoTrafficController"/>
+                        <Property name="overrideVehicleScaleMode" value="BBToModel"/>
+                        <File filepath="../sumo_inputs/e6mini.sumocfg"/>
+                    </Properties>
+                </Controller>
+            </ObjectController>
+        </ScenarioObject>
+    </Entities>
+    <Storyboard>
+        <Init>
+            <Actions>
+                <Private entityRef="Ego">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position>
+                                <LanePosition laneId="-3" offset="0" roadId="0" s="1"/>
+                            </Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsDimension="time" dynamicsShape="step" value="1"/>
+                                <SpeedActionTarget>
+                                    <AbsoluteTargetSpeed value="3"/>
+                                </SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                </Private>
+            </Actions>
+        </Init>
+        <Story name="story">
+            <ParameterDeclarations/>
+            <Act name="act">
+                <ManeuverGroup maximumExecutionCount="1" name="mangroup_ego">
+                    <Actors selectTriggeringEntities="false">
+                        <EntityRef entityRef="Ego"/>
+                    </Actors>
+                    <Maneuver name="ego_speed">
+                        <Event maximumExecutionCount="1" name="ego_speed_increase" priority="overwrite">
+                            <Action name="ego_speed_up">
+                                <PrivateAction>
+                                    <LongitudinalAction>
+                                        <SpeedAction>
+                                            <SpeedActionDynamics dynamicsDimension="time" dynamicsShape="linear" value="10"/>
+                                            <SpeedActionTarget>
+                                                <AbsoluteTargetSpeed value="20"/>
+                                            </SpeedActionTarget>
+                                        </SpeedAction>
+                                    </LongitudinalAction>
+                                </PrivateAction>
+                            </Action>
+                            <StartTrigger>
+                                <ConditionGroup>
+                                    <Condition conditionEdge="rising" delay="0" name="start_ramp">
+                                        <ByValueCondition>
+                                            <SimulationTimeCondition rule="greaterThan" value="2"/>
+                                        </ByValueCondition>
+                                    </Condition>
+                                </ConditionGroup>
+                            </StartTrigger>
+                        </Event>
+                    </Maneuver>
+                </ManeuverGroup>
+                <StartTrigger>
+                    <ConditionGroup>
+                        <Condition conditionEdge="rising" delay="0" name="act_start">
+                            <ByValueCondition>
+                                <SimulationTimeCondition rule="greaterThan" value="0"/>
+                            </ByValueCondition>
+                        </Condition>
+                    </ConditionGroup>
+                </StartTrigger>
+                <StopTrigger/>
+            </Act>
+        </Story>
+        <StopTrigger>
+            <ConditionGroup>
+                <Condition conditionEdge="rising" delay="0" name="stop_simulation">
+                    <ByValueCondition>
+                        <SimulationTimeCondition rule="greaterThan" value="20"/>
+                    </ByValueCondition>
+                </Condition>
+            </ConditionGroup>
+        </StopTrigger>
+    </Storyboard>
+</OpenSCENARIO>

@@ -1,0 +1,81 @@
+scenario: md_acc_cancel_resume
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-026 steps b/c + req-vd-ad:REQ-AD-028 段b (vd-func:FUNC-079),
+# slugs md-acc-brake-cancel / md-acc-accel-temporary-override /
+# md-acc-state-transition-sequence / md-driver-override-brake-reason.
+#
+# THIS FILE CARRIES THE FIRST EVIDENCE FOR REQ-AD-028 段b's BRAKE HALF. Phase B
+# built the whole populate mechanism and could exercise only the accelerator
+# path, because AEB's kickdown suppression was the only producer in existence
+# and OSI has no accelerator Reason value. ACC's brake cancel is the first
+# producer of REASON_BRAKE_PEDAL anywhere in GT_esmini.
+#
+# MEASURED (test_results/mdadas_measure, 2026-08-05): state column
+# unavailable -> standby@1.00 -> active@1.30 -> standby@5.95 -> active@10.00.
+must:
+  # Step c: the operation列 and the state列 correspond. A SUBSEQUENCE match on
+  # the run-length-compressed column, so it asserts the ORDER of the
+  # transitions and not how long the run sat in each one.
+  - event: adas_state_sequence
+    function: gt.acc
+    expect: [unavailable, standby, active, standby, active]
+    after: { sim_time: 0.0 }
+    before: { sim_time: 34.0 }
+    reason: "操作列（on→set→ブレーキ解除→resume）に対応する状態遷移列がHVDに出ること（REQ-AD-026段c）"
+
+  # Step b, first half: the brake cancels, and the override is visible with the
+  # right Reason. Window 6.1-6.9 sits inside the measured 6.0-7.0 brake press
+  # with a frame of margin at each end (the pedal ramps over one keyframe
+  # interval, so the boundary frame's membership depends on sampling phase --
+  # the same phase argument md_aeb_kickdown_suppress records for its own
+  # window). `brake_pedal` is the harness's projection of REASON_BRAKE_PEDAL:
+  # _enum_name strips the REASON_ prefix and lower-cases the rest.
+  - event: driver_override_reported
+    function: gt.acc
+    expect_active: true
+    expect_reason: brake_pedal
+    mode: all
+    after: { sim_time: 6.1 }
+    before: { sim_time: 6.9 }
+    reason: "ブレーキ踏下による解除が DriverOverride の REASON_BRAKE_PEDAL として面3から読めること（REQ-AD-028段b・ブレーキ経路の初の実証）"
+
+  # Step b, second half: it stays cancelled. The pedal is released at t=7.1 and
+  # resume is not pressed until t=10.0, so this window is the one that
+  # separates "cancels while the pedal is down" from "cancels until resume".
+  - event: no_intervention_in_window
+    function: gt.acc
+    after: { sim_time: 7.5 }
+    before: { sim_time: 9.8 }
+    reason: "ブレーキを離してもresumeまで再介入しないこと（REQ-AD-026段b）。ペダルが戻った時点で復帰する実装はここで赤になる"
+
+  # And the override channel goes quiet with the pedal -- the override tracks
+  # the DRIVER'S INPUT, not the function's standby state. Without this, a
+  # producer that latched the override for the whole cancelled period would
+  # look identical.
+  - event: driver_override_reported
+    function: gt.acc
+    expect_active: false
+    mode: all
+    after: { sim_time: 7.5 }
+    before: { sim_time: 9.8 }
+    reason: "上書きはペダルとともに終わること（解除状態が続く間ずっとactiveを立て続ける実装はここで赤）"
+
+  # Accelerator override: the state must NOT change (it is not a transition),
+  # and the accelerator origin reports through custom_state because OSI's
+  # Reason enum has no accelerator value. Window inside the measured 14.0-16.0
+  # press with a frame of margin.
+  - event: adas_state_matches
+    function: gt.acc
+    expect: active
+    mode: all
+    after: { sim_time: 14.2 }
+    before: { sim_time: 15.8 }
+    reason: "アクセル一時上書き中もACCはACTIVEのまま（状態遷移ではない、REQ-AD-026段b）"
+  - event: driver_override_reported
+    function: gt.acc
+    expect_active: true
+    expect_custom_state: DRIVER_OVERRIDE_ACCEL
+    mode: all
+    after: { sim_time: 14.2 }
+    before: { sim_time: 15.8 }
+    reason: "アクセル起因の一時上書きが custom_state で出ること（Reason列挙に該当値が無い規格制約の補完、REQ-AD-028段b）"

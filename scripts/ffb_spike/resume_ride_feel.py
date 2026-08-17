@@ -91,10 +91,13 @@ MAX_STEER_ANGLE = vrt.MAX_STEER_ANGLE  # 0.61 rad, config/virtual_driver.json
 # different inline car_white bbox (length 5.0 -> 3.0) for right_turn/
 # tljunction; f7_realwheel_basic.jsonl's own scenario (same naming pattern as
 # vd_resume_transient's) uses the catalog entry (3.024). Confirmed by reading
-# resources/xosc/verification/05_anticipation/{decelerate_for_right_turn,
+# resources/xosc/verification/05_anticipation/{decelerate_for_left_turn,
 # traffic_lights_junction}.xosc (inline BoundingBox length="5.0") vs.
 # resources/xosc/virtual_driver_basic.xosc (CatalogReference car_white,
 # VehicleCatalog.xosc length="5.04"). Difference is 0.8%, kept exact anyway.
+# Dict key stays "right_turn" (not renamed to "left_turn"): it matches the
+# real-hardware log filename f7_realwheel_right_turn.jsonl (test_results/,
+# pre-existing artifact from before the 2026-08-04 scenario rename).
 REALWHEEL_WHEEL_BASE = {"basic": 3.024, "right_turn": 3.0, "tljunction": 3.0}
 SIM_WHEEL_BASE = vrt.WHEEL_BASE  # 3.024 -- the vd_resume_transient.py scenario's own vehicle
 

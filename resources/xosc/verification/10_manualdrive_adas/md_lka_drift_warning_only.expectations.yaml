@@ -1,0 +1,50 @@
+scenario: md_lka_drift
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-027 step f (vd-func:FUNC-080), slug md-ldw-warning-without-steer.
+# THE warning_only POLE of the pair whose other half is
+# md_lka_drift.expectations.yaml, run from the SAME xosc and the SAME input
+# profile through the manifest's `variant` key. The only difference is
+# adas_lka_warning_only.
+#
+# THIS ROW CARRIES TWO CLAIMS AT ONCE, AND THAT IS WHY IT IS ONE RUN:
+#   * step f: the warning is raised while cmd.steering is untouched. The LDW row
+#     going ACTIVE and steer_output_absent passing on the SAME frames is the
+#     whole of "警報は出るが cmd.steering は不変".
+#   * step a's negative pole: the ego DEPARTS. Without this, the two positive
+#     rows would pass equally well on a stimulus too weak to have gone anywhere
+#     -- "the car stayed in its lane" is not evidence about an assist unless the
+#     car would otherwise have left it.
+#
+# WHY THE gt.lka ROW IS STILL EXPECTED TO EXIST HERE. warning_only reports
+# STANDBY on the LKA row rather than withdrawing it to UNAVAILABLE, precisely so
+# gt.lka.correction is REPORTED as a measured 0.000. A withdrawn row would make
+# steer_output_absent SKIP, and "the assist produced nothing" would become
+# indistinguishable from "nobody looked" (AdasFunctionReport.hpp's
+# ManualAdasEnableFlags note).
+must:
+  - event: steer_output_absent
+    function: gt.lka
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "警報のみモードでは補正操舵の出力がゼロであること＝cmd.steering が人間の入力のまま不変（REQ-AD-027段f）"
+  - event: adas_state_matches
+    function: gt.ldw
+    expect: active
+    mode: any
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "同じ実行で警報（LDW）は出ていること。補正が出ないことと警報が出ないことは別の事実で、片方だけでは段fにならない"
+  - event: adas_state_matches
+    function: gt.lka
+    expect: standby
+    mode: all
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "警報のみモードの LKA 行は UNAVAILABLE（切ってある）ではなく STANDBY（居るが撃てない）であること。UNAVAILABLE にすると detail ごと消えて steer_output_absent が skip に落ち、負が空振りする"
+  - event: lane_kept_within
+    function: gt.lka
+    max_offset_m: 1.0
+    expect_kept: false
+    after: { sim_time: 4.0 }
+    before: { sim_time: 19.0 }
+    reason: "補正が無ければ同じ刺激で実際に車線を逸脱すること＝段aの正例（補正で留まる）が空振りでないことの対照"

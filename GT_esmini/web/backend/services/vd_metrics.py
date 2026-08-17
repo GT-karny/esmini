@@ -660,6 +660,104 @@ def _ego_state(fr: dict) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# ManualDrive HVD ADAS helpers (req-vd-ad:REQ-AD-025, phase A)
+# ---------------------------------------------------------------------------
+#
+# Contract (coordinator-defined; produced by the ManualDrive/HVD side of this
+# feature, not by this module): a `controller: manualdrive` telemetry frame
+# carries
+#   frame["hvd"]["adas"][<custom_name>] = {
+#       "name": int, "state": int, "state_name": str,
+#       "detail": {"<custom_name>.<field>": "<string>", ...},
+#       "driver_override": {"present": bool, "active": bool, "reasons": [...]},
+#       "custom_state": str,
+#   }
+# keyed by custom_name (e.g. "gt.aeb", "gt.fcw"). state_name is one of
+# unavailable/available/standby/active/errored/unknown. `detail` VALUES ARE
+# STRINGS (fixed 3-decimal for reals, "true"/"false" for booleans) -- the OSI
+# custom_detail KeyValuePair contract, not a bug -- so _adas_detail_float
+# below parses defensively: a missing key returns None, never a fabricated
+# 0.0.
+#
+# `driver_override`/`custom_state` are the phase-B observation channel
+# (req-vd-ad:REQ-AD-028 段b), read by driver_override_reported below.
+# `present` distinguishes "the producer evaluated the override question and
+# measured nothing" (present=True, active=False) from "nothing ever wrote this
+# channel" (present=False) -- the same absent-is-not-zero discipline the
+# detail parsing above follows, and the reason the matcher's negative
+# direction can refuse to pass vacuously. Frames captured before phase B carry
+# no "present" key at all; _adas_override normalises that to present=False,
+# which is the correct reading for them.
+
+
+def _hvd_adas_record(fr: dict, function: str) -> dict | None:
+    """The hvd.adas[function] dict for one frame, or None if hvd/adas/function
+    is absent or malformed. Absence is a real observation -- the function was
+    never reported this frame -- and must never be coerced into a default
+    record (that is exactly how a vacuous pass sneaks in)."""
+    hvd = fr.get("hvd")
+    if not isinstance(hvd, dict):
+        return None
+    adas = hvd.get("adas")
+    if not isinstance(adas, dict):
+        return None
+    rec = adas.get(function)
+    return rec if isinstance(rec, dict) else None
+
+
+def _adas_state_name(rec: dict | None) -> str | None:
+    if rec is None:
+        return None
+    val = rec.get("state_name")
+    return val if isinstance(val, str) else None
+
+
+def _adas_detail_float(rec: dict | None, key: str) -> float | None:
+    """Parse rec["detail"][key] (a string, per the OSI custom_detail
+    contract) as a float. Returns None -- never 0.0 -- when the record is
+    absent, the detail block is missing, the key is absent, or the string
+    does not parse; callers must treat None as "unmeasured", not "zero"."""
+    if rec is None:
+        return None
+    detail = rec.get("detail")
+    if not isinstance(detail, dict) or key not in detail:
+        return None
+    try:
+        return float(detail[key])
+    except (TypeError, ValueError):
+        return None
+
+
+def _adas_override(rec: dict | None) -> dict:
+    """rec["driver_override"] normalised to {"present","active","reasons"}.
+
+    Always returns a dict so callers can read it without None-guarding, but
+    every field defaults to the "nothing was measured" value: a missing record
+    or a missing/malformed driver_override block yields present=False, which
+    the caller must treat as "the channel was never written", NOT as "no
+    override occurred". Pre-phase-B telemetry has no "present" key; it is
+    normalised to False here for the same reason -- such a run genuinely did
+    not populate the channel."""
+    if rec is None:
+        return {"present": False, "active": False, "reasons": []}
+    ovr = rec.get("driver_override")
+    if not isinstance(ovr, dict):
+        return {"present": False, "active": False, "reasons": []}
+    reasons = ovr.get("reasons")
+    return {
+        "present": bool(ovr.get("present", False)),
+        "active": bool(ovr.get("active", False)),
+        "reasons": list(reasons) if isinstance(reasons, list) else [],
+    }
+
+
+def _gated_frame_indices(frames: list[dict], must: dict) -> list[int]:
+    return [
+        i for i in range(len(frames)) if time_window_ok(frames[i]["sim_time"], must)
+    ]
+
+
 def eval_must(must: dict, frames: list[dict]) -> dict:
     """Evaluate one must[] entry. Fail results carry the first offending frame's
     `t` and `idx` so the UI can jump straight to the failure. Matchers that
@@ -1515,6 +1613,1179 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
             )
             return res("fail", detail, i0)
         detail = f"no AEB emergency constraint over {len(gated)} frames -> pass"
+        return res("pass", detail)
+
+    # --- ManualDrive ADAS matchers (req-vd-ad:REQ-AD-025, phase A) ----------
+    # Read frame["hvd"]["adas"][function] (see the _hvd_adas_record docstring
+    # above for the wire contract). Every branch below follows the same
+    # vacuous-pass discipline documented in
+    # docs/virtualdriver/design/manualdrive_adas_verification_plan.md §4-1:
+    # a matcher must never report pass/fail having measured nothing. Zero
+    # gated frames, or `function` absent from hvd.adas on every gated frame,
+    # is always skip (with a detail that names which of the two happened --
+    # "never reported" is a different fact than "reported and never active").
+    # All five accept an optional `min_frames: N` (default 1) that raises the
+    # "too few frames to trust" floor above the bare non-empty check.
+
+    if kind == "manual_aeb_fires":
+        # req-vd-ad:REQ-AD-025 step a (positive): at least one in-window
+        # frame has hvd.adas[function].state_name == "active". `function`
+        # defaults to "gt.aeb" (the phase-A row) but is a parameter so the
+        # same branch covers other functions (e.g. gt.fcw) if ever driven
+        # directly instead of through fcw_leads_intervention.
+        function = must.get("function", "gt.aeb")
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        reported = [
+            i for i in gated if _hvd_adas_record(frames[i], function) is not None
+        ]
+        if not reported:
+            return res(
+                "skip",
+                f"{function!r} never reported in hvd.adas over {len(gated)} gated "
+                "frame(s) -- distinct from 'reported and never active'",
+            )
+        active = [
+            i
+            for i in reported
+            if _adas_state_name(_hvd_adas_record(frames[i], function)) == "active"
+        ]
+        if active:
+            i0 = active[0]
+            detail = (
+                f"{function} went ACTIVE at t={frames[i0]['sim_time']:.2f} "
+                f"(frame {i0}); {len(active)}/{len(reported)} reported frame(s) active"
+            )
+            return res("pass", detail)
+        states_seen = sorted(
+            {_adas_state_name(_hvd_adas_record(frames[i], function)) for i in reported}
+        )
+        detail = (
+            f"{function} reported on {len(reported)} frame(s) but never ACTIVE "
+            f"(state_names observed: {states_seen})"
+        )
+        return res("fail", detail, reported[-1])
+
+    if kind == "no_intervention_in_window":
+        # req-vd-ad:REQ-AD-025 step b (negative): NO in-window frame may have
+        # state_name == "active" for `function`. An empty ACTIVE set is
+        # exactly what a run that never exercised the ADAS stack ALSO
+        # produces, so "no actives" alone is not sufficient evidence: the
+        # function must additionally have been reported and NOT unavailable
+        # on at least one gated frame (REQ-AD-028's STANDBY-vs-UNAVAILABLE
+        # distinction is load-bearing for this verdict -- a function that was
+        # switched off cannot evidence "it correctly declined to intervene").
+        function = must.get("function", "gt.aeb")
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        reported = [
+            i for i in gated if _hvd_adas_record(frames[i], function) is not None
+        ]
+        if not reported:
+            return res(
+                "skip",
+                f"{function!r} never reported in hvd.adas over {len(gated)} gated "
+                "frame(s) -- cannot evidence non-intervention for a function that "
+                "never ran",
+            )
+        live = [
+            i
+            for i in reported
+            if _adas_state_name(_hvd_adas_record(frames[i], function)) != "unavailable"
+        ]
+        if not live:
+            return res(
+                "skip",
+                f"{function!r} reported but UNAVAILABLE on all {len(reported)} "
+                "frame(s) -- switched off cannot evidence 'correctly declined to "
+                "intervene' (REQ-AD-028 STANDBY vs UNAVAILABLE)",
+            )
+        active = [
+            i
+            for i in live
+            if _adas_state_name(_hvd_adas_record(frames[i], function)) == "active"
+        ]
+        if active:
+            i0 = active[0]
+            detail = (
+                f"{function} went ACTIVE at t={frames[i0]['sim_time']:.2f} "
+                f"(frame {i0}) -- misfire (expected no intervention in window)"
+            )
+            return res("fail", detail, i0)
+        detail = (
+            f"{function} never went ACTIVE over {len(live)} not-unavailable / "
+            f"{len(reported)} reported frame(s) in window -- no misfire"
+        )
+        return res("pass", detail)
+
+    if kind == "brake_not_stacked":
+        # req-vd-ad:REQ-AD-025 step c restated in the observable domain: over
+        # in-window frames where `function` is ACTIVE and the human is
+        # already braking at or beyond the system's own request, the
+        # effective brake output must equal the human's own value (max
+        # composition, not additive stacking). Evaluated only on that
+        # precondition subset -- a run where the human never out-brakes the
+        # request has nothing to check and must skip, not pass.
+        function = must.get("function", "gt.aeb")
+        tol = float(must.get("tolerance", 0.01))
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        reported = [
+            i for i in gated if _hvd_adas_record(frames[i], function) is not None
+        ]
+        if not reported:
+            return res(
+                "skip",
+                f"{function!r} never reported in hvd.adas over {len(gated)} gated "
+                "frame(s)",
+            )
+        active = [
+            i
+            for i in reported
+            if _adas_state_name(_hvd_adas_record(frames[i], function)) == "active"
+        ]
+        if not active:
+            return res(
+                "skip",
+                f"{function!r} never ACTIVE over {len(reported)} reported frame(s) "
+                "-- nothing to check for stacking",
+            )
+        driver_key = f"{function}.driver_brake"
+        request_key = f"{function}.brake_request"
+        out_key = f"{function}.brake_out"
+        eligible = []  # (idx, driver_brake, brake_out)
+        for i in active:
+            rec = _hvd_adas_record(frames[i], function)
+            driver_brake = _adas_detail_float(rec, driver_key)
+            brake_request = _adas_detail_float(rec, request_key)
+            brake_out = _adas_detail_float(rec, out_key)
+            if driver_brake is None or brake_request is None or brake_out is None:
+                continue  # a missing detail key is never fabricated as 0.0
+            if driver_brake >= brake_request:
+                eligible.append((i, driver_brake, brake_out))
+        if not eligible:
+            return res(
+                "skip",
+                f"no ACTIVE frame had driver_brake >= brake_request with all three "
+                f"detail keys present (checked {len(active)} active frame(s)) -- "
+                "nothing to evaluate",
+            )
+        offenders = [(i, db, bo) for (i, db, bo) in eligible if abs(bo - db) > tol]
+        if offenders:
+            i0, db, bo = offenders[0]
+            detail = (
+                f"brake_out={bo:.3f} != driver_brake={db:.3f} "
+                f"(|diff|={abs(bo - db):.3f} > tol={tol}) at t={frames[i0]['sim_time']:.2f} "
+                f"(frame {i0}) -- stacked on top of the human"
+            )
+            return res("fail", detail, i0)
+        detail = (
+            f"brake_out == driver_brake within tol={tol} over {len(eligible)} "
+            f"eligible frame(s) (driver_brake >= brake_request while {function} "
+            "ACTIVE) -- max-composed, not stacked"
+        )
+        return res("pass", detail)
+
+    if kind == "fcw_leads_intervention":
+        # req-vd-ad:REQ-AD-025 step e: the warning function's first ACTIVE
+        # frame must precede the intervention function's first ACTIVE frame
+        # by at least min_lead_s. If the intervention never fired there is
+        # nothing to measure a lead against (skip, not pass -- the
+        # warning-only episode is judged by adas_state_matches /
+        # no_intervention_in_window, not here). If the intervention DID fire
+        # but the warning never went active, that is a real defect (FCW
+        # failed to precede AEB) and must FAIL, not skip.
+        warn_fn = must.get("warning_function", "gt.fcw")
+        interv_fn = must.get("intervention_function", "gt.aeb")
+        if "min_lead_s" not in must:
+            return res(
+                "skip",
+                "must entry names no min_lead_s -- a matcher that checks nothing "
+                "must not report pass",
+            )
+        min_lead_s = float(must["min_lead_s"])
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        warn_reported = [
+            i for i in gated if _hvd_adas_record(frames[i], warn_fn) is not None
+        ]
+        interv_reported = [
+            i for i in gated if _hvd_adas_record(frames[i], interv_fn) is not None
+        ]
+        if not warn_reported or not interv_reported:
+            missing = []
+            if not warn_reported:
+                missing.append(f"warning_function {warn_fn!r}")
+            if not interv_reported:
+                missing.append(f"intervention_function {interv_fn!r}")
+            return res(
+                "skip",
+                f"{' and '.join(missing)} never reported in hvd.adas over "
+                f"{len(gated)} gated frame(s)",
+            )
+        interv_idx = next(
+            (
+                i
+                for i in interv_reported
+                if _adas_state_name(_hvd_adas_record(frames[i], interv_fn)) == "active"
+            ),
+            None,
+        )
+        if interv_idx is None:
+            return res(
+                "skip",
+                f"{interv_fn!r} never went ACTIVE in window -- no intervention to "
+                "measure a lead against",
+            )
+        t_interv = frames[interv_idx]["sim_time"]
+        warn_idx = next(
+            (
+                i
+                for i in warn_reported
+                if _adas_state_name(_hvd_adas_record(frames[i], warn_fn)) == "active"
+            ),
+            None,
+        )
+        if warn_idx is None:
+            detail = (
+                f"{interv_fn} went ACTIVE at t={t_interv:.2f} (frame {interv_idx}) "
+                f"but {warn_fn} never went ACTIVE in window -- warning failed to "
+                "precede intervention"
+            )
+            return res("fail", detail, interv_idx)
+        t_warn = frames[warn_idx]["sim_time"]
+        lead = t_interv - t_warn
+        ok = lead >= min_lead_s
+        detail = (
+            f"measured lead = {lead:.3f}s ({warn_fn} ACTIVE at t={t_warn:.2f} frame "
+            f"{warn_idx}, {interv_fn} ACTIVE at t={t_interv:.2f} frame {interv_idx}; "
+            f"want >= {min_lead_s}s)"
+        )
+        return res("pass" if ok else "fail", detail, None if ok else interv_idx)
+
+    if kind == "adas_state_matches":
+        # req-vd-ad:REQ-AD-026 step c / REQ-AD-028 step a: the in-window
+        # state_name column for `function` matches `expect`, either on EVERY
+        # reported+gated frame (mode="all", default) or on AT LEAST ONE
+        # (mode="any").
+        if "function" not in must or "expect" not in must:
+            return res(
+                "skip",
+                "must entry names no function/expect -- a matcher that checks "
+                "nothing must not report pass",
+            )
+        function = must["function"]
+        expect = must["expect"]
+        valid_states = {
+            "unavailable",
+            "available",
+            "standby",
+            "active",
+            "errored",
+            "unknown",
+        }
+        if expect not in valid_states:
+            return res(
+                "skip",
+                f"expect={expect!r} is not a recognised state_name "
+                f"({sorted(valid_states)})",
+            )
+        mode = must.get("mode", "all")
+        if mode not in ("all", "any"):
+            return res("skip", f"mode must be 'all' or 'any', got {mode!r}")
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        reported = [
+            (i, _adas_state_name(_hvd_adas_record(frames[i], function)))
+            for i in gated
+            if _hvd_adas_record(frames[i], function) is not None
+        ]
+        if not reported:
+            return res(
+                "skip",
+                f"{function!r} never reported in hvd.adas over {len(gated)} gated "
+                "frame(s)",
+            )
+        if mode == "all":
+            offenders = [(i, st) for i, st in reported if st != expect]
+            if offenders:
+                i0, got = offenders[0]
+                detail = (
+                    f"{function}.state_name == {got!r} at t={frames[i0]['sim_time']:.2f} "
+                    f"(frame {i0}) (want {expect!r} on every reported frame)"
+                )
+                return res("fail", detail, i0)
+            detail = (
+                f"{function}.state_name == {expect!r} on all {len(reported)} "
+                "reported frame(s)"
+            )
+            return res("pass", detail)
+        else:  # mode == "any"
+            found = [(i, st) for i, st in reported if st == expect]
+            if not found:
+                observed = sorted({st for _, st in reported})
+                detail = (
+                    f"no reported frame had {function}.state_name == {expect!r} "
+                    f"over {len(reported)} frame(s) (observed: {observed})"
+                )
+                return res("fail", detail, reported[-1][0])
+            i0 = found[0][0]
+            detail = (
+                f"{function}.state_name == {expect!r} at t={frames[i0]['sim_time']:.2f} "
+                f"(frame {i0})"
+            )
+            return res("pass", detail)
+
+    if kind == "driver_override_reported":
+        # req-vd-ad:REQ-AD-028 段b (phase B): the driver-override event the
+        # human's input produced is visible on the function's HVD row, in the
+        # window where that input was actually applied.
+        #
+        #   function            str  : hvd.adas key (required -- there is no
+        #                              sensible default; the AEB row and the
+        #                              FCW row answer DIFFERENT questions here)
+        #   expect_active       bool : default True
+        #   expect_reason       str  : optional -- must appear in
+        #                              driver_override.reasons. The harness
+        #                              projects the OSI enum through
+        #                              _enum_name(), which STRIPS the "REASON_"
+        #                              prefix and lower-cases the rest, so the
+        #                              value written in an expectations file is
+        #                              "brake_pedal" / "steering_input", NOT the
+        #                              proto spelling REASON_BRAKE_PEDAL. (Noted
+        #                              in phase C, when the first real producer
+        #                              of a Reason value appeared -- until then
+        #                              nothing had ever populated `reasons` and
+        #                              this comment's earlier example went
+        #                              unchallenged.)
+        #   expect_custom_state str  : optional, e.g. "DRIVER_OVERRIDE_ACCEL"
+        #                              -- exact match on the row's custom_state
+        #   mode                str  : "all" (default) | "any"
+        #   min_frames          int  : default 1
+        #   after / before           : the usual sim_time window
+        #
+        # WHY expect_custom_state EXISTS AT ALL: OSI's DriverOverride.Reason
+        # enum has exactly two values (brake pedal, steering input) and no
+        # accelerator value, so an accelerator-origin override cannot be
+        # expressed as a Reason. design §8-3 routes it through custom_state
+        # instead. A matcher that only knew about `reasons` would therefore be
+        # structurally unable to observe the one override producer phase B
+        # actually implements.
+        #
+        # WHY THE POSITIVE AND NEGATIVE DIRECTIONS HAVE DIFFERENT PRECONDITIONS
+        # (this is the part that keeps the matcher honest, see verification
+        # plan §4-1):
+        #   * expect_active=True needs no presence precondition. The function
+        #     row being reported at all already proves the instrument is live,
+        #     so an ABSENT driver_override submessage is a genuine negative
+        #     observation -- "the populate mechanism did not report an
+        #     override" -- and must FAIL. That is exactly what makes deleting
+        #     the populate code turn this matcher red rather than grey.
+        #   * expect_active=False DOES need it. "No override was ever
+        #     reported" is what a run with the whole mechanism removed also
+        #     looks like, so without requiring that the channel was written at
+        #     least once, the negative would pass vacuously for the wrong
+        #     reason. This is the same STANDBY-vs-UNAVAILABLE argument
+        #     no_intervention_in_window makes about State, applied to the
+        #     override channel: a channel nobody wrote cannot evidence "the
+        #     driver did not override".
+        if "function" not in must:
+            return res(
+                "skip",
+                "must entry names no function -- a matcher that checks nothing "
+                "must not report pass",
+            )
+        function = must["function"]
+        expect_active = bool(must.get("expect_active", True))
+        expect_reason = must.get("expect_reason")
+        expect_custom_state = must.get("expect_custom_state")
+        mode = must.get("mode", "all")
+        if mode not in ("all", "any"):
+            return res("skip", f"mode must be 'all' or 'any', got {mode!r}")
+        if not expect_active and mode == "any":
+            # "at least one frame reported no override" is satisfied by almost
+            # any run, including one where the override fired on every other
+            # frame. Refuse the combination rather than report a pass nobody
+            # should trust.
+            return res(
+                "skip",
+                "expect_active: false with mode: any asserts only that SOME frame "
+                "lacked an override, which nearly any run satisfies -- use "
+                "mode: all for the negative direction",
+            )
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        reported = [
+            i for i in gated if _hvd_adas_record(frames[i], function) is not None
+        ]
+        if not reported:
+            return res(
+                "skip",
+                f"{function!r} never reported in hvd.adas over {len(gated)} gated "
+                "frame(s) -- no row to read a driver override off",
+            )
+
+        if not expect_active:
+            live = [
+                i
+                for i in reported
+                if _adas_override(_hvd_adas_record(frames[i], function)).get("present")
+            ]
+            if not live:
+                return res(
+                    "skip",
+                    f"{function!r} reported on {len(reported)} frame(s) but its "
+                    "driver_override channel was never populated -- a channel "
+                    "nobody wrote cannot evidence 'the driver did not override' "
+                    "(REQ-AD-028 段b, mirrors the STANDBY-vs-UNAVAILABLE rule)",
+                )
+        else:
+            live = reported
+
+        def _ok(idx: int) -> bool:
+            rec = _hvd_adas_record(frames[idx], function)
+            ovr = _adas_override(rec)
+            if bool(ovr.get("active")) != expect_active:
+                return False
+            if expect_reason is not None and expect_reason not in (
+                ovr.get("reasons") or []
+            ):
+                return False
+            if (
+                expect_custom_state is not None
+                and (rec.get("custom_state") or "") != expect_custom_state
+            ):
+                return False
+            return True
+
+        wanted = [
+            f"active={expect_active}",
+            *(
+                [f"reason includes {expect_reason!r}"]
+                if expect_reason is not None
+                else []
+            ),
+            *(
+                [f"custom_state == {expect_custom_state!r}"]
+                if expect_custom_state is not None
+                else []
+            ),
+        ]
+        want_txt = ", ".join(wanted)
+
+        def _seen(idx: int) -> str:
+            rec = _hvd_adas_record(frames[idx], function)
+            ovr = _adas_override(rec)
+            return (
+                f"present={bool(ovr.get('present'))} active={bool(ovr.get('active'))} "
+                f"reasons={ovr.get('reasons') or []} "
+                f"custom_state={(rec.get('custom_state') or '')!r}"
+            )
+
+        if mode == "all":
+            offenders = [i for i in live if not _ok(i)]
+            if offenders:
+                i0 = offenders[0]
+                detail = (
+                    f"{function} driver override at t={frames[i0]['sim_time']:.2f} "
+                    f"(frame {i0}): {_seen(i0)} (want {want_txt} on every frame; "
+                    f"{len(offenders)}/{len(live)} disagreed)"
+                )
+                return res("fail", detail, i0)
+            detail = (
+                f"{function} driver override matched [{want_txt}] on all "
+                f"{len(live)} evaluated frame(s)"
+            )
+            return res("pass", detail)
+
+        found = [i for i in live if _ok(i)]
+        if not found:
+            i_last = live[-1]
+            detail = (
+                f"no frame in window had {function} driver override [{want_txt}] "
+                f"over {len(live)} evaluated frame(s); last observed: {_seen(i_last)}"
+            )
+            return res("fail", detail, i_last)
+        i0 = found[0]
+        detail = (
+            f"{function} driver override [{want_txt}] first seen at "
+            f"t={frames[i0]['sim_time']:.2f} (frame {i0}); "
+            f"{len(found)}/{len(live)} evaluated frame(s) matched"
+        )
+        return res("pass", detail)
+
+    if kind == "adas_state_sequence":
+        # req-vd-ad:REQ-AD-026 step c (and design §6's ACC/MSL exclusivity):
+        # the function's state column must pass through `expect` IN ORDER, as
+        # a SUBSEQUENCE of the observed run-length-compressed state列. Same
+        # shape as the overtake matcher's expect_phases.
+        #
+        #   function     str        : hvd.adas key (required)
+        #   expect       list[str]  : ordered state_names, e.g.
+        #                             ["unavailable","standby","active","standby"]
+        #   after/before            : the usual sim_time window
+        #
+        # SUBSEQUENCE, NOT EQUALITY, and the run-length compression: a state
+        # column sampled at 20 Hz repeats each state for many frames, and the
+        # claim REQ-AD-026 step c actually makes is about the ORDER of the
+        # transitions, not about how long the run sat in each one. Requiring
+        # exact equality would make the matcher a dwell-time assertion nobody
+        # wrote, failing on every timing nudge.
+        #
+        # ...but a subsequence match is also how a matcher goes vacuous, so
+        # two guards: an `expect` with fewer than 2 entries is REFUSED (a
+        # one-element subsequence is just "this state occurred", which
+        # adas_state_matches already says better), and repeated adjacent
+        # entries in `expect` are refused too -- after compression they can
+        # never match, and silently accepting them would turn an authoring
+        # mistake into a permanent skip.
+        if "function" not in must or "expect" not in must:
+            return res(
+                "skip",
+                "must entry names no function/expect -- a matcher that checks "
+                "nothing must not report pass",
+            )
+        function = must["function"]
+        expect = must["expect"]
+        if not isinstance(expect, list) or len(expect) < 2:
+            return res(
+                "skip",
+                f"expect must be a list of >= 2 state names, got {expect!r} -- a "
+                "single-state expectation is adas_state_matches' job, not a "
+                "sequence claim",
+            )
+        valid_states = {
+            "unavailable",
+            "available",
+            "standby",
+            "active",
+            "errored",
+            "unknown",
+        }
+        bad = [s for s in expect if s not in valid_states]
+        if bad:
+            return res(
+                "skip",
+                f"unrecognised state name(s) {bad} (valid: {sorted(valid_states)})",
+            )
+        if any(a == b for a, b in zip(expect, expect[1:])):
+            return res(
+                "skip",
+                f"expect={expect} repeats a state on adjacent positions, which can "
+                "never match a run-length-compressed column -- express dwell with "
+                "a windowed adas_state_matches instead",
+            )
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        observed: list[tuple[int, str]] = []
+        for i in gated:
+            st = _adas_state_name(_hvd_adas_record(frames[i], function))
+            if st is None:
+                continue
+            if not observed or observed[-1][1] != st:
+                observed.append((i, st))
+        if not observed:
+            return res(
+                "skip",
+                f"{function!r} never reported in hvd.adas over {len(gated)} gated "
+                "frame(s)",
+            )
+        matched: list[tuple[int, str]] = []
+        pos = 0
+        for idx, st in observed:
+            if pos < len(expect) and st == expect[pos]:
+                matched.append((idx, st))
+                pos += 1
+        seen_txt = " -> ".join(st for _, st in observed)
+        if pos < len(expect):
+            detail = (
+                f"{function} state sequence stopped at {expect[pos]!r} "
+                f"(matched {pos}/{len(expect)}); observed: {seen_txt}"
+            )
+            return res("fail", detail, observed[-1][0])
+        at = ", ".join(f"{st}@t={frames[i]['sim_time']:.2f}" for i, st in matched)
+        detail = (
+            f"{function} passed through {expect} in order ({at}); observed: {seen_txt}"
+        )
+        return res("pass", detail)
+
+    if kind == "setting_reflected":
+        # req-vd-ad:REQ-AD-026 steps e/g/h: a change the driver made to a
+        # SETTING has to show up as a step in the corresponding EFFECTIVE
+        # value. Two custom_detail keys, read as time series.
+        #
+        #   function       str   : hvd.adas key (required)
+        #   setting_key    str   : e.g. "gt.acc.set_speed_mps" (required)
+        #   effective_key  str   : e.g. "gt.acc.effective_cap_mps" (required)
+        #   min_step       float : minimum |change| that counts, default 0.5
+        #   settle_s       float : seconds allowed for the effective value to
+        #                          follow the setting, default 2.0
+        #   after/before         : the usual sim_time window
+        #
+        # WHY A RUN WITH NO CHANGE IS A **FAIL**, NOT A PASS (verification plan
+        # §4-2 spells this out): both keys are emitted on every frame, so a
+        # controller that stored the setting and never applied it, and a run in
+        # which the driver simply never touched the stalk, produce the SAME
+        # constant columns. If "no change observed" passed, the matcher would
+        # be green on a scenario whose ops profile silently stopped working --
+        # the exact fabricated-measurement failure this project has paid for
+        # before. So: no setting change in the window => FAIL, with a message
+        # that says the stimulus, not the system, is what looks broken.
+        for req_key in ("function", "setting_key", "effective_key"):
+            if req_key not in must:
+                return res(
+                    "skip",
+                    f"must entry names no {req_key} -- a matcher that checks nothing "
+                    "must not report pass",
+                )
+        function = must["function"]
+        setting_key = must["setting_key"]
+        effective_key = must["effective_key"]
+        min_step = float(must.get("min_step", 0.5))
+        settle_s = float(must.get("settle_s", 2.0))
+        min_frames = int(must.get("min_frames", 2))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        series = []  # (idx, t, setting, effective)
+        for i in gated:
+            rec = _hvd_adas_record(frames[i], function)
+            s_val = _adas_detail_float(rec, setting_key)
+            e_val = _adas_detail_float(rec, effective_key)
+            if s_val is None or e_val is None:
+                continue
+            series.append((i, frames[i]["sim_time"], s_val, e_val))
+        if len(series) < 2:
+            return res(
+                "skip",
+                f"{function!r} reported {setting_key}/{effective_key} on only "
+                f"{len(series)} frame(s) -- nothing to read as a time series",
+            )
+        changes = [
+            k
+            for k in range(1, len(series))
+            if abs(series[k][2] - series[k - 1][2]) >= min_step
+        ]
+        if not changes:
+            span = (series[-1][2] - series[0][2]) if series else 0.0
+            return res(
+                "fail",
+                f"{setting_key} never changed by >= {min_step} over "
+                f"{len(series)} frame(s) (total drift {span:+.3f}) -- this matcher "
+                "cannot evidence 'a setting change was reflected' from a run in "
+                "which no setting change happened; check the ops profile, not the "
+                "controller",
+                series[-1][0],
+            )
+        # Every change must be followed, within settle_s, by the effective
+        # value moving in the SAME direction. Direction rather than equality:
+        # the effective value is a min() over the setting, the policy ceiling
+        # and (optionally) the speed limit, so it legitimately need not reach
+        # the new setting -- but it must not sit still or move the other way.
+        for k in changes:
+            before_eff = series[k - 1][3]
+            direction = 1.0 if series[k][2] > series[k - 1][2] else -1.0
+            t0 = series[k][1]
+            window = [row for row in series[k:] if row[1] <= t0 + settle_s]
+            best = max(
+                ((row[3] - before_eff) * direction for row in window), default=0.0
+            )
+            if best < min_step * 0.5:
+                i0 = series[k][0]
+                detail = (
+                    f"{setting_key} stepped to {series[k][2]:.3f} at t={t0:.2f} but "
+                    f"{effective_key} moved only {best * direction:+.3f} within "
+                    f"{settle_s}s (want >= {min_step * 0.5:.3f} in the same "
+                    "direction) -- the setting was stored but not applied"
+                )
+                return res("fail", detail, i0)
+        detail = (
+            f"{len(changes)} {setting_key} change(s) each reflected in "
+            f"{effective_key} within {settle_s}s"
+        )
+        return res("pass", detail)
+
+    if kind == "speed_capped_at":
+        # req-vd-ad:REQ-AD-026 step g / REQ-AD-030 step a: the ego's speed in
+        # the window stays at or below a cap.
+        #
+        #   cap        float : cap [m/s] (required unless cap_key is given)
+        #   cap_key    str   : read the cap PER FRAME from a custom_detail key
+        #                      (e.g. "gt.msl.cap_mps"), which is what a
+        #                      speed-limit-linked cap needs
+        #   function   str   : hvd.adas key, required when cap_key is used
+        #   tolerance  float : allowance above the cap, default 0.5 m/s
+        #   after/before     : the usual sim_time window
+        #
+        # The tolerance exists because a cap is enforced by shutting the
+        # throttle, not by braking: a vehicle already above the cap when the
+        # window opens, or one on a descent, coasts down rather than being
+        # pulled down. Setting it to 0 would turn this matcher into an
+        # assertion about the powertrain's drag, which is not what any
+        # requirement step claims.
+        if "cap" not in must and "cap_key" not in must:
+            return res(
+                "skip",
+                "must entry names neither cap nor cap_key -- a matcher that checks "
+                "nothing must not report pass",
+            )
+        tol = float(must.get("tolerance", 0.5))
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        cap_key = must.get("cap_key")
+        function = must.get("function")
+        if cap_key is not None and function is None:
+            return res(
+                "skip", "cap_key requires `function` (which row to read it from)"
+            )
+        samples = []  # (idx, speed, cap)
+        src = None
+        for i in gated:
+            eg = _ego_state(frames[i])
+            src = src or eg["_source"]
+            if cap_key is None:
+                cap = float(must["cap"])
+            else:
+                cap = _adas_detail_float(_hvd_adas_record(frames[i], function), cap_key)
+                if cap is None or cap <= 0.0:
+                    # An unreported or zero cap is not a cap of zero -- skipping
+                    # the frame is the only reading that does not fabricate one.
+                    continue
+            samples.append((i, eg["speed"], cap))
+        if not samples:
+            return res(
+                "skip",
+                "no gated frame carried both a speed and a usable cap "
+                f"({'cap_key ' + repr(cap_key) if cap_key else 'literal cap'})",
+                ego_source=src,
+            )
+        offenders = [(i, v, c) for (i, v, c) in samples if v > c + tol]
+        if offenders:
+            i0, v0, c0 = max(offenders, key=lambda r: r[1] - r[2])
+            detail = (
+                f"speed {v0:.2f} exceeded cap {c0:.2f} (+tol {tol}) by "
+                f"{v0 - c0:.2f} at t={frames[i0]['sim_time']:.2f} (frame {i0}); "
+                f"{len(offenders)}/{len(samples)} frame(s) over"
+            )
+            return res("fail", detail, i0, ego_source=src)
+        worst = max(samples, key=lambda r: r[1] - r[2])
+        detail = (
+            f"max overshoot {worst[1] - worst[2]:+.2f} m/s vs cap (tol {tol}) over "
+            f"{len(samples)} frame(s); peak speed {max(v for _, v, _ in samples):.2f}"
+        )
+        return res("pass", detail, ego_source=src)
+
+    if kind == "no_brake_output":
+        # req-vd-ad:REQ-AD-030 step a (negative): the named function produced
+        # no brake in the window. A LIMITER clamps throttle and never brakes,
+        # and this is the observation that says so.
+        #
+        #   function   str   : hvd.adas key (required)
+        #   brake_key  str   : custom_detail key, default "<function>.brake_out"
+        #   tolerance  float : brake fraction treated as zero, default 0.001
+        #
+        # Reads the FUNCTION'S OWN brake contribution, not the vehicle's
+        # effective brake: the human is free to brake in a limiter scenario and
+        # the effective pedal would then be non-zero for a reason that has
+        # nothing to do with the claim. A matcher that watched the effective
+        # brake would be a trap for exactly the scenario a real driver
+        # produces.
+        if "function" not in must:
+            return res(
+                "skip",
+                "must entry names no function -- a matcher that checks nothing must "
+                "not report pass",
+            )
+        function = must["function"]
+        brake_key = must.get("brake_key", f"{function}.brake_out")
+        tol = float(must.get("tolerance", 0.001))
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        measured = []  # (idx, brake)
+        for i in gated:
+            b = _adas_detail_float(_hvd_adas_record(frames[i], function), brake_key)
+            if b is None:
+                continue
+            measured.append((i, b))
+        if not measured:
+            return res(
+                "skip",
+                f"{brake_key!r} never reported over {len(gated)} gated frame(s) -- an "
+                "unwritten channel cannot evidence 'no brake was produced'",
+            )
+        offenders = [(i, b) for (i, b) in measured if b > tol]
+        if offenders:
+            i0, b0 = max(offenders, key=lambda r: r[1])
+            detail = (
+                f"{brake_key}={b0:.3f} (> tol {tol}) at t={frames[i0]['sim_time']:.2f} "
+                f"(frame {i0}) -- the function braked; {len(offenders)}/{len(measured)} "
+                "frame(s) non-zero"
+            )
+            return res("fail", detail, i0)
+        detail = (
+            f"{brake_key} stayed <= {tol} over all {len(measured)} reported frame(s)"
+        )
+        return res("pass", detail)
+
+    if kind == "stop_hold_stationary":
+        # req-vd-ad:REQ-AD-031 step a: once the vehicle has come to rest under
+        # the function's stop hold, it does not creep forward until the human
+        # triggers a restart.
+        #
+        #   max_displacement_m float : allowed travel while held, default 0.5
+        #   stop_speed         float : speed at/below which "stopped" starts,
+        #                              default 0.2 m/s
+        #   function/hold_key  str   : optional -- when given, the hold window
+        #                              is taken from that boolean custom_detail
+        #                              key (e.g. gt.acc / gt.acc.stop_hold)
+        #                              instead of from the speed alone
+        #   after/before             : the usual sim_time window
+        #
+        # WHY hold_key MATTERS: "the car did not move" is also true of a car
+        # nobody was holding. Anchoring the window on the function's own
+        # stop_hold flag is what makes this a claim about the HOLD rather than
+        # about the scenario happening to end at a standstill. Without it the
+        # matcher still runs (speed-anchored), but it cannot tell the two
+        # apart, so a run that never engaged the hold SKIPs rather than passes.
+        max_disp = float(must.get("max_displacement_m", 0.5))
+        stop_speed = float(must.get("stop_speed", 0.2))
+        function = must.get("function")
+        hold_key = must.get("hold_key")
+        min_frames = int(must.get("min_frames", 2))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        if hold_key is not None and function is None:
+            return res(
+                "skip", "hold_key requires `function` (which row to read it from)"
+            )
+
+        held = []  # (idx, x, y)
+        src = None
+        for i in gated:
+            eg = _ego_state(frames[i])
+            src = src or eg["_source"]
+            if hold_key is not None:
+                rec = _hvd_adas_record(frames[i], function)
+                detail_map = (rec or {}).get("detail") or {}
+                if str(detail_map.get(hold_key, "")).lower() != "true":
+                    continue
+            elif eg["speed"] > stop_speed:
+                continue
+            held.append((i, eg["x"], eg["y"]))
+        if len(held) < 2:
+            what = f"{hold_key!r} true" if hold_key else f"speed <= {stop_speed}"
+            return res(
+                "skip",
+                f"only {len(held)} frame(s) with {what} -- the run never held a stop, "
+                "so it cannot evidence 'no creep while held'",
+                ego_source=src,
+            )
+        # Contiguity: the hold can legitimately engage more than once in a run
+        # (a queue that stops twice). Measuring displacement across the whole
+        # union of held frames would count the travel BETWEEN two holds as
+        # creep. Measure per contiguous run and take the worst.
+        runs: list[list[tuple[int, float, float]]] = [[held[0]]]
+        for row in held[1:]:
+            if row[0] == runs[-1][-1][0] + 1:
+                runs[-1].append(row)
+            else:
+                runs.append([row])
+        worst_disp, worst_idx = 0.0, held[-1][0]
+        for run in runs:
+            x0, y0 = run[0][1], run[0][2]
+            for i, x, y in run:
+                d = math.hypot(x - x0, y - y0)
+                if d > worst_disp:
+                    worst_disp, worst_idx = d, i
+        if worst_disp > max_disp:
+            detail = (
+                f"moved {worst_disp:.3f} m while held (max {max_disp}) by "
+                f"t={frames[worst_idx]['sim_time']:.2f} (frame {worst_idx}) -- creep"
+            )
+            return res("fail", detail, worst_idx, ego_source=src)
+        detail = (
+            f"max displacement {worst_disp:.3f} m over {len(held)} held frame(s) in "
+            f"{len(runs)} hold(s) (max {max_disp})"
+        )
+        return res("pass", detail, ego_source=src)
+
+    if kind == "restart_after_trigger":
+        # req-vd-ad:REQ-AD-031 step a, the other half: after the human's
+        # accelerator trigger the vehicle actually moves off again.
+        #
+        #   trigger_after float : sim_time of the accelerator pulse (required)
+        #   min_speed     float : speed the ego must reach, default 1.0 m/s
+        #   within_s      float : how long after the trigger it has to,
+        #                         default 5.0
+        #
+        # The PRE-trigger half of the claim ("it did not move before") belongs
+        # to stop_hold_stationary; keeping them apart means a run that never
+        # stopped at all fails the right one of the two, instead of one
+        # combined matcher reporting a single ambiguous red.
+        if "trigger_after" not in must:
+            return res(
+                "skip",
+                "must entry names no trigger_after -- a matcher that checks nothing "
+                "must not report pass",
+            )
+        t_trigger = float(must["trigger_after"])
+        min_speed = float(must.get("min_speed", 1.0))
+        within_s = float(must.get("within_s", 5.0))
+        gated = _gated_frame_indices(frames, must)
+        if not gated:
+            return res("skip", "no frames in time window")
+        after = [
+            i
+            for i in gated
+            if t_trigger <= frames[i]["sim_time"] <= t_trigger + within_s
+        ]
+        if not after:
+            return res(
+                "skip",
+                f"no frame in [{t_trigger}, {t_trigger + within_s}] -- the run ended "
+                "before the restart window",
+            )
+        src = _ego_state(frames[after[0]])["_source"]
+        speeds = {i: _ego_state(frames[i])["speed"] for i in after}
+        moving = [i for i in after if speeds[i] >= min_speed]
+        if not moving:
+            i0 = max(speeds, key=speeds.get)
+            detail = (
+                f"peak speed {speeds[i0]:.2f} within {within_s}s of the trigger at "
+                f"t={t_trigger} (want >= {min_speed}) -- did not restart"
+            )
+            return res("fail", detail, i0, ego_source=src)
+        i0 = moving[0]
+        detail = (
+            f"reached {speeds[i0]:.2f} m/s at t={frames[i0]['sim_time']:.2f} "
+            f"({frames[i0]['sim_time'] - t_trigger:.2f}s after the trigger)"
+        )
+        return res("pass", detail, ego_source=src)
+
+    if kind == "lane_kept_within":
+        # req-vd-ad:REQ-AD-027 step a (vd-func:FUNC-080): the ego stayed inside
+        # its lane over the window.
+        #
+        #   function     str   : hvd.adas key, default "gt.lka"
+        #   max_offset_m float : allowed |lateral offset from the lane centre|
+        #                        (required)
+        #   offset_key   str   : custom_detail key, default "<function>.offset_m"
+        #   lane_key     str   : custom_detail key, default "<function>.lane_id"
+        #   expect_kept  bool   : default True. False asserts the OPPOSITE -- the
+        #                        run must show a departure -- which is how the
+        #                        LKA-off / warning-only pole of a two-configuration
+        #                        pair is judged from the same matcher.
+        #   min_frames   int   : default 2
+        #
+        # ============================================================
+        # WHY THE LANE ID IS REQUIRED AND NOT DECORATION
+        # ============================================================
+        # The offset this reads is LANE-RELATIVE, and roadmanager's
+        # Position::GetOffset() RE-REFERENCES at a lane boundary (measured
+        # elsewhere in this project: -1.7482 -> +1.9425 in a single frame). So a
+        # vehicle that drifts out of its lane does not produce a growing
+        # |offset| -- it produces a big one, then a SMALL one again, measured
+        # against the lane it has just moved into. A matcher looking only at
+        # |offset| would therefore report its cleanest pass on exactly the run
+        # that departed.
+        #
+        # Requiring the lane id to be constant closes that. It also means the
+        # negative direction (expect_kept: false) has something real to observe:
+        # a departure shows up as a lane change even when the offset never got
+        # large in the frame it was sampled.
+        if "max_offset_m" not in must:
+            return res(
+                "skip",
+                "must entry names no max_offset_m -- a matcher that checks nothing "
+                "must not report pass",
+            )
+        function = must.get("function", "gt.lka")
+        offset_key = must.get("offset_key", f"{function}.offset_m")
+        lane_key = must.get("lane_key", f"{function}.lane_id")
+        max_offset = float(must["max_offset_m"])
+        expect_kept = bool(must.get("expect_kept", True))
+        min_frames = int(must.get("min_frames", 2))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        measured = []  # (idx, offset, lane)
+        for i in gated:
+            rec = _hvd_adas_record(frames[i], function)
+            off = _adas_detail_float(rec, offset_key)
+            lane = _adas_detail_float(rec, lane_key)
+            if off is None or lane is None:
+                continue  # a missing detail key is never fabricated as 0.0
+            measured.append((i, off, lane))
+        if len(measured) < min_frames:
+            return res(
+                "skip",
+                f"{offset_key!r} + {lane_key!r} reported together on only "
+                f"{len(measured)} of {len(gated)} gated frame(s) -- an unwritten "
+                "channel cannot evidence anything about lane keeping",
+            )
+
+        lanes = {round(lane) for (_, _, lane) in measured}
+        over = [(i, off) for (i, off, _) in measured if abs(off) > max_offset]
+        kept = not over and len(lanes) == 1
+
+        offsets = [abs(off) for (_, off, _) in measured]
+        summary = (
+            f"max |offset| {max(offsets):.3f} m (limit {max_offset}) over "
+            f"{len(measured)} frame(s); lane(s) {sorted(int(v) for v in lanes)}"
+        )
+
+        if expect_kept:
+            if len(lanes) > 1:
+                i0 = next(
+                    i
+                    for (i, _, lane) in measured
+                    if round(lane) != round(measured[0][2])
+                )
+                return res(
+                    "fail",
+                    f"lane changed {sorted(int(v) for v in lanes)} by "
+                    f"t={frames[i0]['sim_time']:.2f} (frame {i0}) -- the ego left the "
+                    f"lane it started in. {summary}",
+                    i0,
+                )
+            if over:
+                i0, off0 = max(over, key=lambda r: abs(r[1]))
+                return res(
+                    "fail",
+                    f"|offset| {abs(off0):.3f} m > {max_offset} at "
+                    f"t={frames[i0]['sim_time']:.2f} (frame {i0}). {summary}",
+                    i0,
+                )
+            return res("pass", summary)
+
+        # expect_kept: false -- the run must show a departure. `min_frames`
+        # already guards against a run too short to have gone anywhere.
+        if kept:
+            return res(
+                "fail",
+                f"the ego stayed in its lane, so this run cannot evidence a departure. "
+                f"{summary}",
+                measured[-1][0],
+            )
+        return res("pass", f"departure observed as expected. {summary}")
+
+    if kind == "steer_output_absent":
+        # req-vd-ad:REQ-AD-027 steps b/e/f (negative): the named function
+        # contributed NO corrective steering over the window.
+        #
+        #   function   str   : hvd.adas key (required)
+        #   steer_key  str   : custom_detail key, default "<function>.correction"
+        #   tolerance  float : magnitude treated as zero, default 0.001
+        #   min_frames int   : default 1
+        #
+        # Reads the FUNCTION'S OWN contribution, not the vehicle's steering --
+        # exactly the distinction no_brake_output makes for the limiter, and for
+        # the same reason: the human is free to steer, and in every scenario this
+        # matcher is written for (deliberate steering, an indicated lane change,
+        # an out-of-band speed) they are steering ON PURPOSE. A matcher that
+        # watched the effective command would be red in precisely the runs it
+        # exists to certify.
+        #
+        # A never-written channel SKIPs rather than passing: "the assist produced
+        # nothing" cannot be evidenced by a row nobody populated. That is what
+        # makes the warning-only pole a measurement -- the LKA row is deliberately
+        # kept alive (STANDBY, reporting a measured 0.000) rather than withdrawn
+        # to UNAVAILABLE, see AdasFunctionReport.hpp's ManualAdasEnableFlags note.
+        if "function" not in must:
+            return res(
+                "skip",
+                "must entry names no function -- a matcher that checks nothing must "
+                "not report pass",
+            )
+        function = must["function"]
+        steer_key = must.get("steer_key", f"{function}.correction")
+        tol = float(must.get("tolerance", 0.001))
+        min_frames = int(must.get("min_frames", 1))
+        gated = _gated_frame_indices(frames, must)
+        if len(gated) < min_frames:
+            return res(
+                "skip",
+                f"only {len(gated)} frame(s) in time window (< min_frames={min_frames})",
+            )
+        measured = []  # (idx, correction)
+        for i in gated:
+            v = _adas_detail_float(_hvd_adas_record(frames[i], function), steer_key)
+            if v is None:
+                continue
+            measured.append((i, v))
+        if not measured:
+            return res(
+                "skip",
+                f"{steer_key!r} never reported over {len(gated)} gated frame(s) -- an "
+                "unwritten channel cannot evidence 'no correction was produced'",
+            )
+        offenders = [(i, v) for (i, v) in measured if abs(v) > tol]
+        if offenders:
+            i0, v0 = max(offenders, key=lambda r: abs(r[1]))
+            detail = (
+                f"{steer_key}={v0:+.4f} (|.| > tol {tol}) at t={frames[i0]['sim_time']:.2f} "
+                f"(frame {i0}) -- the function steered; {len(offenders)}/{len(measured)} "
+                "frame(s) non-zero"
+            )
+            return res("fail", detail, i0)
+        detail = (
+            f"|{steer_key}| stayed <= {tol} over all {len(measured)} reported frame(s)"
+        )
         return res("pass", detail)
 
     if kind == "route_lane_plan_holds":

@@ -662,7 +662,7 @@ void RealVehicle::UpdatePhysicsAT(double dt, double throttle, double brake, doub
     // nondeterministic: two identical runs of the same scenario in separate
     // processes diverged in ego.speed and then amplified through the AD
     // closed loop. Reproduced on 3 of 6 VirtualDriver scenarios
-    // (virtual_driver_basic / decelerate_for_right_turn /
+    // (virtual_driver_basic / decelerate_for_left_turn /
     // traffic_lights_junction) and localized to this line — pinning the seed
     // made all three bit-identical, and this split makes them bit-identical
     // with the seed left free.

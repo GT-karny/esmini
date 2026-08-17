@@ -26,6 +26,7 @@ from GT_esmini.web.backend.config import (
 )
 from GT_esmini.web.backend.db.database import get_db
 from GT_esmini.web.backend.models.simulation import (
+    SDL2_AXIS_KEY_MAP,
     SDL2_BUTTON_KEY_MAP,
     ControllerConfig,
     ExecutionConfig,
@@ -339,6 +340,48 @@ def _sdl2_button_entries(mapping: Any, base: dict) -> dict[str, int]:
     return entries
 
 
+def _sdl2_axis_entries(mapping: Any, base: dict) -> dict[str, Any]:
+    """Build the flat C++ ``input.<function>_axis`` / ``_raw_*`` entries from
+    the shared table (feature:F8).
+
+    Same precedence and the same reason as _sdl2_button_entries above:
+      1. the request's own value, when the model carries that field;
+      2. the existing on-disk config, for keys the model does not model;
+      3. the C++ default for that key -- NOT -1, which for a raw-range key
+         would be a meaningless calibration rather than "unassigned".
+
+    The fallback table is the G29 layout, i.e. exactly WheelAxisMapping's own
+    member initializers, so a request that omits the block reproduces the
+    pre-F8 hardcoded behaviour.
+    """
+    base_input = base.get("input", {}) if isinstance(base.get("input"), dict) else {}
+    entries: dict[str, Any] = {}
+    for field, cpp_key in SDL2_AXIS_KEY_MAP.items():
+        if hasattr(mapping, field):
+            entries[cpp_key] = getattr(mapping, field)
+        else:
+            entries[cpp_key] = base_input.get(cpp_key, _AXIS_CPP_DEFAULTS[cpp_key])
+    return entries
+
+
+# Mirrors WheelAxisMapping's member initializers (the C++-side single source of
+# truth), used only as the last-resort fallback in _sdl2_axis_entries.
+_AXIS_CPP_DEFAULTS: dict[str, Any] = {
+    "steer_axis": 0,
+    "steer_raw_center": 0,
+    "steer_raw_full": 32767,
+    "throttle_axis": 1,
+    "throttle_raw_released": 32767,
+    "throttle_raw_full": -32768,
+    "brake_axis": 2,
+    "brake_raw_released": 32767,
+    "brake_raw_full": -32768,
+    "clutch_axis": 3,
+    "clutch_raw_released": 32767,
+    "clutch_raw_full": -32768,
+}
+
+
 # feature:F7 gap #4 -- mirrors ManualDriveConfig.hpp:483-488 (the C++
 # compile-time defaults). Keep in sync with that struct: these are what a
 # per-run config falls back to when the base config has no "override" section,
@@ -392,6 +435,11 @@ def _write_manual_drive_config(output_dir: Path, controller: ControllerConfig) -
             # user's GUI edit now reaches the run instead of being overwritten
             # by the on-disk value.
             **_sdl2_button_entries(md.sdl2.button_mapping, base),
+            # feature:F8 -- the axis mapping travels with the run for the same
+            # reason the buttons do: a wheel whose pedals are in a different
+            # order than the G29 is unusable without it, and a GUI-launched run
+            # writes its own config file rather than reading the shipped one.
+            **_sdl2_axis_entries(md.sdl2.axis_mapping, base),
             "transport_type": md.input_network.transport_type,
             "port": md.input_network.port,
             "level": md.input_network.level,

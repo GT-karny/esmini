@@ -205,6 +205,19 @@ const IntField kIntFields[] = {
     {"sdl2_fog_light_button",       &VirtualDriverConfig::sdl2_fog_light_button},
     {"sdl2_hazard_button",          &VirtualDriverConfig::sdl2_hazard_button},
     {"sdl2_auto_resume_button",     &VirtualDriverConfig::sdl2_auto_resume_button},  // feature:F7
+    // feature:F8 — wheel axis assignment + raw-range calibration.
+    {"sdl2_steer_axis",             &VirtualDriverConfig::sdl2_steer_axis},
+    {"sdl2_steer_raw_center",       &VirtualDriverConfig::sdl2_steer_raw_center},
+    {"sdl2_steer_raw_full",         &VirtualDriverConfig::sdl2_steer_raw_full},
+    {"sdl2_throttle_axis",          &VirtualDriverConfig::sdl2_throttle_axis},
+    {"sdl2_throttle_raw_released",  &VirtualDriverConfig::sdl2_throttle_raw_released},
+    {"sdl2_throttle_raw_full",      &VirtualDriverConfig::sdl2_throttle_raw_full},
+    {"sdl2_brake_axis",             &VirtualDriverConfig::sdl2_brake_axis},
+    {"sdl2_brake_raw_released",     &VirtualDriverConfig::sdl2_brake_raw_released},
+    {"sdl2_brake_raw_full",         &VirtualDriverConfig::sdl2_brake_raw_full},
+    {"sdl2_clutch_axis",            &VirtualDriverConfig::sdl2_clutch_axis},
+    {"sdl2_clutch_raw_released",    &VirtualDriverConfig::sdl2_clutch_raw_released},
+    {"sdl2_clutch_raw_full",        &VirtualDriverConfig::sdl2_clutch_raw_full},
 };
 
 void WarnIfWrongType(const simplejson::Value& root, const char* key, const char* expected_type)
@@ -255,6 +268,18 @@ bool VirtualDriverConfig::LoadFromFile(const std::string& filepath)
         int parsed = 0;
         if (root.GetInt(field.key, parsed)) (this->*(field.member)) = parsed;
         else WarnIfWrongType(root, field.key, "an integer");
+    }
+
+    // feature:F8 -- retired key. Polarity is the order of the calibrated pair on
+    // every axis now, so an old sdl2_steer_invert would be dropped silently and
+    // the wheel would steer the opposite way from the previous run with nothing
+    // in the log to explain it. Unknown keys are otherwise ignored here, which
+    // is exactly why this one needs naming.
+    if (root.Find("sdl2_steer_invert"))
+    {
+        LOG_WARN("VirtualDriverConfig: 'sdl2_steer_invert' is no longer used and was IGNORED. "
+                 "Steering polarity now comes from sdl2_steer_raw_center/sdl2_steer_raw_full "
+                 "(raw_full is full RIGHT) -- mirror them instead, or press Flip in the GUI.");
     }
 
     LOG_INFO("VirtualDriverConfig: planner(horizon={:.1f}s dt={:.2f}) driver(la_gain={:.2f} kp={:.2f}) input={}",

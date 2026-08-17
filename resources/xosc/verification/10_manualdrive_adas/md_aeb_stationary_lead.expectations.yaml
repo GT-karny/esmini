@@ -1,0 +1,55 @@
+scenario: md_aeb_stationary_lead
+category: 10_manualdrive_adas
+# REQ-AD-025 step e (safety, positive), slug md-fcw-leads-intervention. Replaces
+# md_aeb_unresponsive.xosc as this slug's carrier (2026-08-05) after mdadas_run1
+# (2026-08-04) measured lead=0.000s there -- see md_aeb_unresponsive.md and this
+# scenario's .xosc header for the root cause (shared candidate-admission debounce
+# eats the whole approach on a sudden cut-in) and the fix (same-lane approach, no
+# lane change, candidate tracked from near t=0).
+#
+# fcw_leads_intervention: min_lead_s=0.8 is UNCHANGED from where it lived on
+# md_aeb_unresponsive (UN R152-derived, secondary source, REQ-AD-025 step e note /
+# verification plan §5) -- this is a geometry fix, not a threshold change, per the
+# coordinator's explicit instruction not to touch matcher thresholds to make a
+# scenario pass.
+#
+# The geometry is chosen so the ARITHMETIC lead is 1.0s, derived (not guessed) from
+# the compiled/config threshold values -- see the .xosc header and .md for the full
+# derivation:
+#   lead(v_close) = min(3.5, v_close/4) - min(2.5, v_close/6)
+# with v_close=16.0 m/s landing on the flat plateau (v_close>=15) where lead=1.0s
+# regardless of small perturbation, which is why v_close was chosen there rather
+# than at some other point on the curve -- it is the least sensitive to the
+# scenario's own approximations (constant-v_close assumption; real ManualDrive
+# coasting exhibits a small, empirically-measured ~0.4-0.5 m/s^2 deceleration even
+# at zero throttle, see md_fcw_warning_only.md).
+#
+# manual_aeb_fires is added as a secondary, low-cost check (same style as the rest
+# of this batch): if AEB never activates at all, fcw_leads_intervention would
+# correctly report a missing intervention event rather than lead=0, but this makes
+# the "both events actually happened" story explicit and easier to debug from a
+# batch report alone.
+#
+# CONFIRMED PASS (mdadas_run2, 2026-08-05): gt.fcw ACTIVE at t=3.30 (frame 65),
+# gt.aeb ACTIVE at t=4.75 (frame 94), measured lead=1.45s -- more conservative
+# (safer) than the 1.0s closed-form prediction; the derivation's constant-v_close
+# approximation undercounts the measured ~0.53 m/s^2 coast-down. See the .md's
+# "実測結果" section for the full comparison table. This measured pair
+# (3.30 / 4.75) is what md_fcw_warning_only.xosc's reaction profile is now
+# anchored to, NOT the derived (3.0 / 4.0) pair -- see that scenario's .md for why
+# anchoring a reaction to the derived value instead caused a second-pass FAIL.
+must:
+  - event: fcw_leads_intervention
+    warning_function: gt.fcw
+    intervention_function: gt.aeb
+    min_lead_s: 0.8              # unchanged from md_aeb_unresponsive; UN R152-derived, secondary source, unconfirmed original (検証計画§5)
+    after: { sim_time: 0.0 }
+    before: { sim_time: 12.0 }   # StopTrigger
+    min_frames: 1
+    reason: "緩やかな同一レーン接近で、警報(FCW)が介入(AEB)に先行し、リードが算術的に導出した1.0s前後になること(md-fcw-leads-intervention, REQ-AD-025段e)"
+  - event: manual_aeb_fires
+    function: gt.aeb
+    after: { sim_time: 3.5 }     # derived t_interv=4.0s minus a small margin for frame quantization
+    before: { sim_time: 12.0 }   # StopTrigger
+    min_frames: 1
+    reason: "介入(AEB)が実際に発火していること(fcw_leads_interventionの前提が両方とも起きたことを補強)"

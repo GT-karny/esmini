@@ -14,7 +14,7 @@
   wheel_session_report.py:287) while a hands-off wheel starts at neutral.
   Vehicle bounding box (length=5.0 -> wheel_base=3.0m,
   ControllerVirtualDriver.cpp:312) copied verbatim from
-  decelerate_for_right_turn.xosc so the wheelbase used to size the curve
+  decelerate_for_left_turn.xosc so the wheelbase used to size the curve
   matches what actually drives the scenario.
 -->
 <OpenSCENARIO>

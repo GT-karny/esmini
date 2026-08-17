@@ -1,0 +1,40 @@
+scenario: md_sng_traffic_light
+category: 10_manualdrive_adas
+# req-vd-ad:REQ-AD-031 step b (vd-func:FUNC-079), slug md-sng-traffic-light-stop.
+#
+# WHAT MAKES THIS ROW NON-VACUOUS. The ego is a ManualDrive entity whose driver
+# never touches a pedal after switching ACC on (profiles/acc_ops_engage.json), so
+# there is no scripted stop anywhere in the run: if TrafficLightAware fails to see
+# the red from a routeless ego at a BRANCHING approach, nothing else in the stack
+# will slow the vehicle and it drives into junction 4 at 13.9 m/s. The hold is
+# anchored on the function's OWN gt.acc.stop_hold flag, not on the speed, so
+# "the car happened to be stationary" cannot pass for "the function held it"
+# (stop_hold_stationary's hold_key contract).
+#
+# MEASURED (test_results/mdadas_warmup, 2026-08-05, 600 frames): gt.acc.stop_requested
+# is true on 574 of 600 frames, the hold runs for 299 contiguous frames with a total
+# displacement of 0.024 m, and the ego's speed is 0.00 for the whole 18-25 s window.
+# THIS IS THE RESULT DESIGN §12 LEFT OPEN: TrafficLightAware finds its signal from a
+# ManualDrive ego that has no Route, at an approach with THREE outgoing connections.
+# The CopyRoute walk's straight-most fallback is enough at a branch, not only on the
+# straight road phase C measured.
+must:
+  - event: stop_hold_stationary
+    function: gt.acc
+    hold_key: gt.acc.stop_hold
+    max_displacement_m: 0.5
+    after: { sim_time: 10.0 }
+    before: { sim_time: 25.0 }
+    reason: "信号を停止対象に構成したとき、赤信号の停止線手前で停止し保持すること（REQ-AD-031段b・信号側）"
+  - event: speed_below
+    threshold: 0.5
+    after: { sim_time: 18.0 }
+    before: { sim_time: 25.0 }
+    reason: "緑が来ないので停止を維持すること（自発再発進をしない＝段c/dはスコープ外であることの負の対照）"
+  - event: adas_state_matches
+    function: gt.acc
+    expect: active
+    mode: all
+    after: { sim_time: 2.0 }
+    before: { sim_time: 25.0 }
+    reason: "信号停止中もACCは作動状態であること（停止は解除ではない）"

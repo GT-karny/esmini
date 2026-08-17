@@ -33,6 +33,21 @@ mappings:
     ids: [feature:F7]
   - glob: "scripts/ffb_spike/*"
     ids: [feature:F7]
+  # SUMO background traffic (experimental). The upstream ControllerSumo* files
+  # are deliberately NOT mapped here: they stay untouched (R1), and a change
+  # there would be a fork edit, not F9 work.
+  - glob: "*control/ControllerSumoTraffic*"
+    ids: [feature:F9]
+  - glob: "*control/sumotraffic/*"
+    ids: [feature:F9]
+  - glob: "*test/unit/sumotraffic/*"
+    ids: [feature:F9]
+  - glob: "GT_esmini/config/sumo_traffic.json"
+    ids: [feature:F9]
+  - glob: "GT_esmini/docs/features/sumo_background_traffic.md"
+    ids: [feature:F9]
+  - glob: "resources/xosc/sumo_background_traffic_gt.xosc"
+    ids: [feature:F9]
   # VirtualDriver policies
   - glob: "*virtualdriver/policies/LeadVehicleAware*"
     ids: [policy:lead]

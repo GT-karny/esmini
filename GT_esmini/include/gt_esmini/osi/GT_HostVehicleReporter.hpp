@@ -23,6 +23,39 @@ namespace gt_esmini
 {
 
 /**
+ * @brief One ADAS row's DriverOverride submessage + custom_state
+ *        (req-vd-ad:REQ-AD-028 段b, manualdrive_adas_design.md §8-3).
+ *
+ * Declared here rather than reusing control's AdasDriverOverride because the
+ * `osi` module must not depend on `control` (GT_esmini/CLAUDE.md §2) -- the
+ * same mirror-and-pin relationship AdasFunctionReport.hpp's osi_adas enums
+ * already have with the real proto. The translation between the two lives at
+ * the one place that sees both, GT_esminiLib.cpp's dispatch.
+ *
+ * A default-constructed value means "this caller has nothing to say about
+ * driver override", and UpdateFromObjectState then emits NEITHER the
+ * driver_override submessage NOR custom_state for the row. That is what keeps
+ * every pre-existing caller (the RealDriver/PythonDriver 24-slot block, the
+ * VirtualDriver rows) byte-identical on the wire: they pass no override at
+ * all, so their serialized rows are unchanged by this feature.
+ *
+ * `reported == true, active == false` is a DIFFERENT statement from a
+ * default-constructed value: it means the producer evaluated the override
+ * question this frame and measured no override, so the submessage IS emitted
+ * (with an explicit active=false). A consumer must be able to tell "measured
+ * no override" from "nobody ever looked" -- see AdasFunctionReport.hpp's
+ * AdasDriverOverride comment for why that distinction is load-bearing for the
+ * verification matchers.
+ */
+struct AdasFunctionOverride
+{
+    bool             reported = false;  // false -> emit no driver_override submessage
+    bool             active   = false;
+    std::vector<int> reasons;           // osi3 ...DriverOverride_Reason values
+    std::string      custom_state;      // empty -> leave the OSI field unset
+};
+
+/**
  * @brief Singleton class for managing HostVehicleData generation and UDP transmission
  *
  * This class handles OSI HostVehicleData independently from OSIReporter,
@@ -99,12 +132,22 @@ public:
      * @param custom_name Label (always set; the only identity for NAME_OTHER)
      * @param state       osi3 ...VehicleAutomatedDrivingFunction_State value
      * @param detail      custom_detail key/value pairs (see PolicyDetail.hpp)
+     * @param driver_override  Per-row DriverOverride + custom_state
+     *        (req-vd-ad:REQ-AD-028 段b). DEFAULTED so that every pre-phase-B
+     *        call site stays not merely source-compatible but WIRE-identical:
+     *        a default value emits neither field. This is the per-function-row
+     *        setter design §8-3 calls for -- rows are identified by
+     *        custom_name here exactly as state/detail already are, so a
+     *        separate SetADASFunctionDriverOverride(custom_name, ...) entry
+     *        point would be a second way to write the same slot with no
+     *        caller of its own.
      */
     void AddADASFunctionEx(int                                                     vehicle_id,
                            int                                                     osi_name,
                            const std::string&                                      custom_name,
                            int                                                     state,
-                           const std::vector<std::pair<std::string, std::string>>& detail);
+                           const std::vector<std::pair<std::string, std::string>>& detail,
+                           const AdasFunctionOverride&                             driver_override = {});
 
     /**
      * Clear all ADAS functions for a vehicle (call before updating each frame)
@@ -141,6 +184,39 @@ public:
      * @return 0 if OK, -1 if not available
      */
     int GetUDPClientStatus() const;
+
+    /**
+     * Pointer into this reporter's OWN serialization buffer (serialized_data_),
+     * for in-process verification harnesses that cannot use the UDP 48199 HVD
+     * stream (req-vd-ad:REQ-AD-028 段c). Mirrors OSIReporter::GetOSIGroundTruth's
+     * pattern: a raw pointer into a long-lived member std::string, with the
+     * length written through the out-param, so no allocation crosses the DLL
+     * boundary.
+     *
+     * Lifetime contract: the returned pointer is valid only until the NEXT
+     * UpdateFromObjectState() call, which overwrites serialized_data_ in place
+     * (Send() does NOT clear it). A caller must copy the bytes out before the
+     * next GT_Step.
+     *
+     * Deliberately does NOT force a re-serialization the way
+     * SE_GetOSIGroundTruth does for GroundTruth. GroundTruth is
+     * frequency-gated (SE_GetOSIGroundTruth must force UpdateOSIGroundTruth()
+     * because the reporter may not have run this frame), but HostVehicleData
+     * has no such gate: GT_Step calls UpdateFromObjectState() + Send() for the
+     * ego unconditionally every frame, so by the time any caller reaches this
+     * accessor the buffer is already current for the frame just stepped.
+     * Forcing another serialization here would be redundant work and would
+     * require re-resolving which Object is "ego" — logic that already lives
+     * in GT_Step and should not be duplicated here.
+     *
+     * @param size Output: number of bytes in the returned buffer. Written as 0
+     *             when nothing has been serialized yet, or left untouched if
+     *             size is null.
+     * @return Pointer to the serialized bytes, or nullptr if nothing has been
+     *         serialized yet (size is written to 0 in that case too, guarded
+     *         against a null size).
+     */
+    const char* GetSerializedHostVehicleData(int* size) const;
 
     /**
      * Cleanup resources
@@ -190,6 +266,9 @@ private:
             // (defensive default; AddADASFunctionEx always sets a real value).
             int osi_name = -1;
             std::vector<std::pair<std::string, std::string>> detail;  // -> custom_detail
+            // req-vd-ad:REQ-AD-028 段b. Default = "nothing to say", which
+            // serializes to no driver_override submessage and no custom_state.
+            AdasFunctionOverride driver_override;
         };
         std::vector<ADASFunction> adas_functions;
 

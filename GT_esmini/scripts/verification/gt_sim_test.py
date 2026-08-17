@@ -407,6 +407,158 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
     return scene
 
 
+# ---------------------------------------------------------------------------
+# ManualDrive HVD -> frame projection (req-vd-ad:REQ-AD-028 段c, vd-func:FUNC-075)
+# ---------------------------------------------------------------------------
+
+# osi_hostvehicledata.proto enum name prefixes, stripped by _enum_name (see
+# above) the same way the OSI GroundTruth enums are -- read off the live
+# protobuf descriptor rather than a hand-kept table, so this never drifts
+# against whichever osi3 bindings are actually installed.
+_HVD_STATE_PREFIX = "STATE_"
+_HVD_OVERRIDE_REASON_PREFIX = "REASON_"
+
+
+def _host_ego_from_scene(scene: dict | None) -> dict | None:
+    """Ego pose/speed for a controller=manualdrive frame, read from the OSI
+    GroundTruth host object (face-1, is_host) -- ManualDrive has no
+    telemetry channel of its own to fall back to (unlike VirtualDriver's
+    tel["ego"], which comes from GT_GetVirtualDriverTelemetry). Returns None
+    -- NEVER a fabricated zero ego -- when no scene has been captured yet or
+    no object in it is flagged is_host (e.g. before GT_Step has resolved the
+    host on the very first frame(s)); the caller must only emit "ego"/
+    "ego_source" into the frame when this returns non-None (contract: "never
+    synthesise a zero ego")."""
+    if not scene:
+        return None
+    for obj in scene.get("objects", []):
+        if obj.get("is_host"):
+            return {
+                "x": obj["x"],
+                "y": obj["y"],
+                "h": obj["h"],
+                "speed": obj["speed"],
+            }
+    return None
+
+
+def _hvd_to_dict(raw: bytes, _hvd_cache=[]) -> dict | None:
+    """Parse a raw OSI HostVehicleData frame (GtLib.get_osi_host_vehicle_data)
+    into {"inputs": {...}, "adas": {...}} -- the shape a controller=
+    manualdrive telemetry frame's "hvd" key carries (design §7-3). Returns
+    None on an unparseable payload (caller counts this as a capture miss,
+    same treatment as _gt_to_scene returning None for a bad GroundTruth
+    payload).
+
+    inputs: raw pedal/steering/gear values straight off HostVehicleData's
+    VehiclePowertrain/VehicleBrakeSystem/VehicleSteering sub-messages -- NOT
+    rounded, unlike _gt_to_scene's scene dict: §7-5's self-determinism
+    control needs these at full precision so a genuine engine determinism
+    gap (see e25e9c85 in vd_ffb_notouch_parity.py's history, which reproduced
+    at ~1e-9 relative) is not silently masked by a rounding step done for
+    telemetry-file compactness.
+
+    adas: keyed by each row's custom_name (not by the OSI Name enum -- see
+    the contract's "hvd.adas is keyed by the row's custom_name"; GT_esmini's
+    own functions are exposed under custom_name tokens like "gt.aeb" even
+    though `name` also carries the matching real OSI Name enum value where
+    one exists). Two rows sharing the same (or an empty) custom_name would
+    collide in this dict -- GT_esmini's phase-A rows are all namespaced
+    ("gt.aeb", "gt.fcw", ...) so this does not happen today, but a future row
+    shipping with an empty/duplicate custom_name would silently overwrite a
+    sibling here rather than error; nothing in this harness layer can detect
+    that case without a full row-count contract from the C++ side, so it is
+    left as a known limitation rather than guarded against here.
+
+    driver_override is ALWAYS emitted in the {"present": bool, "active":
+    bool, "reasons": [str]} shape, and `present` is what separates the two
+    facts a phase-A-era reader could not tell apart. present=False means the
+    producer never wrote the submessage at all -- "nobody looked" -- and
+    active/reasons then carry no information; present=True with active=False
+    is a real measurement of "looked, no override" (req-vd-ad:REQ-AD-028 段b).
+    GT_esmini emits the submessage only from rows whose function was actually
+    running (AdasFunctionReport.hpp's AdasDriverOverride), so present=False is
+    the normal, correct reading for a switched-off or non-owned function --
+    and for every row produced by a controller other than ManualDrive, which
+    passes no override at all.
+
+    custom_state is the OSI `optional string custom_state` field, "" when
+    unset. It carries DRIVER_OVERRIDE_ACCEL for accelerator-origin overrides,
+    which OSI's two-value DriverOverride.Reason enum (brake/steering) cannot
+    express -- design §8-3."""
+    from osi3.osi_hostvehicledata_pb2 import HostVehicleData
+
+    if not _hvd_cache:
+        _hvd_cache.append(HostVehicleData())
+    hvd = _hvd_cache[0]
+    hvd.Clear()
+    try:
+        hvd.ParseFromString(raw)
+    except Exception:
+        return None
+
+    throttle = (
+        hvd.vehicle_powertrain.pedal_position_acceleration
+        if hvd.HasField("vehicle_powertrain")
+        else 0.0
+    )
+    gear = (
+        hvd.vehicle_powertrain.gear_transmission
+        if hvd.HasField("vehicle_powertrain")
+        else 0
+    )
+    brake = (
+        hvd.vehicle_brake_system.pedal_position_brake
+        if hvd.HasField("vehicle_brake_system")
+        else 0.0
+    )
+    steering = 0.0
+    if hvd.HasField("vehicle_steering") and hvd.vehicle_steering.HasField(
+        "vehicle_steering_wheel"
+    ):
+        steering = hvd.vehicle_steering.vehicle_steering_wheel.angle
+
+    Fn = HostVehicleData.VehicleAutomatedDrivingFunction
+    adas: dict = {}
+    for func in hvd.vehicle_automated_driving_function:
+        override_present = func.HasField("driver_override")
+        override_active = False
+        reasons: list[str] = []
+        if override_present:
+            override_active = func.driver_override.active
+            reasons = [
+                _enum_name(
+                    Fn.DriverOverride,
+                    "override_reason",
+                    r,
+                    _HVD_OVERRIDE_REASON_PREFIX,
+                )
+                for r in func.driver_override.override_reason
+            ]
+        adas[func.custom_name] = {
+            "name": func.name,
+            "state": func.state,
+            "state_name": _enum_name(Fn, "state", func.state, _HVD_STATE_PREFIX),
+            "detail": {kv.key: kv.value for kv in func.custom_detail},
+            "driver_override": {
+                "present": override_present,
+                "active": override_active,
+                "reasons": reasons,
+            },
+            "custom_state": func.custom_state,
+        }
+
+    return {
+        "inputs": {
+            "throttle": throttle,
+            "brake": brake,
+            "steering": steering,
+            "gear": gear,
+        },
+        "adas": adas,
+    }
+
+
 def run(
     scenario: Path,
     out_dir: Path,
@@ -415,12 +567,33 @@ def run(
     snapshots: int,
     dll: Path | None,
     capture_osi: bool = False,
+    controller: str = "virtualdriver",
 ) -> dict:
     # feature:F7 gate hardening -- the actual common choke point (see
     # _require_gate_ports_free's module-level comment): every invocation path
     # (batch(), the CLI `run` subcommand, a skill calling this directly)
     # reaches this exact line before touching the DLL or any socket below.
     _require_gate_ports_free()
+
+    if controller not in ("virtualdriver", "manualdrive"):
+        raise ValueError(
+            f"unknown controller '{controller}' (want 'virtualdriver' or 'manualdrive')"
+        )
+    is_manualdrive = controller == "manualdrive"
+    if is_manualdrive:
+        # ManualDrive has no telemetry channel of its own (no VirtualDriver-
+        # style GT_GetVirtualDriverTelemetry loop): the OSI GroundTruth scene
+        # is the ONLY source of ego, and GT_GetOSIHostVehicleData is the only
+        # source of ADAS state. Silently running with capture_osi=False would
+        # therefore produce frames with no ego and no ADAS data at all -- a
+        # scene/HVD-dependent matcher's verdict would be silently corrupted
+        # (identical reasoning to the osi_misses raise below). Forcing it on
+        # HERE (rather than defaulting the manifest's own `osi` key) is what
+        # lets an explicit `osi: false` in a manualdrive batch entry be
+        # caught as a loud, distinct error one layer up in batch() -- see its
+        # controller=="manualdrive" branch -- instead of being silently
+        # overridden without comment.
+        capture_osi = True
 
     out_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = out_dir / "telemetry.jsonl"
@@ -445,6 +618,10 @@ def run(
     # module-level comment above and gt_lib.get_osi_ground_truth's docstring).
     osi_misses = 0
     osi_steps = 0
+    # ManualDrive-only counters (req-vd-ad:REQ-AD-028 段c): same fail-loud
+    # treatment as osi_misses above, for the HVD channel.
+    hvd_misses = 0
+    hvd_steps = 0
 
     with lib, open(jsonl_path, "w", encoding="utf-8") as f:
         rc = lib.init_with_args(args)
@@ -460,8 +637,9 @@ def run(
             lib.set_osi_frequency(1)
 
         n_steps = int(round(max_time / dt))
-        for _ in range(n_steps):
+        for step_idx in range(n_steps):
             lib.step(dt)
+            scene: dict | None = None
             if capture_osi:
                 osi_steps += 1
                 raw = lib.get_osi_ground_truth()
@@ -479,6 +657,53 @@ def run(
                 if last_scene is not None and static_scene and not static_emitted:
                     last_scene.update(static_scene)
                     static_emitted = True
+
+            if is_manualdrive:
+                # GRACE for manualdrive keys off OSI scene-capture progression
+                # instead of VD telemetry going absent: ManualDrive has no
+                # "controller deactivated at story end" signal the way
+                # VirtualDriver's telemetry disappearing does (Controller-
+                # ManualDrive isn't torn down the same way at story end). A
+                # streak of scene-capture misses is NOT a graceful ending
+                # here -- ANY miss already makes this run raise loudly below
+                # (osi_misses check, now also gating manualdrive since
+                # capture_osi is forced True above) -- so breaking early on a
+                # miss-streak is purely a fail-FAST optimisation (stop
+                # burning through the rest of max_time once capture has
+                # demonstrably broken down), never a silent
+                # early-and-successful exit.
+                if scene is not None:
+                    seen_valid = True
+                    grace = 0
+                elif seen_valid:
+                    grace += 1
+                    if grace >= GRACE_MAX:
+                        break
+
+                hvd_steps += 1
+                hvd_raw = lib.get_osi_host_vehicle_data(-1)
+                hvd = _hvd_to_dict(hvd_raw) if hvd_raw is not None else None
+                if hvd is None:
+                    hvd_misses += 1
+
+                frame: dict = {
+                    "sim_time": round((step_idx + 1) * dt, 6),
+                    "controller": "ManualDrive",
+                }
+                ego = _host_ego_from_scene(last_scene)
+                if ego is not None:
+                    frame["ego"] = ego
+                    # Provenance: OSI GroundTruth host object, NOT VD
+                    # telemetry -- ManualDrive has none of the latter. See
+                    # _host_ego_from_scene's docstring.
+                    frame["ego_source"] = "osi_scene"
+                if hvd is not None:
+                    frame["hvd"] = hvd
+                frame["scene"] = last_scene
+                f.write(json.dumps(frame, separators=(",", ":")) + "\n")
+                frames.append(frame)
+                continue
+
             tel = lib.get_vd_telemetry(-1)
             if tel is None:
                 if seen_valid:
@@ -509,6 +734,24 @@ def run(
             "fails loudly because a scene-dependent matcher's result would "
             "otherwise be silently corrupted."
         )
+    if is_manualdrive and hvd_misses:
+        raise RuntimeError(
+            f"HVD capture failed on {hvd_misses}/{hvd_steps} step(s) for "
+            f"{scenario}: GT_GetOSIHostVehicleData returned no/unparseable data "
+            "on a controller=manualdrive run. Same treatment as the OSI "
+            "ground-truth check above: this fails loudly instead of silently "
+            "treating a missing HVD frame as 'nothing happened', which would "
+            "otherwise silently corrupt an ADAS-state matcher's verdict."
+        )
+    if is_manualdrive and not frames:
+        raise RuntimeError(
+            f"controller=manualdrive produced 0 frames for {scenario}: no "
+            "scene/HVD was ever captured (max_time too short for even one "
+            "step? does the scenario declare a host vehicle?). A manualdrive "
+            "run with 0 frames must fail loudly rather than silently succeed "
+            "with nothing for a matcher to read, mirroring the osi_misses/"
+            "hvd_misses checks above."
+        )
 
     duration = frames[-1]["sim_time"] if frames else 0.0
     meta = {
@@ -517,7 +760,7 @@ def run(
             if scenario.is_absolute() and str(scenario).startswith(str(REPO_ROOT))
             else str(scenario)
         ),
-        "controller": "VirtualDriver",
+        "controller": "ManualDrive" if is_manualdrive else "VirtualDriver",
         "dt": dt,
         "frames": len(frames),
         "sim_duration_s": round(duration, 3),
@@ -527,13 +770,20 @@ def run(
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     if frames:
-        _render_snapshots(frames, out_dir / "snapshots", max(1, snapshots))
+        snap_frames = frames
+        if is_manualdrive:
+            # Unlike VD telemetry, a manualdrive frame's "ego" key can be
+            # legitimately absent (see _host_ego_from_scene) -- filter those
+            # out rather than let _render_snapshots KeyError on fr["ego"].
+            snap_frames = [fr for fr in frames if "ego" in fr]
+        if snap_frames:
+            _render_snapshots(snap_frames, out_dir / "snapshots", max(1, snapshots))
 
     print(
         f"[run] {scenario.name}: {len(frames)} frames, {duration:.1f}s -> {jsonl_path}",
         file=sys.stderr,
     )
-    if not frames:
+    if not frames and not is_manualdrive:
         print(
             "[run] WARNING: no VirtualDriver telemetry captured - does the scenario "
             "assign a VirtualDriverController to the ego?",
@@ -850,6 +1100,281 @@ def _prepare_policy_xosc(scenario: Path, run_dir: Path, config_path: Path) -> Pa
     return out
 
 
+# --- ManualDrive config injection (§7-2, req-vd-ad:REQ-AD-025..031) --------
+# Mirrors the VirtualDriver policy-injection pair above (_write_policy_config /
+# _prepare_policy_xosc): the in-process harness can't load an exe-relative
+# config (it resolves against host python.exe), but ControllerManualDrive DOES
+# honour an ABSOLUTE ConfigFile path -- same constraint, same fix shape.
+BASE_MD_CONFIG = REPO_ROOT / "GT_esmini" / "config" / "manual_drive_headless_stub.json"
+# Path-valued override keys get absolutized against REPO_ROOT before being
+# written into the per-run config (a scenario-relative or repo-relative path
+# in the manifest would otherwise resolve against the DLL's exe dir, same
+# ConfigFile-resolution trap ControllerManualDrive/ControllerVirtualDriver
+# both have -- see this module's HARD FACTS / _prepare_policy_xosc above).
+_MD_PATH_OVERRIDE_KEYS = {"input_scripted_profile_file"}
+
+
+def _set_flat_key(node: dict, key: str, value) -> bool:
+    """Recursively search a JSON-loaded dict for `key` as a direct child at
+    ANY nesting depth and set it to `value` in place. Returns True once
+    found+set, False if `key` appears nowhere in `node`.
+
+    Why written into whatever nested shape the base file already uses,
+    rather than flattened to top level: ManualDriveConfig::LoadFromFile is a
+    line-wise scanner that matches `"key"` tokens across the WHOLE file
+    regardless of JSON nesting/scope (see this module's HARD FACTS), so
+    either shape would load identically. Preserving the existing nesting
+    (e.g. writing adas_aeb_enabled back under the shipped "adas": {...}
+    group) keeps the generated per-run config human-readable and diffable
+    against the shipped manual_drive*.json files, which flattening
+    everything to the top level would not.
+    """
+    if key in node and not isinstance(node[key], dict):
+        node[key] = value
+        return True
+    for v in node.values():
+        if isinstance(v, dict) and _set_flat_key(v, key, value):
+            return True
+    return False
+
+
+def _write_manualdrive_config(overrides: dict, out_path: Path) -> Path:
+    """Write a per-run manual_drive.json = BASE_MD_CONFIG (the headless-stub
+    base, per contract) + the requested flat-key overrides. Unknown override
+    keys RAISE -- same discipline as _write_policy_config's unknown-policy
+    guard: ManualDriveConfig's loader is a flat substring scanner, so a
+    typo'd key would otherwise silently leave every ADAS function at its
+    default-OFF value instead of erroring."""
+    base = json.loads(BASE_MD_CONFIG.read_text(encoding="utf-8"))
+    for key, value in overrides.items():
+        if key in _MD_PATH_OVERRIDE_KEYS and isinstance(value, str) and value:
+            value = str(_resolve_repo(value))
+        if not _set_flat_key(base, key, value):
+            raise ValueError(
+                f"unknown manualdrive_config key '{key}' (not present anywhere in "
+                f"{BASE_MD_CONFIG.name} -- ManualDriveConfig::LoadFromFile is a flat, "
+                "scope-blind line scanner, so a typo'd key would silently run with "
+                "ADAS left off instead of raising; same treatment as "
+                "_write_policy_config's unknown-policy guard above)"
+            )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(base, indent=2), encoding="utf-8")
+    return out_path
+
+
+def _prepare_manualdrive_xosc(scenario: Path, run_dir: Path, config_path: Path) -> Path:
+    """Write a temp copy of the scenario with (1) road/scene/catalog file paths
+    absolutized (so it can live outside the original dir) and (2) an absolute
+    ConfigFile property injected into the ManualDriveController. Unlike
+    _prepare_policy_xosc above, an EXISTING ConfigFile Property is REPLACED
+    rather than appended: scenario resources under 09_manualdrive_adas/ (and
+    the split-domain fixture under 08_handoff/) already declare a ConfigFile
+    (e.g. manual_drive_headless_stub.json) on the ManualDriveController, so
+    appending a second Property would leave two "ConfigFile" entries and make
+    the effective config depend on which one ManualDriveConfig::LoadFromFile
+    happens to see first -- order-dependent and non-obvious, not "last
+    wins". Raises if the controller isn't found."""
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(scenario)
+    root = tree.getroot()
+    base_dir = scenario.parent
+
+    for tag, attr in (
+        ("LogicFile", "filepath"),
+        ("SceneGraphFile", "filepath"),
+        ("Directory", "path"),
+    ):
+        for el in root.iter(tag):
+            fp = el.get(attr)
+            if fp and not Path(fp).is_absolute():
+                el.set(attr, str((base_dir / fp).resolve()))
+
+    injected = False
+    for ctrl in root.iter("Controller"):
+        if ctrl.get("name") == "ManualDriveController":
+            props = ctrl.find("Properties")
+            if props is None:
+                props = ET.SubElement(ctrl, "Properties")
+            for p in list(props.findall("Property")):
+                if p.get("name") == "ConfigFile":
+                    props.remove(p)
+            ET.SubElement(
+                props, "Property", {"name": "ConfigFile", "value": str(config_path)}
+            )
+            injected = True
+    if not injected:
+        raise RuntimeError(
+            f"{scenario.name}: no ManualDriveController to inject ConfigFile into"
+        )
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    out = run_dir / (scenario.stem + ".manualdriverun.xosc")
+    tree.write(out, encoding="utf-8", xml_declaration=True)
+    return out
+
+
+# --- ManualDrive self-determinism control (§7-5) ----------------------------
+# Mirrors scripts/vd_ffb_notouch_parity.py's stage-1 "determinism control":
+# run the SAME manualdrive configuration TWICE and require the DECISION
+# fields to be bit-identical before trusting any expectations verdict for
+# that scenario/config. Implemented here (not as a second top-level script)
+# because batch() already owns the config/xosc injection plumbing
+# (_write_manualdrive_config / _prepare_manualdrive_xosc) this control needs
+# to reuse, and because gt_sim_test.py is the only file this change is
+# scoped to touch.
+#
+# Each replicate runs in a FRESH OS SUBPROCESS, deliberately never in-process
+# in the calling process -- see _run_manualdrive_replicate's docstring for
+# why: vd_ffb_notouch_parity.py's own history (e25e9c85) found a genuine
+# ~1e-9 relative divergence between two "separate" in-process runs that
+# turned out to be leftover C++ static state surviving GT_Close(), not real
+# engine non-determinism, because ctypes.CDLL on Windows does not truly
+# reload an already-mapped DLL. A fresh process per replicate sidesteps that
+# class of false positive entirely.
+
+# Decision fields for the manualdrive self-determinism control (contract
+# §7-5): the ADAS-arbitrated pedal/steer inputs, plus the per-function State
+# for every row in hvd.adas. name/detail/driver_override are diagnostic, not
+# decision fields, and are intentionally excluded (a detail string changing
+# while every decision field stays identical is not a determinism failure by
+# this standard).
+_MD_DECISION_INPUT_FIELDS = ("throttle", "brake", "steering")
+
+
+def _manualdrive_decision_tuple(frame: dict) -> tuple:
+    hvd = frame.get("hvd") or {}
+    inputs = hvd.get("inputs") or {}
+    adas = hvd.get("adas") or {}
+    inputs_tuple = tuple(inputs.get(k) for k in _MD_DECISION_INPUT_FIELDS)
+    # Sorted (key, state) pairs: the SET of adas keys is part of the
+    # comparison too, so a replicate that reports a different function list
+    # (e.g. one row silently missing) counts as a divergence rather than a
+    # silent partial comparison.
+    adas_tuple = tuple(sorted((k, v.get("state")) for k, v in adas.items()))
+    return (inputs_tuple, adas_tuple)
+
+
+def _first_manualdrive_decision_divergence(a: list[dict], b: list[dict]) -> str | None:
+    """EXACT (no tolerance) frame-by-frame comparison of decision fields --
+    same standard as vd_ffb_notouch_parity.py's
+    _first_ad_decision_divergence, and for the same reason: the engine runs
+    headless with a fixed timestep and no real-time pacing, so if the ADAS
+    decision is a pure function of scenario + input-profile + previous
+    vehicle state, two runs from the same config must compute bit-for-bit
+    identical decisions every frame. A frame-count mismatch counts as a
+    divergence in its own right, even when every overlapping frame matches."""
+    n = min(len(a), len(b))
+    for i in range(n):
+        ta, tb = _manualdrive_decision_tuple(a[i]), _manualdrive_decision_tuple(b[i])
+        if ta != tb:
+            return f"frame {i} (sim_time={a[i].get('sim_time')}): a={ta!r} vs b={tb!r}"
+    if len(a) != len(b):
+        return (
+            f"frame count differs: a={len(a)} b={len(b)} "
+            f"(no field divergence within the overlapping {n} frames)"
+        )
+    return None
+
+
+def _load_jsonl_frames(path: Path) -> list[dict]:
+    """Read a telemetry.jsonl file (one JSON object per line) into a list."""
+    frames = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            frames.append(json.loads(line))
+    return frames
+
+
+def _run_manualdrive_replicate(
+    scen_to_run: Path,
+    out_dir: Path,
+    dt: float,
+    max_time: float,
+    dll: Path | None,
+) -> list[dict]:
+    """Run one manualdrive replicate of an ALREADY-PREPARED scenario (config
+    already injected, see _prepare_manualdrive_xosc) in a fresh OS subprocess
+    via this module's own `run` CLI subcommand, and return the resulting
+    telemetry frames.
+
+    A fresh subprocess, not ctypes.CDLL in the calling process: see this
+    section's module comment above for why (Windows DLL-reuse leaking static
+    state between "separate" in-process runs, root-caused for the FFB
+    parity check at e25e9c85). run()'s controller="manualdrive" branch
+    itself raises loudly on 0 frames / any HVD miss (§7-1), so rc==0 here is
+    sufficient proof of a complete, valid run -- no separate frame-count
+    sanity check is needed before trusting telemetry.jsonl.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "run",
+        str(scen_to_run),
+        "--out",
+        str(out_dir),
+        "--dt",
+        str(dt),
+        "--max-time",
+        str(max_time),
+        "--controller",
+        "manualdrive",
+        "--osi",
+    ]
+    if dll:
+        cmd += ["--dll", str(dll)]
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=max(120.0, max_time * 3)
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"self-determinism replicate subprocess failed (rc={result.returncode}) "
+            f"for {scen_to_run}:\nstdout(tail)={result.stdout[-2000:]}\n"
+            f"stderr(tail)={result.stderr[-2000:]}"
+        )
+    jsonl_path = out_dir / "telemetry.jsonl"
+    if not jsonl_path.is_file():
+        raise RuntimeError(
+            f"self-determinism replicate produced no telemetry.jsonl for "
+            f"{scen_to_run} despite rc=0; stderr(tail)={result.stderr[-2000:]}"
+        )
+    return _load_jsonl_frames(jsonl_path)
+
+
+def check_manualdrive_self_determinism(
+    scenario: Path,
+    md_overrides: dict,
+    dt: float,
+    max_time: float,
+    dll: Path | None,
+    work_dir: Path,
+) -> str | None:
+    """§7-5 stage 1: run the SAME manualdrive configuration TWICE (same
+    config, same scenario, each in its own fresh OS subprocess) and require
+    EXACT decision-field parity between the two runs. Returns a description
+    of the first divergence, or None if clean.
+
+    Must be run and shown clean BEFORE trusting any expectations verdict for
+    this scenario/config combination -- an exact-match standard has no
+    meaning without first knowing the engine reproduces its own decisions
+    given identical input (mirrors vd_ffb_notouch_parity.py's
+    _check_self_determinism / its "control runs FIRST" ordering).
+    """
+    cfg = _write_manualdrive_config(
+        md_overrides, work_dir / "manual_drive.selfdet.json"
+    )
+    scen_to_run = _prepare_manualdrive_xosc(scenario, work_dir, cfg)
+    frames_1 = _run_manualdrive_replicate(
+        scen_to_run, work_dir / "rep1", dt, max_time, dll
+    )
+    frames_2 = _run_manualdrive_replicate(
+        scen_to_run, work_dir / "rep2", dt, max_time, dll
+    )
+    return _first_manualdrive_decision_divergence(frames_1, frames_2)
+
+
 def _reset_batch_output_dir(out_root: Path) -> None:
     """feature:F7 gate hardening -- clear out_root before a batch run.
 
@@ -881,7 +1406,40 @@ def _reset_batch_output_dir(out_root: Path) -> None:
     out_root.mkdir(parents=True, exist_ok=True)
 
 
-def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
+def _batch_run_name(scenario: Path, variant: str | None) -> str:
+    """Output-directory name for one batch entry: the scenario stem, plus a
+    `__<variant>` suffix when the manifest gives one.
+
+    WHY THIS EXISTS (verification plan §7-2): several observations are proved
+    only by running the SAME stimulus under TWO configurations and showing the
+    outcome differs -- "switched off" vs "armed and quiet"
+    (md-state-three-value-discipline), respect_speed_limit on/off, warning_only
+    on/off. Keying output purely by scenario stem made that impossible to
+    express: the second entry would land in the first one's directory. A
+    variant token is the smallest thing that fixes it without duplicating an
+    xosc whose GEOMETRY is identical and whose only difference is config --
+    duplicating the asset would put two files under review that must never
+    diverge, which is a worse failure mode than a manifest key.
+
+    Entries with no `variant` keep exactly their previous directory name, so
+    every existing manifest and committed baseline is unaffected."""
+    if not variant:
+        return scenario.stem
+    token = str(variant).strip()
+    if not token or any(c in token for c in '/\\:*?"<>|') or token in (".", ".."):
+        raise ValueError(
+            f"invalid batch variant {variant!r} for {scenario.name}: must be a "
+            "non-empty token usable as a directory-name suffix"
+        )
+    return f"{scenario.stem}__{token}"
+
+
+def batch(
+    manifest: Path,
+    out_root: Path,
+    dll: Path | None = None,
+    self_determinism: bool = False,
+) -> dict:
     """Run a manifest of scenarios: for each, run() -> (compare if baseline) ->
     assert (+ optional decel report). Per-scenario failures are recorded as
     'error' and do not abort the batch. Writes batch_verdict.json + a
@@ -897,6 +1455,16 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
     per scenario, since run() -- called inside that try/except -- checks
     again itself; see _require_gate_ports_free's module comment for why the
     check lives there too and is not redundant to remove).
+
+    self_determinism (§7-5, opt-in, default off -- same "off unless a caller
+    explicitly asks" convention as vd_ffb_notouch_parity.py's own wiring into
+    run_regression_gate.ps1): when True, every controller=="manualdrive"
+    entry runs check_manualdrive_self_determinism FIRST. A dirty control
+    raises (caught below, recorded as this scenario's 'error') BEFORE run()
+    is ever called for the entry's actual expectations comparison -- refusing
+    to report a verdict for a scenario whose control failed, per the
+    contract, since an exact-match standard against a config variant is
+    meaningless without a clean same-config-twice control first.
     """
     import yaml
 
@@ -910,13 +1478,33 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
     snapshots = int(defaults.get("snapshots", 3))
     default_osi = bool(defaults.get("osi", False))
 
+    # Manifest-level guard for the `variant` key below. A duplicate run_dir
+    # would make one entry silently overwrite another's telemetry and verdict,
+    # and the batch would still report both as having run -- a fabricated
+    # result, not a visible failure. Checked up front so the whole manifest is
+    # rejected before any scenario runs, rather than halfway through.
+    seen_run_dirs: dict[str, str] = {}
+    for entry in spec.get("scenarios", []):
+        key = _batch_run_name(_resolve_repo(entry["scenario"]), entry.get("variant"))
+        prior = seen_run_dirs.get(key)
+        if prior is not None:
+            raise ValueError(
+                f"manifest {manifest.name}: two entries resolve to the same run "
+                f"directory '{key}' ({prior} and {entry['scenario']}). Give the "
+                "later one a distinct `variant:` -- entries sharing an output "
+                "directory would overwrite each other's telemetry and verdict "
+                "while both still being reported as run."
+            )
+        seen_run_dirs[key] = entry["scenario"]
+
     scen_results: list[dict] = []
     for entry in spec.get("scenarios", []):
         scen_path = _resolve_repo(entry["scenario"])
-        stem = scen_path.stem
+        stem = _batch_run_name(scen_path, entry.get("variant"))
         run_dir = out_root / stem
         rec = {
             "scenario": entry["scenario"],
+            "variant": entry.get("variant"),
             "run_dir": str(run_dir),
             "frames": 0,
             "compare": None,
@@ -926,13 +1514,77 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
         capture_osi = bool(entry.get("osi", default_osi))
         policies = entry.get("policies") or defaults.get("policies") or []
         rec["policies"] = policies
+        # controller: absent => "virtualdriver" => today's behaviour,
+        # byte-identical (contract). "manualdrive" routes through the
+        # ManualDrive config-injection + execution-mode path instead.
+        controller = entry.get("controller", "virtualdriver")
+        rec["controller"] = controller
         try:
+            if controller not in ("virtualdriver", "manualdrive"):
+                raise ValueError(
+                    f"unknown controller '{controller}' (want 'virtualdriver' or "
+                    "'manualdrive')"
+                )
+
             scen_to_run = scen_path
-            if policies:
+            if controller == "manualdrive":
+                if "osi" in entry and not entry["osi"]:
+                    # run()'s controller=="manualdrive" branch FORCES OSI
+                    # capture on unconditionally (ManualDrive has no
+                    # telemetry channel of its own -- see its docstring); an
+                    # explicit `osi: false` here means the manifest author
+                    # believed OSI was off for this entry, so silently
+                    # overriding it back on would hide that mistake. Fail
+                    # loudly instead, same discipline as run()'s own
+                    # osi_misses/hvd_misses checks.
+                    raise RuntimeError(
+                        f"{stem}: controller=manualdrive but the manifest sets "
+                        "osi: false explicitly -- ManualDrive has no telemetry "
+                        "channel of its own, so OSI capture is mandatory for it"
+                    )
+                if policies:
+                    raise RuntimeError(
+                        f"{stem}: 'policies' is a VirtualDriverController-only "
+                        "injection path (_write_policy_config / "
+                        "_prepare_policy_xosc) and is not meaningful together "
+                        "with controller: manualdrive"
+                    )
+                md_overrides = {
+                    **(defaults.get("manualdrive_config") or {}),
+                    **(entry.get("manualdrive_config") or {}),
+                }
+                rec["manualdrive_config"] = md_overrides
+
+                if self_determinism:
+                    det_diff = check_manualdrive_self_determinism(
+                        scen_path,
+                        md_overrides,
+                        dt,
+                        max_time,
+                        dll,
+                        run_dir / "_self_determinism",
+                    )
+                    rec["self_determinism"] = det_diff if det_diff else "clean"
+                    if det_diff:
+                        raise RuntimeError(
+                            f"{stem}: self-determinism control failed "
+                            f"(controller=manualdrive): {det_diff} -- refusing to "
+                            "report an expectations verdict, since an exact-match "
+                            "standard against this config is meaningless without "
+                            "a clean same-config-twice control first (mirrors "
+                            "vd_ffb_notouch_parity.py's stage-1 ordering)."
+                        )
+
+                cfg = _write_manualdrive_config(
+                    md_overrides, run_dir / "manual_drive.run.json"
+                )
+                scen_to_run = _prepare_manualdrive_xosc(scen_path, run_dir, cfg)
+            elif policies:
                 cfg = _write_policy_config(
                     policies, run_dir / "virtual_driver.run.json"
                 )
                 scen_to_run = _prepare_policy_xosc(scen_path, run_dir, cfg)
+
             meta = run(
                 scen_to_run,
                 run_dir,
@@ -941,10 +1593,15 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
                 snapshots,
                 dll,
                 capture_osi=capture_osi,
+                controller=controller,
             )
             rec["frames"] = meta["frames"]
             if meta["frames"] == 0:
-                rec["error"] = "no VirtualDriver telemetry captured"
+                rec["error"] = (
+                    "no VirtualDriver telemetry captured"
+                    if controller == "virtualdriver"
+                    else "no ManualDrive frames captured"
+                )
                 scen_results.append(rec)
                 continue
 
@@ -1046,9 +1703,14 @@ def batch(manifest: Path, out_root: Path, dll: Path | None = None) -> dict:
                 pass
         if rec["error"]:
             first_fail = f"ERROR: {rec['error']}"
-        lines.append(
-            f"| {Path(rec['scenario']).name} | {st} | {pfs} | {xy} | {sp} | {first_fail} |"
-        )
+        # Variant is part of the row's IDENTITY, not decoration: two rows can
+        # share a scenario file and differ only in config, and a summary that
+        # printed the same name twice would be unreadable exactly where the
+        # two-configuration polarity evidence lives.
+        label = Path(rec["scenario"]).name
+        if rec.get("variant"):
+            label = f"{label} [{rec['variant']}]"
+        lines.append(f"| {label} | {st} | {pfs} | {xy} | {sp} | {first_fail} |")
     lines += ["", f"OVERALL: {overall}"]
     (out_root / "batch_summary.md").write_text("\n".join(lines), encoding="utf-8")
 
@@ -1091,6 +1753,14 @@ def main(argv: list[str] | None = None) -> int:
         help="comma list of traffic policies to enable "
         "(lead,traffic_light,stop_yield); injects a ConfigFile into a temp xosc",
     )
+    pr.add_argument(
+        "--controller",
+        choices=("virtualdriver", "manualdrive"),
+        default="virtualdriver",
+        help="execution mode (default: virtualdriver, byte-identical to "
+        "pre-ManualDrive behaviour). manualdrive forces --osi on and reads "
+        "HVD instead of VirtualDriver telemetry",
+    )
 
     pc = sub.add_parser("compare", help="compare run vs Default baseline (ego RMSE)")
     pc.add_argument("run_dir", type=Path)
@@ -1126,6 +1796,14 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument(
         "--dll", type=Path, default=None, help="GT_esminiLib.dll path override"
     )
+    pb.add_argument(
+        "--self-determinism",
+        action="store_true",
+        help="§7-5: for every controller=manualdrive entry, run the same "
+        "config twice first and require exact decision-field parity before "
+        "trusting its expectations verdict (off by default, like "
+        "vd_ffb_notouch_parity.py's own gate wiring)",
+    )
 
     prep = sub.add_parser(
         "report", help="render a deceleration-profile PNG for an existing run"
@@ -1141,6 +1819,13 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         scen = args.scenario.resolve()
         out_dir = args.out.resolve()
+        if args.policy and args.controller == "manualdrive":
+            print(
+                "ERROR: --policy is a VirtualDriverController-only injection "
+                "path and is not meaningful together with --controller manualdrive",
+                file=sys.stderr,
+            )
+            return 2
         if args.policy:
             policies = [p.strip() for p in args.policy.split(",") if p.strip()]
             cfg = _write_policy_config(policies, out_dir / "virtual_driver.run.json")
@@ -1154,6 +1839,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.snapshots,
                 args.dll,
                 capture_osi=args.osi,
+                controller=args.controller,
             )
         except GatePortsBusyError as e:
             # feature:F7 gate hardening -- distinct exit code 2, same meaning
@@ -1192,7 +1878,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: manifest not found: {args.manifest}", file=sys.stderr)
             return 2
         try:
-            agg = batch(args.manifest.resolve(), args.out.resolve(), args.dll)
+            agg = batch(
+                args.manifest.resolve(),
+                args.out.resolve(),
+                args.dll,
+                self_determinism=args.self_determinism,
+            )
         except GatePortsBusyError as e:
             # feature:F7 gate hardening -- same exit-code convention as the
             # `run` subcommand above: 2 = refused to measure, not "measured

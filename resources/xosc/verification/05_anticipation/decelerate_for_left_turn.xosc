@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  VirtualDriver verification scenario 05_anticipation / decelerate_for_right_turn
+  VirtualDriver verification scenario 05_anticipation / decelerate_for_left_turn
   Ego cruises at 13.889 m/s toward the fabriksgatan junction and turns from
   road 3 (lane -1) onto road 2 (lane 1). The junction connecting road is tight
   (R~8m), so a physics car must slow to ~sqrt(2.0*8)=4 m/s to take it; a Default
@@ -10,12 +10,18 @@
   (Phase 2). This is the Phase-1 residual-bug scenario (full-speed junction entry
   -> steering saturates -> drifts onto the wrong connecting road).
   Cruise speed is a running Story Event (NOT Init) for VirtualDriver visibility.
+
+  Renamed from decelerate_for_right_turn on 2026-08-04: connecting road 13's
+  geometry (curvature=+0.108108, length=14.8696 m, heading delta=+1.6076 rad
+  / +92.1 deg) is a positive/counter-clockwise arc, i.e. the maneuver is
+  geometrically a LEFT turn. The old filename was a mislabeling; behavior,
+  thresholds, and expectations are unchanged.
 -->
 <OpenSCENARIO>
    <FileHeader revMajor="1"
                revMinor="1"
                date="2026-06-03T10:00:00"
-               description="VirtualDriver verification: anticipatory deceleration for a tight right turn at a junction"
+               description="VirtualDriver verification: anticipatory deceleration for a tight left turn at a junction"
                author="GT_esmini"/>
    <ParameterDeclarations>
       <ParameterDeclaration name="EgoSpeed" parameterType="double" value="13.889"/>

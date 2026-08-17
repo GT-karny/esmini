@@ -65,14 +65,22 @@ namespaces:
       "(proposal P<n>)" を書く慣行とし、implements辺を抽出可能にする。
 
   - slug: feature
-    title: 機能ロードマップ F1-F7
+    title: 機能ロードマップ F1-F9
     entity_type: feature
     face: "cross"
-    id_pattern: "F[1-7]"
+    id_pattern: "F[1-9]"
     source_of_truth: GT_esmini/docs/tech_debt_audit_2026-06.md
     status: active
-    count: 7
+    count: 9
     extract: commit-mentions
+    notes: >-
+      F1-F7 は source_of_truth のロードマップ由来。F8（ハンコン軸割り当て設定、2026-08-06）と
+      F9（SUMO 背景交通、2026-08-17）はそのロードマップの外で発生した後発機能で、定義は
+      それぞれ GT_esmini/docs/features/wheel_axis_mapping.md /
+      GT_esmini/docs/features/sumo_background_traffic.md にある。日付入りの監査ドキュメントへ
+      後発機能を書き足すと由来が濁るため、定義文書を分けた（§7.1 の「恒久資産に工程名を
+      付けない」と同じ動機）。F8/F9 の採番は凍結体系への例外追加で、いずれもユーザー承認済み
+      （型の不在ではなく採番の凍結だったため、新名前空間ではなく例外追加を選んだ）。
 
   - slug: audit-debt
     title: 技術負債監査 2026-06（12プレフィックス・99件）
@@ -267,14 +275,38 @@ namespaces:
     title: 検証matcher（vd_metrics event語彙）
     entity_type: matcher
     face: "3"
-    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn|overtake_decision_holds)"
+    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn|overtake_decision_holds|manual_aeb_fires|no_intervention_in_window|brake_not_stacked|fcw_leads_intervention|adas_state_matches|driver_override_reported|adas_state_sequence|setting_reflected|speed_capped_at|no_brake_output|stop_hold_stationary|restart_after_trigger|lane_kept_within|steer_output_absent|domain_split_holds|vd_control_relinquished)"
     source_of_truth: GT_esmini/web/backend/services/vd_metrics.py
     status: active
-    count: 19
+    count: 35
     notes: >-
       min_separation_above（中心間距離）は 2026-07-24 に実装ごと削除（DEPRECATED 確定
       2026-07-21、min_obb_separation_above の厳密な劣位版・参照資産0件。根拠は graph.yaml の
-      matcher 節 DEPRECATED note）。
+      matcher 節 DEPRECATED note）。manual_aeb_fires/no_intervention_in_window/
+      brake_not_stacked/fcw_leads_intervention/adas_state_matches は
+      req-vd-ad:REQ-AD-025 フェーズA（手動運転中ADAS・AEB列）で新設
+      （2026-08-04、manualdrive_adas_verification_plan.md §4）。
+      domain_split_holds / vd_control_relinquished（feature:F7 系）は実装時に未収載のまま
+      残っていた drift を 2026-08-05 に解消して収載（フェーズA報告の先行不具合指摘による）。
+      driver_override_reported は req-vd-ad:REQ-AD-028 段b フェーズB（観測列）で新設
+      （2026-08-05）。上書き入力の窓と HVD の DriverOverride/custom_state の一致を見る。
+      赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py の単体
+      両極性テスト（populate停止・入力プロファイル時刻ずらしの2赤を含む）。
+      adas_state_sequence / setting_reflected / speed_capped_at / no_brake_output /
+      stop_hold_stationary / restart_after_trigger は req-vd-ad:REQ-AD-026 / 030 / 031
+      フェーズC（ACC・Stop&Go・MSL列）で新設（2026-08-05、同計画 §4-2）。赤実証は同じく
+      test_manualdrive_matchers.py の単体両極性テスト。設計上の注意を1点だけ挙げると、
+      setting_reflected は「設定変更が窓内で1回も起きなかった run」を pass ではなく
+      **fail** で返す — 設定を保存して適用しない実装と、操作列が壊れて何も押されなかった
+      run は同じ定数列を作るので、pass にすると計器の故障が緑で通る。
+      lane_kept_within / steer_output_absent は req-vd-ad:REQ-AD-027 フェーズD
+      （LKA/LDW列）で新設（2026-08-05、同計画 §2-4/§4-2）。赤実証は同じく
+      test_manualdrive_matchers.py の単体両極性テスト。lane_kept_within の設計で
+      非自明な点が1つ: |offset| だけを見てはならない。読む offset は**レーン相対**で、
+      roadmanager の Position::GetOffset() はレーン境界で参照を張り替える（本プロジェクト
+      実測 -1.7482 → +1.9425 が1フレーム）。つまり逸脱した run ほど |offset| は小さく戻る。
+      同一 run のレーンID不変を併せて要求することでこの穴を塞いでおり、これが
+      expect_kept: false（両極性ペアの逸脱側）に観測できる中身を与えている。
 
   - slug: openx
     title: ASAM OpenX Ontology 概念（コミット済みスナップショット）
@@ -352,7 +384,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/component_catalog_vd.yaml
     status: active
-    count: 11
+    count: 15
     notes: >-
       2026-08-02 新設。**動機**: 3段チェーン（実装 -> realizes -> vd-func -> realizes -> req）の
       実装側ノードは `policy`（ITrafficPolicy 実装）しか登録されておらず、プランナー・
@@ -374,7 +406,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(_[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/signal_catalog.yaml
     status: active
-    count: 54
+    count: 55
     notes: >-
       検証スパイン④観測の一級市民（capability_model.md §4）。canonical は
       **OSI .proto 面（GroundTruth / HostVehicleData）**で、`vd_metrics.py` の
@@ -396,7 +428,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/gate_catalog.yaml
     status: active
-    count: 14
+    count: 17  # 2026-08-06: 実体は 16 だったが count は 14 のまま（scenario-handoff / stop-line-pairing 追加時に未更新）。実数に合わせ直したうえで manualdrive-adas-regression を足した
     notes: >-
       検証スパイン⑥常設（capability_model.md §4）。カタログの真実源は実行系
       （root CLAUDE.md §5 ＋ scripts/ ＋ .github/workflows/ci.yml）で、本ノードは
@@ -416,7 +448,7 @@ namespaces:
     id_pattern: "REQ-AD-[0-9]{3}"
     source_of_truth: GT_esmini/docs/knowledge/requirements_vd_ad.yaml
     status: active
-    count: 21
+    count: 28
     notes: >-
       機能軸カタログの DRAFT 段階で activate（seed REQ-AD-001..006 ＋ AEB家族 001/010-015、
       NCAP/R152逆算スキーマ=aeb_requirements.md）。設計軸は
@@ -432,7 +464,7 @@ namespaces:
     id_pattern: "FUNC-[0-9]{3}"
     source_of_truth: GT_esmini/docs/knowledge/function_catalog_vd_ad.yaml
     status: active
-    count: 78
+    count: 81
     notes: >-
       機能軸カタログ DRAFT の網羅列挙スーパーセット（FUNC-001..078、剪定前）。tier/agent/status
       は catalog 側のフィールド（ID書式には含めない＝再分類でID不変）。実装済み機能は

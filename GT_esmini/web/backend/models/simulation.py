@@ -73,10 +73,71 @@ class ManualDriveButtonMapping(BaseModel):
     model_config = {"extra": "allow"}
 
 
+# feature:F8 -- SINGLE SOURCE OF TRUTH for the SDL2 axis mapping, same role (and
+# same reason) as SDL2_BUTTON_KEY_MAP above: the wire shape nests these under
+# sdl2.axis_mapping for the GUI, while C++ reads FLAT keys under "input", and
+# every writer of this mapping must derive its key names from this table rather
+# than hand-listing them.
+#
+# The wire-side names deliberately mirror the C++ ones except for the
+# `<function>_` grouping the GUI shows, so a reviewer can diff the two columns
+# by eye.
+SDL2_AXIS_KEY_MAP: dict[str, str] = {
+    "steer_axis": "steer_axis",
+    "steer_raw_center": "steer_raw_center",
+    "steer_raw_full": "steer_raw_full",
+    "throttle_axis": "throttle_axis",
+    "throttle_raw_released": "throttle_raw_released",
+    "throttle_raw_full": "throttle_raw_full",
+    "brake_axis": "brake_axis",
+    "brake_raw_released": "brake_raw_released",
+    "brake_raw_full": "brake_raw_full",
+    "clutch_axis": "clutch_axis",
+    "clutch_raw_released": "clutch_raw_released",
+    "clutch_raw_full": "clutch_raw_full",
+}
+
+
+class ManualDriveAxisMapping(BaseModel):
+    """Per-device wheel axis assignment + raw-range calibration (feature:F8).
+
+    Defaults are the Logitech G29 layout, which is what the C++ side hardcoded
+    before this existed -- so a request that omits the block reproduces the old
+    behaviour exactly.
+
+    NO axis carries an invert flag: polarity is the ORDER of the calibrated pair
+    (pedal: ``raw_released > raw_full`` is the G29 convention; steering:
+    ``raw_full`` is FULL RIGHT, so ``raw_full < raw_center`` is a device whose
+    axis counts up to the left). Inverting an axis means exchanging its ends
+    (pedals) or mirroring the span about the centre (steering) -- the GUI's
+    per-axis Flip button.
+
+    The steering order also sets the FFB force direction on the C++ side; both
+    derive from SteerAxisSpec::SignFactor() so they cannot disagree (a mismatch
+    would make the F7 target servo push away from its target).
+    """
+
+    steer_axis: int = 0
+    steer_raw_center: int = 0
+    steer_raw_full: int = 32767
+    throttle_axis: int = 1
+    throttle_raw_released: int = 32767
+    throttle_raw_full: int = -32768
+    brake_axis: int = 2
+    brake_raw_released: int = 32767
+    brake_raw_full: int = -32768
+    clutch_axis: int = 3
+    clutch_raw_released: int = 32767
+    clutch_raw_full: int = -32768
+
+    model_config = {"extra": "allow"}
+
+
 class ManualDriveSDL2Config(BaseModel):
     device_index: int = 0
     deadzone: float = 0.0
     button_mapping: ManualDriveButtonMapping = ManualDriveButtonMapping()
+    axis_mapping: ManualDriveAxisMapping = ManualDriveAxisMapping()
 
     model_config = {"extra": "allow"}
 

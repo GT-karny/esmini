@@ -14,6 +14,7 @@ import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { ControllerSection, type ControllerType } from './simulation/ControllerSection';
 import { ManualDrivePanel } from './simulation/ManualDrivePanel';
+import { DEFAULT_AXIS_MAPPING } from './simulation/WheelAxisMappingSection';
 import { VirtualDriverPanel } from './simulation/VirtualDriverPanel';
 import { QuickOptionsBar } from './simulation/QuickOptionsBar';
 import { ParameterOverrides } from './simulation/ParameterOverrides';
@@ -28,7 +29,9 @@ const DEFAULT_MANUAL_CONFIG: ManualDriveConfig = {
   // config/manual_drive.json value), NOT -1. This literal is written straight
   // into the run request, and -1 means "unassigned" to C++, which is exactly
   // the gap #5 symptom the exposure work is meant to end.
-  sdl2: { device_index: 0, deadzone: 0, button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1, auto_resume: 3 } },
+  // feature:F8 -- axis_mapping carries the same "a defaulted literal reaches the
+  // run" property as auto_resume above, so it must be the shipped G29 layout.
+  sdl2: { device_index: 0, deadzone: 0, button_mapping: { upshift: 4, downshift: 5, override: 0, indicator_left: 7, indicator_right: 6, headlight: -1, high_beam: -1, fog_light: -1, hazard: -1, auto_resume: 3 }, axis_mapping: DEFAULT_AXIS_MAPPING },
   keyboard: {
     steer_left: 'A', steer_right: 'D', throttle: 'W', brake: 'S', clutch: 'LShift',
     upshift: 'E', downshift: 'Q', override_key: 'O',
@@ -236,6 +239,13 @@ export function SimulationRunForm({
             button_mapping: {
               ...DEFAULT_MANUAL_CONFIG.sdl2.button_mapping,
               ...savedManualDriveConfig.sdl2?.button_mapping,
+            },
+            // feature:F8 -- merged the same way, and for the same reason: the
+            // backend omits axis_mapping entirely for a config file predating
+            // F8, and a run must then get the G29 layout rather than undefined.
+            axis_mapping: {
+              ...DEFAULT_AXIS_MAPPING,
+              ...savedManualDriveConfig.sdl2?.axis_mapping,
             },
           },
           keyboard: { ...DEFAULT_MANUAL_CONFIG.keyboard, ...savedManualDriveConfig.keyboard },
