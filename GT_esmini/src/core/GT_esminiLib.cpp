@@ -52,6 +52,7 @@
 #include "gt_esmini/control/ControllerKinematic.hpp"
 #include "gt_esmini/control/ControllerRouteDrive.hpp"
 #include "gt_esmini/control/ControllerVirtualDriver.hpp"
+#include "gt_esmini/control/ControllerSumoTraffic.hpp"
 #include "gt_esmini/control/virtualdriver/VirtualDriverTelemetryJson.hpp"
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "gt_esmini/osi/HVDEstimator.hpp"
@@ -897,6 +898,10 @@ GT_ESMINI_API int GT_Init(const char* oscFilename, int disable_ctrls)
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_KINEMATIC_TYPE_NAME, gt_esmini::InstantiateControllerKinematic);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_ROUTE_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerRouteDrive);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerVirtualDriver);
+    // feature:F9 -- background traffic. Registered unconditionally; the controller
+    // itself stays inert unless a scenario names it AND sumo_traffic.json (or a
+    // scenario Property) enables it.
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_SUMO_TRAFFIC_TYPE_NAME, gt_esmini::InstantiateControllerSumoTraffic);
 
     // 2. Initialize esmini using SE_Init with sanitized file
     int ret = SE_Init(sanitizedFile.c_str(), disable_ctrls, 0, 0, 0);
@@ -1181,6 +1186,8 @@ GT_ESMINI_API int GT_InitWithArgs(int argc, const char* argv[])
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_KINEMATIC_TYPE_NAME, gt_esmini::InstantiateControllerKinematic);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_ROUTE_DRIVE_TYPE_NAME, gt_esmini::InstantiateControllerRouteDrive);
     scenarioengine::ScenarioReader::RegisterController(CONTROLLER_VIRTUAL_DRIVER_TYPE_NAME, gt_esmini::InstantiateControllerVirtualDriver);
+    // feature:F9 -- background traffic (see the GT_Init path above).
+    scenarioengine::ScenarioReader::RegisterController(CONTROLLER_SUMO_TRAFFIC_TYPE_NAME, gt_esmini::InstantiateControllerSumoTraffic);
 
     // 2. Initialize esmini using SE_Init with sanitized args
     LOG_DEBUG("Calling SE_InitWithArgs with {} args.", newArgv.size());

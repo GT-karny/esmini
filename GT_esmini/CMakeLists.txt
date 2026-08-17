@@ -163,9 +163,16 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/AdasCoexistenceStack.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/AccLonController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/SpeedLimiter.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/LaneKeepAssist.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/manualdrive/LaneKeepAssist.cpp
+    # feature:F9 SUMO background traffic (experimental, default OFF). The GT
+    # targets only exist when USE_SUMO is ON (guard above), so no extra
+    # condition is needed here.
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/ControllerSumoTraffic.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/sumotraffic/SumoTransform.cpp)
 
 set(GT_CONTROL_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/ControllerSumoTraffic.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/sumotraffic/SumoTransform.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/AutoLightController.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/HeadlightLogic.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/control/RealVehicle.hpp
@@ -348,6 +355,11 @@ foreach(TARGET IN ITEMS ${TARGET_SHARED} ${TARGET_STATIC})
         PUBLIC ${ROAD_MANAGER_PATH}
                ${EXTERNALS_OSI_INCLUDES}
                ${EXTERNALS_OSG_INCLUDES}
+               # feature:F9 — ControllerSumoTraffic.cpp includes <libsumo/...>
+               # directly. It also arrives transitively via ScenarioEngine, but
+               # relying on that would make this file's compilation depend on an
+               # upstream target's include scope.
+               ${EXTERNALS_SUMO_INCLUDES}
                ${EXTERNALS_PUGIXML_PATH}
                ${EXTERNALS_FMT_INCLUDES})
 

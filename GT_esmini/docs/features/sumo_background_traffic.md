@@ -5,7 +5,7 @@ SUMO のマイクロ交通流シミュレーションを背景交通としてシ
 発生した後発機能で、F8 と同じく定義をこのファイルに置く。
 
 - 作成: 2026-08-17
-- 状態: **設計確定・未実装**
+- 状態: **実装済み（既定 OFF・常設ゲート非対象）**。実装の所在と検証済みの範囲は §3 / §6。
 - 用途: (a) 手動運転中の周囲交通（GT_Sim.exe / Web UI）、(b) VD 検証シナリオの背景交通
 
 ---
@@ -134,10 +134,35 @@ Ego は t=13 から 10 秒かけて 3 → 20 m/s へ加速するシナリオ。
 **車線制限速度 × speedFactor** を超えた分だけが刈られていた。
 上限を外す口は `setSpeedMode()` で、**これは 1.6.0 に存在する**。
 
-> **未実証**: `setSpeedMode()` で実際に上限が外れることは、まだ測っていない。
-> 上の実験は net.xml 側を書き換えて上限を動かしただけで、API で外したわけではない。
-> 実装フェーズの最初のタスクとして、両極性（モード既定 → 刈られる／モード解除 → 追従）を
-> 実測してから設計を確定すること。
+#### 実測: `setSpeedMode(0)` で上限は外れる（2026-08-17、両極性）
+
+計測器は `GT_esmini/test/unit/sumotraffic/test_SumoSpeedModeProbe.cpp`（ctest ターゲット
+`test_SumoSpeedModeProbe`、常設ゲート非対象）。**esmini も GT コントローラも通さず
+libsumo だけを叩く**ので、結果を注入経路のせいにできない。両極性の差は
+`setSpeedMode(id, 0)` の 1 文だけ。
+
+条件: `e6mini.sumocfg`（全車線 13.89 m/s）、`DEFAULT_VEHTYPE` を `add()` で投入し、
+毎ステップ `moveToXY()` + `setSpeed()`。指令は 2 秒 3 m/s → 10 秒で 20 m/s へ線形 → 8 秒保持。
+step 0.05 s / seed 42。
+
+| speed mode | 定常（t≥15 s）平均 | 全域ピーク | 指令 |
+|---|---|---|---|
+| 既定（31・呼ばない） | **13.172 m/s** | 13.172 m/s | 20.000 m/s |
+| `setSpeedMode(id, 0)` | **20.000 m/s** | 20.000 m/s | 20.000 m/s |
+
+同一 net・同一車線制限で、この 1 文の有無だけが 6.8 m/s を分ける。上限は API で外れる。
+**§3-4 は設計どおりで確定**。
+
+刈り取り値が §2-4 冒頭の 14.72 m/s でなく 13.172 m/s なのは `speedFactor` が車両ごとの
+サンプルだから（13.172 / 13.89 = 0.9483、cut-in の Ego は 1.0598）。刈られる値が
+「車線制限 × speedFactor」であることのほうが、特定の数値より効く。
+
+計測器そのものの検証（`GT_SUMO_PROBE_CFG` で `<fcd-output>` 付き sumocfg に差し替え、
+SUMO 自身の出力と突き合わせ）: 定常では最大 0.0019 m/s 差（fcd の小数 2 桁丸めの範囲）。
+加速中のみ最大 0.09 m/s ずれるが、これは 1 ステップ分の加速度（1.7 m/s² × 0.05 s = 0.085）で、
+値の不一致ではなく系列のラベル付けが 1 ステップずれているだけ。3 回連続実行で両極性とも同値。
+
+GT コントローラ経由の end-to-end でも確認済み（§6）。
 
 30 m/s 側で残った最大誤差 3.000 m/s は**注入直後の立ち上がり**で、
 t=0.05 に 3.00 m/s の差、そこから約 1.2 秒かけて線形に 0 へ収束する。
@@ -154,27 +179,66 @@ SUMO の `getSlope()` は登り正、OpenDRIVE/esmini のピッチは登り負�
 
 ## 3. GT 版が満たすこと
 
-§2 を踏まえた実装要件。
+§2 を踏まえた実装要件。**7 項目とも実装済み**（2026-08-17）。実体:
+
+- `GT_esmini/include/gt_esmini/control/ControllerSumoTraffic.hpp` / `src/control/ControllerSumoTraffic.cpp`
+- 変換は純関数層 `include/gt_esmini/control/sumotraffic/SumoTransform.hpp` / `src/control/sumotraffic/SumoTransform.cpp`
+  に切り出し、傘バイナリ `test_ScenarioReaderParsing` に 14 ケース（§6）
+
+各項目の末尾に、どこまで実証したかを付記する。
 
 1. **方位**: `GetAngleInInterval2PI(M_PI/2 - h) * 180/M_PI` で navigational degrees へ変換。
    逆向き（SUMO → esmini）は既存の `-getAngle()*M_PI/180 + M_PI/2` と対称。
+   → `HeadingToSumoAngle` / `SumoAngleToHeading`。ユニット（§2-2 の実測 3 点＋恒等変換との
+   識別＋h=0 で 90° 差）と end-to-end（§6）の両方で確認済み。
 2. **基準点**: 双方向で `center_.x_ + length/2` を heading 方向へ射影して足し引きする。
    `Object::OverlappingFront()` が車体前端を求めるのと同じ式を使う。
+   → `RefPointToFront` / `FrontToRefPoint`。end-to-end で前方成分 +3.92 m（§6）。
 3. **ピッチ**: `getSlope()` を反転して渡す。
-4. **Ego 速度**: `setSpeedMode()` で上限を外したうえで `setSpeed()`。§2-4 の未実証項目を
-   実装の最初に潰す。外れないと分かった場合は「SUMO 車が Ego の速度を見誤る」ことを
-   既知の制約として明記し、シナリオ側を制限速度に合わせる運用でしのぐ。
+   → `SumoSlopeToPitch`。**符号規約はユニットで固定したが、実路面での確認は未**
+   （§2-5 と同じ理由＝手元に勾配のある SUMO net が無い）。
+4. **Ego 速度**: `setSpeedMode()` で上限を外したうえで `setSpeed()`。
+   → **§2-4 で両極性を実測して確定**（既定 13.172 m/s 頭打ち / mode 0 で 20.000 m/s 追従）。
+   `speed_mode` を負にすれば `setSpeedMode` を呼ばない＝upstream と同じ刈られる挙動に戻せる。
+   これは設定の飾りではなく、この主張を後から再実証するための負の対照。
 5. **注入直後の立ち上がり**: 投入時に初速を与える（vType の `departSpeed`、
    または投入直後 1〜2 ステップの速度を明示設定）。約 1.2 秒の 0 → 目標速度の
    ランプを消す。
+   → `add()` の `departSpeed` にその時点の `obj->GetSpeed()` を渡す。
 6. **ヨー**: SUMO 1.6.0 の `computeAngle()` は車線変更時のヨーオフセットを
    `--lanechange.duration` のアニメーション状態でしか出さず、sublane モデルでは出ない。
    **GT 側で位置履歴から heading を算出して上書きする**（SUMO の angle をそのまま
    使わない）。これは 1.6.0 の制限を GT 側で回避できる数少ない項目。
+   → `HeadingFromDisplacement` + コントローラ側の 1 ステップ履歴。変位が 0.05 m 未満の間は
+   直前の heading を保持し、履歴が無い最初の 1 回だけ SUMO の angle に落ちる。
+   **ユニットのみ。車線変更中のヨーが実際に出ることは未確認**（車線変更する SUMO 需要を
+   まだ作っていない。§6 の積み残し）。
 7. **エンティティの削除**: `getArrivedIDList()` に載った ID で esmini 実体を消す前に、
    **自分が注入した ID かを確認する**。upstream はこの区別が無く、シナリオ定義の Ego が
    SUMO の「到着」判定で消える。GT 版は自分が `add()` した ID の集合を持ち、
    その中に無い ID は無視する。
+   → `spawned_ids_` で判定。**コード上の実装のみで、Ego が SUMO 到着するシナリオでの
+   再現・非再現は未測定**（20 秒のスモークでは到着が起きない）。
+
+### 3-8. ホストオブジェクトの扱い（upstream との非対称・実装して分かったこと）
+
+upstream の SUMO コントローラは `ScenarioReader` が `CONTROLLER_TYPE_SUMO` を特別扱いして
+(a) テンプレート車を entities に入れない (b) コントローラを無条件で Activate する。
+**user-range のコントローラ型（`GTSumoTrafficController` = 1003）にはこの特別扱いが効かない。**
+R1 のため ScenarioReader を触れないので、GT 側の `Init()` で両方を自前で行う:
+
+- ホストの ScenarioObject をテンプレートとして保持し、active なら `deactivateObject()` で
+  シーンから外す。`removeObject()` は**削除する**ので使えない（3D モデルのテンプレートが消える）。
+- 自分で `Activate()` する。エンジンは `Active()` なコントローラしか `Step()` しない。
+
+所有権も非対称になる。upstream のテンプレートは `addObject()` を通らないのでコントローラが
+所有者だが、GT 版のホストは `addObject()` を通っていて **`Entities` が所有する**
+（`~Entities()` が `object_` と `object_pool_` の両方を delete する）。
+デストラクタで delete してはいけない。
+
+なお通常はホストは最初から inactive で、`deactivateObject()` は空振りする
+（entity が active になるのは `<Init>` に Private アクションがある場合だけ）。
+それでも呼ぶのは、ホストに TeleportAction を書いたシナリオで路上に幽霊車が残るため。
 
 ---
 
@@ -187,13 +251,20 @@ SUMO の `getSlope()` は登り正、OpenDRIVE/esmini のピッチは登り負�
 {
   "enabled": false,          // 実験機能。既定 OFF
   "sumocfg": "",             // .xosc の <File filepath> が優先。ここは既定値
-  "seed": 42,                // 決定論性。0 以下でランダム
-  "step_length": 0.05,       // esmini の fixed_timestep と揃える
+  "seed": 42,                // 決定論性。0 以下で SUMO の乱数に任せる
+  "step_length": 0.05,       // esmini の fixed_timestep と揃える。0 以下で .sumocfg の値
   "inject_ego": true,        // esmini エンティティを SUMO へ注入するか
   "override_heading": true,  // §3-6。SUMO の angle でなく位置履歴から算出
-  "speed_mode": 0            // §3-4。0 = 全チェック無効
+  "speed_mode": 0            // §3-4。0 = 全チェック無効／負で setSpeedMode を呼ばない
 }
 ```
+
+シナリオ側 Property で 1 件ずつ上書きできる（キーは `enabled` / `injectEgo` /
+`overrideHeading` / `seed` / `speedMode` / `stepLength` / `overrideVehicleScaleMode`、
+別ファイルを使うなら `ConfigFile`）。**JSON はインストール全体の既定、Property はその
+シナリオの意思**という分担で、背景交通が要るシナリオは自分で `enabled=true` を書く。
+既定 OFF の意味は「明示的に名指ししたシナリオでしか動かない」ではなく
+「名指ししてもなお JSON か Property で ON にするまで SUMO を読み込まない」。
 
 ### 決定論性
 
@@ -223,7 +294,23 @@ SUMO は既定で乱数を使うため、**シードを固定しないとベー�
   ただし**このリポジトリの道路は RHT 23 本 / LHT 1 本**（生成カタログ 10 本は全 RHT）なので
   当面の制約にならない。LHT 道路で背景交通が要るときは netconvert 側のパッチが要る。
 - **カテゴリ**: SUMO 車は vClass に応じた 3D モデルが選ばれるが esmini 内部の
-  `category_` は CAR 固定（upstream の既知の不整合）。GT 版でも同じなら明記する。
+  `category_` は CAR 固定。**GT 版も同じにした**（upstream の既知の不整合をそのまま踏襲）。
+  直すには OSC カテゴリと 3D モデル選択の対応を作り直す必要があり、F9 の射程外。
+- **libsumo はプロセスグローバル**: `Simulation::load()` は既存のシミュレーションを
+  置き換える。1 プロセスに SUMO コントローラは 1 つだけ。GT 版は 2 つ目のインスタンスが
+  ロード済みを検出したら **エラーを出して inert のまま留まる**（黙って奪い合わない）。
+  upstream の `ControllerSumo` と同居させた場合はこの検出が効かない（あちらは無条件に
+  load する）ので、同じシナリオに両方を書いてはいけない。
+- **GT_Sim.exe ではコントローラをカタログ参照にできない**（F9 以前からの既存欠陥）。
+  GT のサニタイザは xosc 内の `filepath` / `path` だけを絶対化して一時ディレクトリに書き出す。
+  **カタログファイル内の相対パスは絶対化されない**ため、`ControllerCatalog` 経由で
+  `<File filepath="../sumo_inputs/*.sumocfg"/>` を渡すシナリオは
+  `Failed to localize controller file` で **exit 1** になる。
+  実測（2026-08-17）: `cut-in_sumo.xosc`（カタログ参照）は GT_Sim で exit 1 / SUMO 車 0 台、
+  同じファイルを vanilla `esmini.exe` で走らせると exit 0 / 6 台。
+  `sumo-test.xosc`（インライン宣言）は GT_Sim でも exit 0 / 100 台。
+  → **F9 のシナリオはコントローラをインライン宣言する**（スモーク xosc がそうしてある）。
+  サニタイザ側の修正は別件。
 - **公式の位置づけ**: esmini の SUMO 連成は upstream が
   "experimental level and has not been used a lot" としている。実験機能として扱う根拠。
 
@@ -231,17 +318,64 @@ SUMO は既定で乱数を使うため、**シードを固定しないとベー�
 
 ## 6. 検証
 
-実装フェーズで詰める。現時点で決まっていること:
+### 実施済み（2026-08-17）
 
-- **ユニット**: 座標・方位・基準点の変換は純関数に切り出し、傘バイナリ
-  （`test_ScenarioReaderParsing`）に載せる。両極性（正しい変換 / 恒等変換）を
-  テストで固定する。§2 の実測値が回帰の錨になる。
-- **常設ゲートには載せない**（実験機能）。載せるとしたら決定論性の確認後。
-- **スモーク**: 背景交通ありの xosc を 1 本作り、exit 0 と SUMO 車の出現数を見る。
+- **ユニット**（傘バイナリ `test_ScenarioReaderParsing`、14 ケース、緑）:
+  `GT_esmini/test/unit/sumotraffic/test_SumoTransform.cpp`。
+  §2 の実測値を錨にし、**両極性**を固定してある——「正しい変換の値」だけでなく
+  「変換を省いた（＝upstream の）値」も書いてある。東向き道路では正解 0.194° と
+  恒等 1.570° の差が 1.4° しかなく、"だいたい合っている" で欠陥が生き延びたのがまさに
+  そこだから。h=0 で 90° 差になることも別ケースで固定した。
+- **speed mode プローブ**（ctest `test_SumoSpeedModeProbe_default_mode` /
+  `_cleared_mode`、両極性・緑・3 回連続同値）: §2-4 を参照。
+- **スモーク**: `resources/xosc/sumo_background_traffic_gt.xosc`。
+  GT_Sim headless / `--fixed_timestep 0.05` / 20 秒で **exit 0 かつ SUMO 車 6 台**
+  （`car1`〜`car4` / `bus1` / `truck1` ＝ `e6mini.rou.xml` の需要と一致）。
+  exit 0 だけでは合格にしない——upstream も車 0 台で exit 0 を返す。
+- **既定 OFF の負の対照**: 同じ xosc から `enabled` Property を外すと exit 0 のまま
+  `disabled ... No SUMO traffic` を出して SUMO 車 0 台。テンプレートのホスト車も
+  シーンに現れない（csv_logger の `Number of Vehicles: 1` ＝ Ego のみ）。
+- **既存シナリオの不変**: `sumo-test.xosc` は GT_Sim で exit 0 / 100 台のまま、
+  `cut-in_sumo.xosc` は vanilla `esmini.exe` で exit 0 / 6 台のまま
+  （GT_Sim では F9 以前からカタログ参照が壊れている。§5）。
+- **end-to-end の変換確認**: スモーク xosc の絶対パス複製を、`<fcd-output>` 付きの
+  sumocfg と `--csv_logger` の両方を取って突き合わせた。Ego は `car_white`
+  （bb center_x 1.4 / length 5.04 → 前端は基準点 +3.920 m）。
+
+  | t [s] | 前方成分 [m] | 横成分 [m] | SUMO angle [deg] | 正しい nav [deg] | SUMO が見た速度 [m/s] |
+  |---|---|---|---|---|---|
+  | 5.0 | **+3.925** | +0.003 | 0.200 | 0.197 | 8.020 |
+  | 10.0 | **+3.917** | 0.000 | 0.250 | 0.248 | 16.520 |
+  | 15.0 | **+3.924** | -0.001 | 0.450 | 0.446 | **20.000** |
+  | 20.0 | **+3.920** | -0.002 | 0.790 | 0.786 | **20.000** |
+
+  §2-3 の upstream 実測（前方成分 -0.003〜-0.005 m ＝ 変換なし）と §2-2（angle が
+  ラジアン値そのまま = 1.570）に対し、3 項目とも直っている。angle の 0.003° 差は
+  fcd 出力が小数 2 桁で丸まるため。速度は車線制限 13.89 m/s を超えて 20.000 m/s まで
+  追従しており、§3-4 が実運用経路でも効いている。
+
+### 積み残し（実装したが未実証）
+
+- **§3-6 ヨー上書き**: 車線変更する SUMO 需要をまだ作っていないので、
+  「SUMO の angle では出ないヨーが GT 側で出る」ことを実データで見ていない。
+  ユニットは関数の入出力しか押さえていない。
+- **§3-3 ピッチ符号**: 勾配のある SUMO net が無く、§2-5 と同じ理由で未測定。
+- **§3-7 削除ガード**: Ego が SUMO 到着する長さのシナリオを回していない。
+- **決定論性**: プローブ単体は 3 回連続同値だが、**GT コントローラ経由の
+  シナリオ実行では未確認**。常設ゲート化の前提はこちら（§4・graph.yaml の
+  `feature:F9 -> conflicts-with -> gate:regression-gate`）。
+
+### 方針
+
+- **常設ゲートには載せない**（実験機能）。載せるとしたら上の決定論性の確認後。
 - **計器の罠**: `--csv_logger` は wide 形式で、**エンティティの出入りで行の列数が変わる**。
   先頭ブロックが Ego とは限らない。列位置を固定で決め打ちすると静かに別の列を読む
   （本調査でも一度踏んだ。`World_Position_X` はエンティティ名から +11、`World_Heading_Angle` は +24）。
-  名前を探してからオフセットで読むこと。
+  名前を探してからオフセットで読むこと。ヘッダの `Number of Vehicles:` は
+  **開始時点の数**で、後から入る SUMO 車を含まない。
+- **計器の罠 (SUMO 側)**: `getSpeed()` は投入直後の 1 ステップだけ
+  `INVALID_DOUBLE_VALUE`（-1.07e9）を返す。平均や最大にそのまま混ぜると桁で壊れる。
+  `<fcd-output>` の数値は既定で小数 2 桁に丸められるので、突き合わせの許容差はそこで決まる。
 
 ---
 

@@ -1713,8 +1713,18 @@ edges:
   # ---- feature:F9 SUMO 背景交通（実験機能、2026-08-17） ----
   # 定義: GT_esmini/docs/features/sumo_background_traffic.md（ロードマップ外の後発機能。
   # namespaces.yaml の feature エントリ notes も参照）。
-  # **設計確定・未実装**のため realizes / sustained-by は張らない。実装が landing して
-  # 実際に発火・観測するようになってから結線する（発火しない辺は名前の類似でしかない）。
+  #
+  # 2026-08-17 更新: **実装 landing**（ControllerSumoTraffic + SumoTransform、既定 OFF）。
+  # それでも realizes / verifies / sustained-by は張らない。理由は「未実装だから」から
+  # 「張り先が無いから」に変わった:
+  #   - realizes の宛先になる要求ノードが無い。F9 は req-vd-ad の外（VD-AD の要求体系は
+  #     自車の運転挙動を述べるもので、背景交通の生成はそこに属さない）。ノード型の
+  #     新設は F9 単独の都合で決めず、用途(b) で実際に VD 検証へ供給し始めるときに
+  #     母数を数えてから提案する。
+  #   - sustained-by の宛先が無い。常設ゲートに載せていない（下の conflicts-with が理由）。
+  #     ユニット14件は傘バイナリに載っているが、傘バイナリ＝gate:unit-ctest が
+  #     "covers" するのは変換の純関数であって F9 の挙動ではない。
+  # 実装パスと feature:F9 の対応は path_map.yaml に入れた（--suggest がコミット時に拾う）。
   - from: feature:F9
     to: gate:regression-gate
     type: conflicts-with
