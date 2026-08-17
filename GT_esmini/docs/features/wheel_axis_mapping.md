@@ -40,6 +40,7 @@ build\GT_esmini\Release\GT_WheelProbe.exe --device 0 --hz 30
 - **ブラウザの Gamepad API は軸には使わない。** ブラウザは独自の index 空間を持つため、「動かした軸を割り当てる」UI がシミュレータの読む番号とは違う番号を自信満々に書き込む。probe は実行時と同じ SDL・同じ index 空間で読む。
 - probe の正規化値は**本番と同じ C++ 正規化器**（`WheelAxisMapping`）を通す。マッピングは CLI 引数で渡されるので、**保存前の編集中の値**もそのままプレビューできる。
 - `GT_ENABLE_SDL2=ON` のビルドでのみ生成される（既定 OFF）。無い場合 API は 503 とその理由を返し、パネルは手打ち編集だけを提供する。
+- **配布物に載せるには3か所を直す必要がある**: `build_package.ps1` の `--target` 列挙、同スクリプトのステージングコピー、`build_package.py` の `BIN_GLOBS`（exe は glob でなく1つずつ明示列挙）。忘れるとビルドは正常終了し警告も出ず、症状は「配布物で機能が無い」だけになる（初回パッケージで実際に踏んだ）。不在時の WARN を `check_prerequisites` に入れてある。
 
 ## 4. FFB の符号（安全上の注意）
 
@@ -139,5 +140,6 @@ esmini のロガーは既定で stdout に書く。probe の stdout は web back
 | ユニット | `test_WheelAxisMapping.cpp` 16 件（G29 既定値の回帰錨、非反転/部分レンジ/非対称校正、invert 両極性、センチネル両極性、範囲外 index の報告と負の対照、config パース、keyboard キーとのエイリアス回帰） |
 | backend | `test_wheel_axis_mapping_api.py`（wire↔flat 往復、出荷 config の全キー網羅、per-run writer への到達、probe 不在時の 503、`_mapping_args` の全キー変換） |
 | 実機 | G29 で確認済: probe の end-to-end（§5-1b: 4軸すべて `reported`、既定レイアウトと一致、レンジ実測）＋ FFB 反転の両極性（§4-2、収束・ウォッチドッグ不発火）。**未完**: 非 G29 レイアウト（G923）での実走行確認 — 実機が手元に無いため保留（Issue #45） |
+| 配布物（exe） | `dist/GT_Sim_v0.15.0dev02` の凍結サーバー `server/gt_sim_web.exe` 経由で確認済: `/api/wheel-probe/status` が `available:true` で `PACKAGE_ROOT/bin/GT_WheelProbe.exe` を解決、`/devices` が実機G29を列挙、WS `/stream` がフレーム配信、マッピング push で子プロセス再起動しプレビュー追従、サーバー強制終了後の probe 残存なし |
 
 ユニット層は `GT_ENABLE_SDL2` に依存しない（既定 OFF・CI も OFF なので、条件付きにすると検査が黙って消える）。
