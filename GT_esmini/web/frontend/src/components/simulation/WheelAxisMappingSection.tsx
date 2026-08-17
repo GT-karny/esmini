@@ -151,10 +151,20 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
     const baseline = state.baseline[bestAxis] ?? 0;
     const extreme = state.extreme[bestAxis] ?? 0;
     if (state.fn === 'steer') {
-      // Turning the wheel one way sets centre + full for THAT direction; the
-      // sign difference between centre and full is what encodes which way the
-      // axis runs, so steer_invert stays a separate user choice.
-      onChange({ ...mapping, steer_axis: bestAxis, steer_raw_center: baseline, steer_raw_full: extreme });
+      // Axis + full-right ONLY. The centre is deliberately NOT taken from the
+      // value the axis had when detection started.
+      //
+      // Measured on a real G29 (2026-08-06): with FFB idle the wheel has no
+      // centring spring, so it simply stays wherever it was last left -- the
+      // recording rests at raw -548 after a sweep, not at 0. Baking that into
+      // raw_center would pin the vehicle's straight-ahead to an arbitrary
+      // position and give a permanent steering bias with hands off. Pedals do
+      // not have this problem (a released pedal returns to a real mechanical
+      // rest), which is why only this branch differs.
+      //
+      // The centre is set by its own button, and on a wheel that self-calibrates
+      // at power-up it is simply 0.
+      onChange({ ...mapping, steer_axis: bestAxis, steer_raw_full: extreme });
     } else {
       onChange({
         ...mapping,
@@ -164,8 +174,21 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
       });
     }
     setDetectResult(
-      `${state.fn}: axis ${bestAxis}, ${state.fn === 'steer' ? 'centre' : 'released'} ${baseline} → full ${extreme}`,
+      state.fn === 'steer'
+        ? `steer: axis ${bestAxis}, full ${extreme} (centre unchanged — use “Set centre”)`
+        : `${state.fn}: axis ${bestAxis}, released ${baseline} → full ${extreme}`,
     );
+  };
+
+  /** Capture the wheel's current position as the straight-ahead reference. */
+  const setSteerCentre = () => {
+    const raw = rawFor(mapping.steer_axis);
+    if (raw === null || !hasReported(mapping.steer_axis)) {
+      setDetectResult('No live steering value yet — start the readout first.');
+      return;
+    }
+    setField('steer_raw_center', raw);
+    setDetectResult(`steer centre set to ${raw}`);
   };
 
   // --- rendering helpers --------------------------------------------------
@@ -277,7 +300,7 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
 
       <div className="space-y-2">
         {axisRow('steer', 'Steering', mapping.steer_axis, frame?.norm.steering ?? 0)}
-        <div className="flex items-center gap-2 pl-[4.5rem]">
+        <div className="flex items-center gap-3 pl-[4.5rem]">
           <label className="text-[10px] text-text-tertiary flex items-center gap-1 cursor-pointer">
             <input
               type="checkbox"
@@ -287,6 +310,15 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
             />
             Invert (also flips FFB direction)
           </label>
+          {/* Separate from Detect on purpose: a wheel with FFB idle has no
+              centring spring and rests wherever it was left, so the centre has
+              to be an explicit "it is straight ahead right now" statement. */}
+          <button
+            onClick={setSteerCentre}
+            className="text-[10px] px-2 py-0.5 rounded bg-glass-1 border border-glass-edge text-text-tertiary hover:text-foreground hover:bg-glass-hover cursor-pointer"
+          >
+            Set centre
+          </button>
         </div>
         {PEDALS.map(({ fn, label }) =>
           axisRow(fn, label, mapping[`${fn}_axis`], frame?.norm[fn] ?? 0),
@@ -295,8 +327,10 @@ export function WheelAxisMappingSection({ mapping, deviceIndex, onChange }: Prop
 
       {detect ? (
         <p className="text-[10px] text-text-tertiary mt-2">
-          Press / turn {detect.fn} fully — detecting for{' '}
-          {Math.max(0, Math.ceil((detect.deadline - Date.now()) / 1000))}s
+          {detect.fn === 'steer'
+            ? 'Turn the wheel fully RIGHT'
+            : `Press ${detect.fn} as hard as you would in an emergency stop`}{' '}
+          — detecting for {Math.max(0, Math.ceil((detect.deadline - Date.now()) / 1000))}s
         </p>
       ) : null}
       {detectResult ? <p className="text-[10px] text-text-tertiary mt-2">{detectResult}</p> : null}

@@ -16,6 +16,7 @@
 #include "gt_esmini/control/manualdrive/ManualDriveConfig.hpp"
 #include "gt_esmini/control/manualdrive/WheelAxisMapping.hpp"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -76,6 +77,22 @@ TEST(WheelAxisMappingTest, G29DefaultSteerReproducesPreF8Normalization)
     // Deliberate 3e-5 difference from the pre-F8 code, documented in the
     // header: the old division returned -1.00003 here, this clamps.
     EXPECT_DOUBLE_EQ(map.steer.Normalize(-32768), -1.0);
+}
+
+TEST(WheelAxisMappingTest, ZeroResultsAreNeverNegativeZero)
+{
+    // Observed on a real G29 (2026-08-06): a released pedal produced -0, which
+    // is numerically equal to 0 but serializes as "-0" and formats as "-0.00",
+    // so the live readout showed negative values for pedals at rest.
+    // std::signbit is the only way to assert this -- EXPECT_DOUBLE_EQ(v, 0.0)
+    // passes for -0.0 and would not catch a regression here.
+    const WheelAxisMapping map;
+    EXPECT_FALSE(std::signbit(map.throttle.Normalize(32767)));  // released
+    EXPECT_FALSE(std::signbit(map.steer.Normalize(0)));         // centred
+
+    SteerAxisSpec inverted;
+    inverted.invert = true;  // multiplying 0.0 by -1 is the other way to get -0
+    EXPECT_FALSE(std::signbit(inverted.Normalize(0)));
 }
 
 // --- The device differences this feature exists for ------------------------

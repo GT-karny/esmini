@@ -15,6 +15,17 @@ namespace gt_esmini
 namespace
 {
 
+// Strip the sign from a zero result. (32767 - 32767) / -65535 is -0.0 in IEEE
+// 754, which is numerically equal to 0.0 but serializes as "-0" and formats as
+// "-0.00" -- so a released pedal was displayed as a negative reading in the
+// probe's JSON and in the GUI's live readout (observed on a real G29,
+// 2026-08-06). Normalizing here rather than at each display site keeps every
+// consumer -- telemetry, JSON, any future sign test -- on the same value.
+double StripNegativeZero(double v)
+{
+    return v == 0.0 ? 0.0 : v;
+}
+
 // Shared by both specs: an assigned index must exist on the device, and the
 // calibration span must be non-degenerate.
 void CheckAxis(const char*               label,
@@ -52,7 +63,7 @@ double PedalAxisSpec::Normalize(int raw) const
         return 0.0;  // released -- the safe reading to fabricate for a pedal
     }
     const double n = (static_cast<double>(raw) - static_cast<double>(raw_released)) / span;
-    return std::clamp(n, 0.0, 1.0);
+    return StripNegativeZero(std::clamp(n, 0.0, 1.0));
 }
 
 double SteerAxisSpec::Normalize(int raw) const
@@ -63,7 +74,7 @@ double SteerAxisSpec::Normalize(int raw) const
         return 0.0;  // centred
     }
     const double n = (static_cast<double>(raw) - static_cast<double>(raw_center)) / span;
-    return std::clamp(n, -1.0, 1.0) * SignFactor();
+    return StripNegativeZero(std::clamp(n, -1.0, 1.0) * SignFactor());
 }
 
 void WheelAxisMapping::CollectProblems(int num_axes, std::vector<std::string>& problems) const
