@@ -85,6 +85,15 @@ signals:
       (1) 車載プランナーがある場合 = VirtualDriver が追従している preview そのもの
       （TrajectoryShortPlanner::Plan の preview。Live telemetry が描く線と同一）＋
       mid/long の v_target_profile で 10s まで延長した extension。
+      **FollowTrajectoryAction 実行中は preview の生成元がルート歩行から軌跡サンプリングへ
+      切り替わる**（PlanAlongTrajectory）。軌跡は車線網と無関係に書けるためルート歩行では
+      表現できない。切替前は「今いる車線の中心」がアンカーのままで、アクションが先に車を
+      押し VD が後から中心へ寄せ直す合成になっていた（実測: -2.5 m 指令に対し立ち上がり
+      1.6 m 遅れ→ -3.76 m すなわち1車線ぶん行き過ぎて張り付く。是正後の最大誤差 0.16 m）。
+      軌跡終端より先はルート優先で道路歩行を継ぎ足し、終端が車線外（lane offset > 3 m）で
+      道路に置き直せない場合は**点を打ち切る**（停止の凍結とは別物として区別する）。
+      時刻つき軌跡は軌跡が速度を決めるため mid/long の速度上限を適用しない
+      （形だけの軌跡では通常どおり適用＝AEB 等が効く）。
       OSI 面に出る点列と Live telemetry の点列は同一物。
       (2) 車載プランナーが無い場合（ストーリーボード駆動 / ManualDrive / 外部制御）=
       OSI レポータ内のシャドウ走行（GenerateProjectedTrajectory）。
