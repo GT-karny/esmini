@@ -52,6 +52,17 @@ struct ShortPlanContext
     // Non-null only when merge_active is true; owned by the controller
     // (resume_merge_state_ member) and only READ here.
     const ResumeMergeState* merge_state = nullptr;
+
+    // Optional coarse continuation past horizon_s, for consumers that need a
+    // longer reported horizon than the driver needs to track (today: the OSI
+    // future_trajectory publisher, which wants ~10 s). 0 = off, and off is the
+    // default: with extension_horizon_s <= horizon_s the planner does not walk
+    // a single extra step and ShortPlannerSnapshot::preview is bit-identical to
+    // what it produced before this field existed (HARD INVARIANT -- the
+    // extension walk runs strictly AFTER the preview loop and shares only the
+    // already-final walk state).
+    double extension_horizon_s = 0.0;  // total horizon incl. preview [s]
+    double extension_dt        = 0.5;  // sampling step for the continuation [s]
 };
 
 // Short-horizon trajectory planner.

@@ -175,6 +175,13 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
     // lane_sign here would invert the merge on one side of the road.
     double p0x = pos.GetX();
     double p0y = pos.GetY();
+    // Pose fields (z/h/p/r) are read straight off the walked Position. They are inert
+    // for the driver (PIDPurePursuitDriver only reads x/y/v) and exist so the OSI
+    // planned-path publisher can report a 3D pose without re-deriving one.
+    const double p0z = pos.GetZ();
+    const double p0h = pos.GetH();
+    const double p0p = pos.GetP();
+    const double p0r = pos.GetR();
     if (ctx.merge_active && lat_actions.empty())
     {
         const double road_h = pos.GetHRoad();
@@ -183,7 +190,7 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
         p0x += ctx.merge_offset_now * tx;
         p0y += ctx.merge_offset_now * ty;
     }
-    snap.preview.push_back({p0x, p0y, v0, 0.0});
+    snap.preview.push_back({p0x, p0y, v0, 0.0, p0z, p0h, p0p, p0r});
 
     // feature:F7 resume-merge: once the preview walk (below) leaves the
     // resolved route track, the merge target is no longer meaningful there --
@@ -260,10 +267,55 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
             }
         }
 
-        snap.preview.push_back({px, py, v_here, i * dt});
+        snap.preview.push_back({px, py, v_here, i * dt, pos.GetZ(), pos.GetH(), pos.GetP(), pos.GetR()});
     }
 
     snap.valid = snap.preview.size() >= 2;
+
+    // --- Optional coarse continuation past horizon_s (OSI future_trajectory) ---
+    //
+    // Runs strictly AFTER the preview loop and only reads the walk state it left
+    // behind, so snap.preview is bit-identical to what it was before this block
+    // existed whenever extension_horizon_s <= horizon_s (the default, 0).
+    //
+    // Two deliberate differences from the preview walk:
+    //   - coarse dt (extension_dt), because the consumer wants reach, not resolution;
+    //   - ds = v * dt with NO min_step / min_preview_span floor. Those floors keep the
+    //     driver's pure-pursuit lookahead reachable at a standstill; here they would
+    //     march the reported path straight PAST a planned stop. Without them, a v=0
+    //     stretch piles samples on the stop position and the reported path visibly
+    //     ENDS where the vehicle will end up -- which is the whole point.
+    const double ext_horizon = ctx.extension_horizon_s;
+    if (snap.valid && ext_horizon > ctx.horizon_s + 1e-6)
+    {
+        const double dt_ext = (ctx.extension_dt > 1e-3) ? ctx.extension_dt : 0.5;
+        const double t0_ext = static_cast<double>(n_steps) * dt;  // time already covered
+        const int    n_ext  = static_cast<int>(std::ceil((ext_horizon - t0_ext) / dt_ext));
+
+        for (int k = 1; k <= n_ext; ++k)
+        {
+            const double v_here = SampleTargetSpeed(ctx, acc_dist);
+            const double ds     = std::fabs(v_here) * dt_ext;
+
+            if (ds > 1e-9)
+            {
+                // Same straight-most (0.0) selector as the preview walk: -1.0 would
+                // randomize the connector off-route and make the reported path flicker.
+                int ret = static_cast<int>(pos.MoveAlongS(ds, 0.0, 0.0, true,
+                                                          roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true));
+                if (ret == static_cast<int>(roadmanager::Position::ReturnCode::ERROR_GENERIC))
+                    break;
+                acc_dist += ds;
+            }
+            // ds == 0 (planned standstill): emit the point anyway, at the same place.
+            // The time axis is what tells a consumer "it is stopped here", and dropping
+            // the samples would report a path that merely ends early.
+
+            snap.extension.push_back({pos.GetX(), pos.GetY(), v_here, t0_ext + k * dt_ext,
+                                      pos.GetZ(), pos.GetH(), pos.GetP(), pos.GetR()});
+        }
+    }
+
     return snap;
 }
 

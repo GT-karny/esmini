@@ -63,6 +63,9 @@ set(UNIT_TEST_SOURCES
     # it belongs in the umbrella gate binary, unlike the speed-mode probe below
     # which loads a real SUMO network.
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/sumotraffic/test_SumoTransform.cpp
+    # OSI planned-path hand-off (VirtualDriver preview -> future_trajectory).
+    # Storage lives in GT_OSIReporter_Moving.cpp, which arrives via ScenarioEngine below.
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/osi/test_PlannedPathRegistry.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)

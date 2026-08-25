@@ -14,6 +14,8 @@
 #ifdef GT_ENABLE_SDL2
 #include "gt_esmini/control/manualdrive/SDL2WheelInput.hpp"
 #endif
+#include "gt_esmini/control/virtualdriver/PlannedPathBuilder.hpp"
+#include "gt_esmini/osi/GT_PlannedPathRegistry.hpp"
 #include "gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
@@ -48,6 +50,18 @@ namespace gt_esmini
 
 namespace
 {
+// Planned-path publication for the OSI future_trajectory (see
+// gt_esmini/osi/GT_PlannedPathRegistry.hpp). These size the CONTINUATION only; the
+// first vd_config_.horizon_s seconds are the driver's own preview, published
+// verbatim at its native short_dt.
+//
+// 10 s / 0.5 s reproduce the reach and sampling the OSI reporter's own shadow
+// simulation used (20 samples x 0.5 s), so a consumer that was already reading
+// future_trajectory sees the same horizon it always did -- what changes is that the
+// samples now come from the planner that is actually driving.
+constexpr double kPlannedPathHorizonS    = 10.0;
+constexpr double kPlannedPathExtensionDt = 0.5;
+
 // vd-func:FUNC-056: the ONE-lane hop direction in Position::Delta's own diff.dLaneId space. Every
 // hop this feature arms moves by exactly one step in that space -- design doc
 // overtake_maneuver.md section 4's passing-lane rule and section 7-1's opposing-lane rule both
@@ -1713,7 +1727,31 @@ void ControllerVirtualDriver::Step(double timeStep)
     sctx.merge_lane_id    = merge_now_active ? merge_now_lane : lc_now_lane;
     sctx.merge_offset_now = merge_now_active ? merge_now_offset : lc_now_offset;
     sctx.merge_state      = merge_now_active ? &resume_merge_state_ : (lc_now_active ? &lc_merge_state_ : nullptr);
+    // Coarse continuation for the OSI future_trajectory publisher below. Requested
+    // ONLY while a consumer is actually reading the registry, so a run with the OSI
+    // future trajectory disabled (GT_OSI_FUTURE_TRAJECTORY=0) or an upstream binary
+    // that never touches it pays nothing: with extension_horizon_s left at 0 the
+    // planner walks no extra step and snap.preview is unchanged.
+    const bool publish_planned_path = gt_esmini::PlannedPathRegistry::Instance().IsConsumerActive();
+    if (publish_planned_path)
+    {
+        sctx.extension_horizon_s = kPlannedPathHorizonS;
+        sctx.extension_dt        = kPlannedPathExtensionDt;
+    }
     ShortPlannerSnapshot plan = short_planner_->Plan(sctx);
+
+    // Publish the path this controller is ACTUALLY tracking, so the OSI reporter can
+    // report it verbatim instead of re-deriving a separate shadow simulation that
+    // disagrees with it. preview points go out at their native dt -- they are exactly
+    // the polyline the Live telemetry view draws -- followed by the coarse extension.
+    if (publish_planned_path && plan.valid)
+    {
+        // Both rules that decide whether the reported line ends where the vehicle ends
+        // up (freeze at the planned stop; report the object-origin frame, not the
+        // control point) live in BuildPlannedPath so they can be unit-tested directly.
+        gt_esmini::PlannedPathRegistry::Instance().Publish(
+            gt_esmini::BuildPlannedPath(object_->id_, sim_time_, plan, plan.control_point_offset));
+    }
 
     DriverState dstate;
     if (have_phys)
