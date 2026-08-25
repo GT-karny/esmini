@@ -56,6 +56,20 @@ public:
     ShortPlannerSnapshot Plan(const ShortPlanContext& ctx) override;
 
 private:
+    // Preview along a running FollowTrajectoryAction instead of along the route.
+    //
+    // A trajectory is authored in world coordinates and need not follow the lane
+    // network at all, so the route walk cannot express it. Without this branch the
+    // preview stayed anchored to the lane the vehicle happened to occupy, and since
+    // the action moves the vehicle first and the controller writes afterwards, the
+    // two compounded: measured on a -2.5 m excursion, the vehicle lagged the command
+    // by 1.6 m going out, then overshot to -3.76 m (one full lane width) and held
+    // there, because crossing the lane line moved the preview's own anchor a whole
+    // lane. Sampling the trajectory removes the anchor from the loop entirely.
+    // The action is passed as void* purely to keep OSCPrivateAction.hpp out of this
+    // header; the .cpp casts it straight back to FollowTrajectoryAction*.
+    ShortPlannerSnapshot PlanAlongTrajectory(const ShortPlanContext& ctx, void* follow_traj_action) const;
+
     // The mid/long speed ceiling at distance s_ahead (large sentinel if none).
     double SampleCeiling(const ShortPlanContext& ctx, double s_ahead) const;
     // Target speed at distance s_ahead along the route (m) = min(commanded, ceiling).

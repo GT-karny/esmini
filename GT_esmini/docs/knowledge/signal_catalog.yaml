@@ -70,6 +70,52 @@ signals:
       効いたため純 (b) は解消。かつて frame契約だけ見て「観測不能(a)」と誤分類しかけた対象
       （capability_model.md §3-2）。
 
+  - id: ego_planned_path
+    title: 自車の将来経路（OSI MovingObject.future_trajectory）
+    exposure: [osi]
+    state: "●"
+    emit: GT_OSIReporter_Moving.cpp（UpdateOSIMovingObject の future_trajectory ブロック）
+    note: >-
+      **自車（host）専用**。osi_object.proto は future_trajectory を GroundTruth 側の欄とし
+      「被検体に見せるべきでない」と明記する。**他車の予測をここへ流すのは禁止**
+      （capability_model.md「他車の軌道予測」／ function_catalog_vd_ad.yaml 冒頭。運転AIの
+      予測が「世界の真実」として記録される＝面3→面2直結の結合負債の再生産）。自車が例外なのは
+      「その経路を実際に走らせる主体が自分自身」だから。
+      供給は2系統:
+      (1) 車載プランナーがある場合 = VirtualDriver が追従している preview そのもの
+      （TrajectoryShortPlanner::Plan の preview。Live telemetry が描く線と同一）＋
+      mid/long の v_target_profile で 10s まで延長した extension。
+      **FollowTrajectoryAction 実行中は preview の生成元がルート歩行から軌跡サンプリングへ
+      切り替わる**（PlanAlongTrajectory）。軌跡は車線網と無関係に書けるためルート歩行では
+      表現できない。切替前は「今いる車線の中心」がアンカーのままで、アクションが先に車を
+      押し VD が後から中心へ寄せ直す合成になっていた（実測: -2.5 m 指令に対し立ち上がり
+      1.6 m 遅れ→ -3.76 m すなわち1車線ぶん行き過ぎて張り付く。是正後の最大誤差 0.16 m）。
+      軌跡終端より先はルート優先で道路歩行を継ぎ足し、終端が車線外（lane offset > 3 m）で
+      道路に置き直せない場合は**点を打ち切る**（停止の凍結とは別物として区別する）。
+      時刻つき軌跡は軌跡が速度を決めるため mid/long の速度上限を適用しない
+      （形だけの軌跡では通常どおり適用＝AEB 等が効く）。
+      OSI 面に出る点列と Live telemetry の点列は同一物。
+      (2) 車載プランナーが無い場合（ストーリーボード駆動 / ManualDrive / 外部制御）=
+      OSI レポータ内のシャドウ走行（GenerateProjectedTrajectory）。
+      **verdict-trust の扱い**: (1) は面2の内部計画がそのまま面1に出る＝
+      **判定に使うと面3→面2直結になる**。挙動の verdict には使わず、可視化・
+      被検体外の消費者向けとする（生の予測を debug に留める conflict_prediction_span と同じ理由）。
+      既知の欠陥史（2026-08-26 に是正）: ルート waypoint のレーンへ ghost を強制していたため
+      走行レーンと1車線ずれた線が出ていた（実測 3.57 m、初回サンプルから）／
+      SpeedAction の dimension=distance は esmini が Start() で秒へ変換するのに
+      メートルで Step していたため線が 1.4 m に潰れ（実距離 76 m）、dimension=rate は
+      Step 分岐自体が無く定速線になっていた（298 m）。
+      **参照点の規約**: (1)(2) とも base.position と同じ bbox 中心
+      （Position::GetOsiX/Y/Z = 原点 + R(h,p,r)·bbox center）へ揃える。変換は OSI レポータ
+      1か所に置く（両系統で規約がずれないため）。是正前は (2) が原点系のままで線が
+      車体1つ分（実測 1.40 m）後ろから始まり、(1) は preview が制御点（前軸）
+      アンカーのぶん前寄り（実測 1.62 m）だった。(1) の制御点オフセットは
+      PlannedPathBuilder が各点の heading 方向へ戻して原点系にしてから publish する。
+      **停止の扱い**: (1) は preview の min_preview_span 床（制御用。停止時も 10 m 保つ）が
+      計画停止点を追い越すため、計画速度が 0 になった点で位置を凍結して以降の時刻へ複製する。
+      (2) は台形則（区間の始端・終端の平均速度）で積分する。終端速度のみで積分すると
+      毎ステップ a·dt/2 ずつ短く出て、線が車より手前で終わる（実測 6.9 m）。
+
   - id: ego_lane
     title: 自車の車線（OpenDRIVE road_id / lane_id）
     exposure: [osi, frame]

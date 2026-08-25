@@ -285,7 +285,8 @@ set(GT_OSI_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/GT_HostVehicleReporter.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/IHostVehicleDataProvider.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/IGroundTruthPublisher.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/HVDEstimator.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/HVDEstimator.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/gt_esmini/osi/GT_PlannedPathRegistry.hpp)
 
 # ############################### Creating library ##################################################################################################
 # NOTE: the former per-module static libs (gt_core/gt_io/gt_scenario/gt_control/gt_osi)

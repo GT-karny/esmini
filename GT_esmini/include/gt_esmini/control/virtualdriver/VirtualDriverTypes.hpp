@@ -27,6 +27,16 @@ struct TrajectoryPoint
     double y = 0.0;  // world position [m]
     double v = 0.0;  // target speed at this point [m/s]
     double t = 0.0;  // time offset from "now" [s]
+    // Pose fields are APPENDED after t on purpose: every existing aggregate
+    // initializer is positional {x, y, v, t} (planner + unit tests), so
+    // appending keeps them valid. TrajectoryShortPlanner fills them from the
+    // route walk; only the OSI planned-path publisher reads them. The control
+    // path (PIDPurePursuitDriver) and the telemetry JSON writer ignore them, so
+    // the cross-session preview contract is unchanged.
+    double z = 0.0;  // world elevation [m]
+    double h = 0.0;  // world heading [rad]
+    double p = 0.0;  // pitch [rad]
+    double r = 0.0;  // roll [rad]
 };
 
 // IShortPlanner output + telemetry.
@@ -42,6 +52,20 @@ struct ShortPlannerSnapshot
     // state forward by this exact value so the control point and the lane-center
     // anchor sit on the same route point (P2 issue 2). See ControllerVirtualDriver.
     double                       control_point_offset = 0.0;
+
+    // Coarse continuation of the SAME route walk past horizon_s, produced only
+    // when ShortPlanContext::extension_horizon_s asks for it (default 0 = off,
+    // so nothing below changes for the control path). It exists for the OSI
+    // future_trajectory publisher, which wants a ~10 s horizon while the driver
+    // wants a 3 s one. Two deliberate differences from preview:
+    //   - sampled at extension_dt (coarse), not dt;
+    //   - ds = v * dt with NO min_step / min_preview_span floor. Those floors
+    //     exist to keep the driver's pure-pursuit lookahead reachable at a
+    //     standstill; applying them here would march the reported path PAST a
+    //     planned stop, which is exactly the defect this whole change fixes.
+    //     With no floor, a v=0 stretch piles points on the stop position -- the
+    //     path visibly ENDS where the vehicle will end up.
+    std::vector<TrajectoryPoint> extension;
 };
 
 // IDriverModel internal state + telemetry (inverse-control diagnostics).
