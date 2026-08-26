@@ -44,7 +44,28 @@ constexpr double kPlannedStoppedSpeed = 0.05;
 //   heading returns the path to the OBJECT ORIGIN frame, which is where the OSI reporter
 //   then applies the same bounding-box-centre offset it applies to its own projected
 //   path, so both sources land on the reference point base.position uses.
-inline PlannedPath BuildPlannedPath(int object_id, double stamp, const ShortPlannerSnapshot& plan, double control_point_offset)
+//
+// RULE 3 -- stop where the vehicle will actually stop.
+//   The preview's speed model is "hold the commanded speed": SampleTargetSpeed returns
+//   min(commanded, mid/long ceiling), and while the ego is braking under a storyboard
+//   SpeedAction the commanded value tracks the current speed instead of describing the
+//   ramp. Nothing in the plan then says the vehicle is stopping, so the reported path is
+//   just current_speed * horizon and RULE 1 never fires. Measured on virtual_driver_basic
+//   under its StopAction: at t=13.5 the reported path was 135 m long, and it stayed at
+//   speed * 10 s the whole way down to a standstill.
+//
+//   current_speed and accel are the MEASURED longitudinal state. Only deceleration is
+//   extrapolated (an acceleration held for the whole horizon would overstate the path),
+//   and the resulting v^2/2a distance freezes the path exactly like a planned stop does --
+//   so a consumer sees the same "arrives here and stays" shape either way. Pass
+//   current_speed < 0 (the default) to disable this rule, e.g. from tests that only
+//   exercise the plan-side freeze.
+inline PlannedPath BuildPlannedPath(int                         object_id,
+                                   double                      stamp,
+                                   const ShortPlannerSnapshot& plan,
+                                   double                      control_point_offset,
+                                   double                      current_speed = -1.0,
+                                   double                      accel         = 0.0)
 {
     PlannedPath pp;
     pp.object_id = object_id;
@@ -55,11 +76,34 @@ inline PlannedPath BuildPlannedPath(int object_id, double stamp, const ShortPlan
     bool             have_hold = false;
     PlannedPathPoint hold{};
 
+    // RULE 3: distance the measured deceleration says is left before standstill.
+    double stop_distance = -1.0;  // < 0 = no measured stop
+    if (current_speed >= 0.0 && accel < -0.05 && current_speed > kPlannedStoppedSpeed)
+    {
+        stop_distance = (current_speed * current_speed) / (2.0 * -accel);
+    }
+    double travelled = 0.0;
+    bool   have_prev = false;
+    double prev_x = 0.0, prev_y = 0.0;
+
     auto emit = [&](const TrajectoryPoint& tp)
     {
         // RULE 2: back to the object-origin frame.
         const double ox = tp.x - control_point_offset * std::cos(tp.h);
         const double oy = tp.y - control_point_offset * std::sin(tp.h);
+
+        if (have_prev)
+        {
+            travelled += std::hypot(ox - prev_x, oy - prev_y);
+        }
+        prev_x    = ox;
+        prev_y    = oy;
+        have_prev = true;
+
+        if (stop_distance >= 0.0 && travelled > stop_distance)
+        {
+            frozen = true;
+        }
 
         if (!frozen && tp.v > kPlannedStoppedSpeed)
         {

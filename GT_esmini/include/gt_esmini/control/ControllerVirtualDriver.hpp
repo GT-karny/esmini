@@ -214,6 +214,13 @@ private:
     // reset to 0 just BEFORE that block runs (unconditionally), so when the feature is disabled
     // this member never leaves 0 (design doc section 8's default-OFF invariant: DetectManeuverDir()
     // reads this member, so a disabled feature must never make it non-zero).
+    // Measured longitudinal state for the OSI planned-path publisher only (never read by
+    // control). Lets the reported path stop where the vehicle will stop when the plan's own
+    // speed model cannot see the deceleration -- see PlannedPathBuilder.hpp's RULE 3.
+    double planned_path_prev_time_  = -1.0;
+    double planned_path_prev_speed_ = 0.0;
+    double planned_path_accel_      = 0.0;
+
     int lc_signal_dir_ = 0;
     // Pre-signal latch (see the "chattering guard" comment at its use site in Step()): once
     // ShouldSignalLaneChangeHop fires for a given target lane, the signal is held for the rest of
