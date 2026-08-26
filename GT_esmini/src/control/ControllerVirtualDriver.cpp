@@ -1749,8 +1749,25 @@ void ControllerVirtualDriver::Step(double timeStep)
         // Both rules that decide whether the reported line ends where the vehicle ends
         // up (freeze at the planned stop; report the object-origin frame, not the
         // control point) live in BuildPlannedPath so they can be unit-tested directly.
+        // Measured longitudinal state, low-passed. The plan's own speed model cannot see a
+        // deceleration commanded from outside it (a storyboard SpeedAction ramp shows up in
+        // the commanded speed only as "the same as now"), so the reported path would run
+        // current_speed * horizon straight past the stop. See BuildPlannedPath's RULE 3.
+        if (planned_path_prev_time_ >= 0.0)
+        {
+            const double dt_meas = sim_time_ - planned_path_prev_time_;
+            if (dt_meas > 1e-4 && dt_meas < 1.0)
+            {
+                const double acc_raw = (object_->GetSpeed() - planned_path_prev_speed_) / dt_meas;
+                planned_path_accel_  = 0.7 * planned_path_accel_ + 0.3 * acc_raw;
+            }
+        }
+        planned_path_prev_time_  = sim_time_;
+        planned_path_prev_speed_ = object_->GetSpeed();
+
         gt_esmini::PlannedPathRegistry::Instance().Publish(
-            gt_esmini::BuildPlannedPath(object_->id_, sim_time_, plan, plan.control_point_offset));
+            gt_esmini::BuildPlannedPath(object_->id_, sim_time_, plan, plan.control_point_offset,
+                                        object_->GetSpeed(), planned_path_accel_));
     }
 
     DriverState dstate;

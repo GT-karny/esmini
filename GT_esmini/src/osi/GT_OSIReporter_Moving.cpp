@@ -13,6 +13,7 @@
 #include "CommonMini.hpp"
 #include "OSIReporter.hpp"
 #include "GT_OSIReporter_Internals.hpp"
+#include "gt_esmini/control/common/TransitionDynamics.hpp"
 #include "gt_esmini/osi/GT_PlannedPathRegistry.hpp"
 #include <array>
 #include <cctype>
@@ -200,11 +201,37 @@ static void GenerateProjectedTrajectory(const scenarioengine::Object& objectStat
         }
     }
 
+    // Introspect active actions
+    scenarioengine::LatLaneChangeAction* activeLcAction = nullptr;
+    scenarioengine::LongSpeedAction* activeSpeedAction = nullptr;
+    
+    auto privateActions = simObj->getPrivateActions();
+    
+    for (auto* action : privateActions)
+    {
+         std::string typeStr = action->Type2Str();
+         if (typeStr == "LaneChangeAction" && !activeLcAction)
+         {
+             activeLcAction = static_cast<scenarioengine::LatLaneChangeAction*>(action);
+         }
+         else if (typeStr == "SpeedAction" && !activeSpeedAction)
+         {
+             activeSpeedAction = static_cast<scenarioengine::LongSpeedAction*>(action);
+         }
+    }
+
     // [GT_MOD] Start the walk from the CURRENT lane center rather than from the
     // vehicle's lateral offset: a controller running a cross-track error (or a vehicle
     // cutting a corner) would otherwise either drag that offset along the whole
     // prediction, or make an intermediate MoveAlongS snap into a border/sidewalk lane.
-    if (std::abs(ghostPos.GetOffset()) > 0.001)
+    //
+    // NOT while a lane change is running. There the walk keeps the CAR-anchored base and
+    // the overlay below adds the maneuver's REMAINING displacement on top; re-centering
+    // first would count the part already travelled twice. (TrajectoryShortPlanner makes
+    // exactly the same distinction -- it only anchors when lat_actions is empty.) Measured
+    // with the reset left in: the reported line ran out to +7.04 m where the target lane
+    // centre is +3.58 m, i.e. two lane widths.
+    if (!activeLcAction && std::abs(ghostPos.GetOffset()) > 0.001)
     {
         ghostPos.SetLanePos(ghostPos.GetTrackId(), ghostPos.GetLaneId(), ghostPos.GetS(), 0.0);
         // Also fix heading to align with road
@@ -230,25 +257,6 @@ static void GenerateProjectedTrajectory(const scenarioengine::Object& objectStat
     // branching either. Position::MoveToConnectingRoad already picks the ROAD from the
     // route and the LANE from the current lane's lane links (RoadManager.cpp,
     // ELEMENT_TYPE_JUNCTION branch), so handing the walk a valid route is enough.
-
-    // Introspect active actions
-    scenarioengine::LatLaneChangeAction* activeLcAction = nullptr;
-    scenarioengine::LongSpeedAction* activeSpeedAction = nullptr;
-    
-    auto privateActions = simObj->getPrivateActions();
-    
-    for (auto* action : privateActions)
-    {
-         std::string typeStr = action->Type2Str();
-         if (typeStr == "LaneChangeAction" && !activeLcAction)
-         {
-             activeLcAction = static_cast<scenarioengine::LatLaneChangeAction*>(action);
-         }
-         else if (typeStr == "SpeedAction" && !activeSpeedAction)
-         {
-             activeSpeedAction = static_cast<scenarioengine::LongSpeedAction*>(action);
-         }
-    }
 
     // ---------------------------------------------------------------------------
     // Longitudinal prediction.
@@ -304,6 +312,49 @@ static void GenerateProjectedTrajectory(const scenarioengine::Object& objectStat
         speedDynamics    = activeSpeedAction->transition_;
         usingSpeedAction = true;
     }
+
+    // [GT_MOD] Lane-change overlay state, captured ONCE before the walk.
+    //
+    // The displacement is applied in WORLD coordinates to the emitted point, NOT through
+    // MoveAlongS's dLaneOffset. Feeding it as dLaneOffset made the walk cross a lane
+    // boundary, at which point Position re-snapped lane_id_ and GetOffset() started
+    // reporting against the NEW lane -- so the next step's "desired minus current" was one
+    // lane too large and the reported path was pushed a further lane out. Measured on a
+    // one-lane change: the first reported point sat at +6.68 m where the target lane centre
+    // is +3.58 m, converging back only as the transition saturated.
+    //
+    // lane_sign undoes OSCPrivateAction's lane-sign-agnostic storage, exactly as
+    // TrajectoryShortPlanner's own overlay does; without it the displacement goes the wrong
+    // way on one side of the road.
+    bool   lc_valid      = false;
+    double lc_start_val  = 0.0;
+    double lc_amplitude  = 0.0;
+    double lc_param_end  = 0.0;
+    double lc_param_now  = 0.0;
+    double lc_offset_now = 0.0;
+    bool   lc_time_based = false;
+    double lc_lane_sign  = 1.0;
+    scenarioengine::OSCPrivateAction::DynamicsShape lc_shape =
+        scenarioengine::OSCPrivateAction::DynamicsShape::LINEAR;
+
+    if (activeLcAction)
+    {
+        const auto& td = activeLcAction->transition_;
+        if (td.GetParamTargetVal() > 1e-6)
+        {
+            lc_valid      = true;
+            lc_shape      = td.shape_;
+            lc_start_val  = td.GetStartVal();
+            lc_amplitude  = td.GetTargetVal() - lc_start_val;
+            lc_param_end  = td.GetParamTargetVal();
+            lc_param_now  = td.GetParamVal();
+            lc_offset_now = gt_esmini::EvaluateTransitionShape(lc_shape, lc_start_val, lc_amplitude, lc_param_now / lc_param_end);
+            lc_time_based = (td.dimension_ == scenarioengine::OSCPrivateAction::DynamicsDimension::TIME ||
+                             td.dimension_ == scenarioengine::OSCPrivateAction::DynamicsDimension::RATE);
+            lc_lane_sign  = static_cast<double>(SIGN(ghostPos.GetLaneId()));
+        }
+    }
+    const double lc_nominal_speed = std::max(0.1, std::abs(current_speed));
 
     double current_time = sim_time_now;
     int samples = 20;
@@ -375,32 +426,17 @@ static void GenerateProjectedTrajectory(const scenarioengine::Object& objectStat
 
         double ds = speed * dt_step;
         
-        // Lateral Logic (Lane Change)
+        // Lateral: with no lane change, steer the walk back to the lane centre and align
+        // with the road. During a lane change, hold the car-anchored offset instead (see
+        // the reset guard above) -- the displacement is added in world coordinates at emit
+        // time and is never fed back into the walk, because feeding it through MoveAlongS's
+        // dLaneOffset let a lane re-snap turn GetOffset() into a different frame mid-walk.
         double dLaneOffset = 0.0;
-        
-        if (activeLcAction)
+        if (!lc_valid)
         {
-            scenarioengine::OSCPrivateAction::TransitionDynamics futureDynamics = activeLcAction->transition_;
-            if (futureDynamics.dimension_ == scenarioengine::OSCPrivateAction::DynamicsDimension::TIME)
-            {
-                futureDynamics.Step(i * dt);
-            }
-            else if (futureDynamics.dimension_ == scenarioengine::OSCPrivateAction::DynamicsDimension::DISTANCE)
-            {
-                futureDynamics.Step(i * ds);
-            }
-            double desiredOffset = futureDynamics.Evaluate();
-            double currentGhostOffset = ghostPos.GetOffset(); 
-            dLaneOffset = desiredOffset - currentGhostOffset; 
-        }
-        else
-        {
-            // [GT_MOD] Default behavior: Steer back to lane center and align heading
-            // If not changing lanes, we want trajectory to be centered and parallel to lane.
             dLaneOffset = -ghostPos.GetOffset();
             ghostPos.SetHeadingRelative(0.0);
         }
-
 
         // Move the ghost position forward.
         //
@@ -438,6 +474,20 @@ static void GenerateProjectedTrajectory(const scenarioengine::Object& objectStat
         // consumer drawing the box and the path together saw the path start behind the
         // rear of the car it belongs to. Recomputed per sample because the rotation
         // follows the predicted heading, not the current one.
+        // Lane-change displacement, in world coordinates, relative to the lane centre the
+        // walk is following.
+        double lc_dx = 0.0, lc_dy = 0.0;
+        if (lc_valid)
+        {
+            const double advance   = lc_time_based ? (i * dt) : (i * dt * lc_nominal_speed);
+            const double future_p  = std::min(lc_param_now + advance, lc_param_end);
+            const double future_off = gt_esmini::EvaluateTransitionShape(lc_shape, lc_start_val, lc_amplitude, future_p / lc_param_end);
+            const double delta_t   = (future_off - lc_offset_now) * lc_lane_sign;
+            const double road_h    = ghostPos.GetHRoad();
+            lc_dx = delta_t * -std::sin(road_h);
+            lc_dy = delta_t *  std::cos(road_h);
+        }
+
         double bb_dx = 0.0, bb_dy = 0.0, bb_dz = 0.0;
         RotateVec3d(ghostPos.GetH(),
                     ghostPos.GetP(),
@@ -449,8 +499,8 @@ static void GenerateProjectedTrajectory(const scenarioengine::Object& objectStat
                     bb_dy,
                     bb_dz);
 
-        point->mutable_position()->set_x(ghostPos.GetX() + bb_dx);
-        point->mutable_position()->set_y(ghostPos.GetY() + bb_dy);
+        point->mutable_position()->set_x(ghostPos.GetX() + lc_dx + bb_dx);
+        point->mutable_position()->set_y(ghostPos.GetY() + lc_dy + bb_dy);
         point->mutable_position()->set_z(ghostPos.GetZ() + bb_dz);
         
         point->mutable_orientation()->set_yaw(ghostPos.GetH());

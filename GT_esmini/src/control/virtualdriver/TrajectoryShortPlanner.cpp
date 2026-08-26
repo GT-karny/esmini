@@ -218,6 +218,56 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
     // item 2, "歩行中にpos.GetTrackId() != merge_track_idになったら以降は0.0").
     bool merge_left_route = false;
 
+    // The lateral overlay, shared by the preview loop and the extension walk below.
+    //
+    // It has to be shared: `pos` walks the LANE CENTRELINE, and a lane change is expressed
+    // as a world-frame displacement added on top. Applying it to the preview only left the
+    // extension drawing the centreline, so a reported path mid-lane-change moved correctly
+    // for 3 s and then snapped back to the lane being left -- measured on
+    // virtual_driver_basic at t=7.0: preview reached +3.71 m (the target lane) and the very
+    // next point, the first extension sample, dropped to +0.95 m and stayed there for the
+    // remaining 7 s.
+    auto ApplyLateralOverlay = [&](double& px, double& py, double acc, double t_ahead)
+    {
+        if (!lat_actions.empty())
+        {
+            const double road_h = pos.GetHRoad();
+            const double tx = -std::sin(road_h);  // +t axis in world frame
+            const double ty =  std::cos(road_h);
+            for (auto& la : lat_actions)
+            {
+                double future_p = la.time_based ? (la.current_p + acc / abs_nominal) : (la.current_p + acc);
+                future_p = std::min(future_p, la.P);
+                const double future_off = EvaluateTransitionShape(la.shape, la.startVal, la.A, future_p / la.P);
+                const double delta_t = (future_off - la.current_off) * la.lane_sign;
+                px += delta_t * tx;
+                py += delta_t * ty;
+            }
+        }
+        else if (ctx.merge_active && ctx.merge_state != nullptr)
+        {
+            // feature:F7 resume-merge: ABSOLUTE per-point offset (design doc section 2-5),
+            // not the relative delta_t/lane_sign pattern above -- that pattern is for the
+            // car-anchored lat_actions overlay; this branch is for the lane-center-anchored
+            // path, where the target is the merge trajectory's absolute offset from the
+            // ROUTE lane center. lane_sign is NOT applied (ResumeMergeProfile.hpp's SIGN
+            // CONVENTION doc / design doc section 2-4: merge_state's d(t) is already in the
+            // raw +t-axis space, like Position::GetOffset()).
+            if (pos.GetTrackId() != ctx.merge_track_id)
+                merge_left_route = true;
+
+            if (!merge_left_route)
+            {
+                const double road_h = pos.GetHRoad();
+                const double tx = -std::sin(road_h);
+                const double ty =  std::cos(road_h);
+                const double d_i = EvaluateResumeMergeOffset(*ctx.merge_state, t_ahead);
+                px += d_i * tx;
+                py += d_i * ty;
+            }
+        }
+    };
+
     double acc_dist = 0.0;
     for (int i = 1; i <= n_steps; ++i)
     {
@@ -245,47 +295,7 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
 
         double px = pos.GetX();
         double py = pos.GetY();
-
-        if (!lat_actions.empty())
-        {
-            double road_h = pos.GetHRoad();
-            double tx = -std::sin(road_h);  // +t axis in world frame
-            double ty =  std::cos(road_h);
-            for (auto& la : lat_actions)
-            {
-                double future_p = la.time_based ? (la.current_p + acc_dist / abs_nominal)
-                                                : (la.current_p + acc_dist);
-                future_p = std::min(future_p, la.P);
-                double future_off = EvaluateTransitionShape(la.shape, la.startVal, la.A, future_p / la.P);
-                double delta_t = (future_off - la.current_off) * la.lane_sign;
-                px += delta_t * tx;
-                py += delta_t * ty;
-            }
-        }
-        else if (ctx.merge_active && ctx.merge_state != nullptr)
-        {
-            // feature:F7 resume-merge: ABSOLUTE per-point offset (design doc
-            // section 2-5), not the relative delta_t/lane_sign pattern above
-            // -- that pattern is for the car-anchored lat_actions overlay;
-            // this branch is for the lane-center-anchored path (mirrors the
-            // anchor SetLanePos above), where the target is the merge
-            // trajectory's absolute offset from the ROUTE lane center.
-            // lane_sign is NOT applied here (ResumeMergeProfile.hpp's SIGN
-            // CONVENTION doc / design doc section 2-4: merge_state's d(t) is
-            // already in the raw +t-axis space, like Position::GetOffset()).
-            if (pos.GetTrackId() != ctx.merge_track_id)
-                merge_left_route = true;
-
-            if (!merge_left_route)
-            {
-                const double road_h = pos.GetHRoad();
-                const double tx = -std::sin(road_h);
-                const double ty =  std::cos(road_h);
-                const double d_i = EvaluateResumeMergeOffset(*ctx.merge_state, i * dt);
-                px += d_i * tx;
-                py += d_i * ty;
-            }
-        }
+        ApplyLateralOverlay(px, py, acc_dist, i * dt);
 
         snap.preview.push_back({px, py, v_here, i * dt, pos.GetZ(), pos.GetH(), pos.GetP(), pos.GetR()});
     }
@@ -331,8 +341,11 @@ ShortPlannerSnapshot TrajectoryShortPlanner::Plan(const ShortPlanContext& ctx)
             // The time axis is what tells a consumer "it is stopped here", and dropping
             // the samples would report a path that merely ends early.
 
-            snap.extension.push_back({pos.GetX(), pos.GetY(), v_here, t0_ext + k * dt_ext,
-                                      pos.GetZ(), pos.GetH(), pos.GetP(), pos.GetR()});
+            const double t_ahead = t0_ext + k * dt_ext;
+            double ex = pos.GetX();
+            double ey = pos.GetY();
+            ApplyLateralOverlay(ex, ey, acc_dist, t_ahead);
+            snap.extension.push_back({ex, ey, v_here, t_ahead, pos.GetZ(), pos.GetH(), pos.GetP(), pos.GetR()});
         }
     }
 
