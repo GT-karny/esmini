@@ -190,7 +190,11 @@ std::string ToJson(const VirtualDriverTelemetry& t)
         os << "{\"s\":" << c.s << ",\"x\":" << c.x << ",\"y\":" << c.y
            << ",\"v\":" << c.v << ",\"kind\":\"" << c.kind << "\"}";
     }
-    os << "]}";
+    os << "]"
+       // vd_intent_layer.md section 5: which policy.constraints[] entry is actually
+       // setting the speed at the ego right now. -1 = none of them (the road
+       // ceiling governs, or there are none) -- NOT "not computed".
+       << ",\"binding_constraint_index\":" << t.midlong.binding_constraint_index << "}";
 
     // Phase 3 traffic policies. constraints[] is the union emitted by the enabled
     // policies (lead-vehicle / traffic-light / stop-yield sign); the planner folds

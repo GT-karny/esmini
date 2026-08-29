@@ -100,6 +100,32 @@ struct MidLongPlannerSnapshot
     // Labelled constraint points (curve / junction / speed-limit) with world XY.
     std::vector<MidLongConstraint>         constraints;
     bool                                   valid = false;
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 5 -- the winner the
+    // std::min() fold used to throw away.
+    //
+    // ApplyPolicyConstraints() folds every policy constraint into one speed
+    // profile, and after the fold "which constraint is actually holding the car
+    // back right now" is gone: a red light, a lead vehicle and a crosswalk all
+    // become one number. Consumers could approximate it (highest tier, then
+    // nearest s) but each would invent its own rule and different screens would
+    // give different answers, so the decision is made here, once, by the code
+    // that actually did the folding.
+    //
+    // Index into the SAME TrafficPolicySnapshot::constraints vector that was fed
+    // in (MidLongContext::policy), which is also the one published as
+    // telemetry.policy -- so a consumer joins on the index directly.
+    //
+    // -1 means NO policy constraint is governing at the ego: either none were
+    // emitted, or the road-geometry ceiling (curvature / speed limit / junction)
+    // is lower than any of them right there. It does NOT mean "not computed".
+    //
+    // Measured at the ego's own position (the s_ahead == 0 sample) and recorded
+    // during the fold itself, so it names the constraint that WON, not one that
+    // merely exists. The later comfort-decel and jerk passes can lower that
+    // sample further; they are shaping, not deciding, and deliberately do not
+    // change this attribution.
+    int                                    binding_constraint_index = -1;
 };
 
 // A single constraint emitted by a traffic policy (Phase 3).

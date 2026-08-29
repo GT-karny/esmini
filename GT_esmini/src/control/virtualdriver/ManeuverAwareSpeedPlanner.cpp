@@ -21,15 +21,6 @@ namespace
 constexpr double kUnconstrained = 1.0e6;
 constexpr double kCurveNotable = 30.0;  // [m/s] (~108 km/h)
 
-struct ScanSample
-{
-    double      s_ahead = 0.0;
-    double      x = 0.0;
-    double      y = 0.0;
-    double      v = 0.0;
-    std::string kind;
-};
-
 std::string BindingKind(bool on_junction, double v_curve, double v_limit, double previous_limit)
 {
     if (on_junction) return "junction";
@@ -51,7 +42,7 @@ bool IsTurningConnector(roadmanager::Road* road, std::unordered_map<id_t, bool>&
     return is_turn;
 }
 
-std::vector<ScanSample> ScanRouteCeilings(const ManeuverAwareSpeedPlannerConfig& cfg,
+std::vector<MidLongScanSample> ScanRouteCeilings(const ManeuverAwareSpeedPlannerConfig& cfg,
                                           Object& obj,
                                           roadmanager::OpenDrive& odr,
                                           double step,
@@ -61,7 +52,7 @@ std::vector<ScanSample> ScanRouteCeilings(const ManeuverAwareSpeedPlannerConfig&
     pos.Duplicate(obj.pos_);
     pos.CopyRoute(obj.pos_);
 
-    std::vector<ScanSample> samples;
+    std::vector<MidLongScanSample> samples;
     std::unordered_map<id_t, bool> connector_is_turn;
     double s_ahead = 0.0;
     double previous_limit = -1.0;
@@ -111,17 +102,39 @@ std::vector<ScanSample> ScanRouteCeilings(const ManeuverAwareSpeedPlannerConfig&
     return samples;
 }
 
-std::vector<MidLongConstraint> ApplyPolicyConstraints(std::vector<ScanSample>& samples,
-                                                      const ManeuverAwareSpeedPlannerConfig& cfg,
-                                                      const MidLongContext& ctx)
-{
-    std::vector<MidLongConstraint> policy_markers;
-    if (!ctx.policy || !ctx.policy->valid || samples.empty()) return policy_markers;
+}  // namespace
 
-    for (const auto& constraint : ctx.policy->constraints)
+// vd_intent_layer.md section 5. Public (header-declared) so the attribution rule
+// is unit-testable with synthetic samples; see the header for why that rule needs
+// its own test rather than being inferred from the resulting profile.
+PolicyFoldResult ApplyPolicyConstraints(std::vector<MidLongScanSample>&        samples,
+                                        const ManeuverAwareSpeedPlannerConfig& cfg,
+                                        const TrafficPolicySnapshot*           policy)
+{
+    PolicyFoldResult fold;
+    if (!policy || !policy->valid || samples.empty()) return fold;
+
+    // The ego's own sample -- the one whose speed is being commanded RIGHT NOW.
+    // ScanRouteCeilings always emits s_ahead == 0 first, but this reads index 0
+    // by way of "smallest s_ahead" rather than assuming it, so a future change to
+    // the scan cannot silently re-point the attribution at a sample 2 m ahead.
+    size_t ego_idx = 0;
+    for (size_t i = 1; i < samples.size(); ++i)
     {
-        const double cap = std::max(0.0, constraint.value);
-        int marker_idx = -1;
+        if (samples[i].s_ahead < samples[ego_idx].s_ahead) ego_idx = i;
+    }
+
+    for (size_t ci = 0; ci < policy->constraints.size(); ++ci)
+    {
+        const auto&  constraint = policy->constraints[ci];
+        const double cap        = std::max(0.0, constraint.value);
+        int          marker_idx = -1;
+        // Snapshot the ego sample's speed before this constraint touches it. A
+        // constraint is credited only if it STRICTLY lowers that value: a
+        // constraint that merely matches the speed something else already set
+        // did not decide anything, and crediting it would report the wrong
+        // subject on every frame two policies happen to agree.
+        const double v_at_ego_before = samples[ego_idx].v;
 
         switch (constraint.kind)
         {
@@ -167,17 +180,25 @@ std::vector<MidLongConstraint> ApplyPolicyConstraints(std::vector<ScanSample>& s
             break;
         }
 
+        if (samples[ego_idx].v < v_at_ego_before - 1.0e-9)
+        {
+            fold.binding_constraint_index = static_cast<int>(ci);
+        }
+
         if (marker_idx >= 0)
         {
-            const ScanSample& sample = samples[static_cast<size_t>(marker_idx)];
-            policy_markers.push_back({sample.s_ahead, sample.x, sample.y, 0.0, "stop"});
+            const MidLongScanSample& sample = samples[static_cast<size_t>(marker_idx)];
+            fold.markers.push_back({sample.s_ahead, sample.x, sample.y, 0.0, "stop"});
         }
     }
 
-    return policy_markers;
+    return fold;
 }
 
-void ApplyComfortDecelPass(std::vector<ScanSample>& samples, const ManeuverAwareSpeedPlannerConfig& cfg)
+namespace
+{
+
+void ApplyComfortDecelPass(std::vector<MidLongScanSample>& samples, const ManeuverAwareSpeedPlannerConfig& cfg)
 {
     for (int i = static_cast<int>(samples.size()) - 2; i >= 0; --i)
     {
@@ -187,7 +208,7 @@ void ApplyComfortDecelPass(std::vector<ScanSample>& samples, const ManeuverAware
     }
 }
 
-void ApplyJerkSmoothing(std::vector<ScanSample>& samples, const ManeuverAwareSpeedPlannerConfig& cfg, double step)
+void ApplyJerkSmoothing(std::vector<MidLongScanSample>& samples, const ManeuverAwareSpeedPlannerConfig& cfg, double step)
 {
     if (cfg.comfort_jerk <= 1.0e-3 || samples.size() < 3) return;
 
@@ -216,7 +237,7 @@ void ApplyJerkSmoothing(std::vector<ScanSample>& samples, const ManeuverAwareSpe
     }
 }
 
-void EmitSnapshot(const std::vector<ScanSample>& samples,
+void EmitSnapshot(const std::vector<MidLongScanSample>& samples,
                   const std::vector<MidLongConstraint>& policy_markers,
                   MidLongPlannerSnapshot& snap)
 {
@@ -226,14 +247,14 @@ void EmitSnapshot(const std::vector<ScanSample>& samples,
     int segment_min = -1;
     auto flush_segment = [&]() {
         if (segment_min < 0) return;
-        const ScanSample& sample = samples[static_cast<size_t>(segment_min)];
+        const MidLongScanSample& sample = samples[static_cast<size_t>(segment_min)];
         snap.constraints.push_back({sample.s_ahead, sample.x, sample.y, sample.v, sample.kind});
         segment_min = -1;
     };
 
     for (size_t i = 0; i < samples.size(); ++i)
     {
-        const ScanSample& sample = samples[i];
+        const MidLongScanSample& sample = samples[i];
         profile.emplace_back(sample.s_ahead, sample.v);
 
         if (sample.kind.empty())
@@ -274,11 +295,15 @@ MidLongPlannerSnapshot ManeuverAwareSpeedPlanner::Plan(const MidLongContext& ctx
     const double step = std::max(0.5, cfg_.scan_step);
     const double scan_dist = std::max(step, ctx.scan_dist);
 
-    std::vector<ScanSample> samples = ScanRouteCeilings(cfg_, *obj, *odr, step, scan_dist);
-    std::vector<MidLongConstraint> policy_markers = ApplyPolicyConstraints(samples, cfg_, ctx);
+    std::vector<MidLongScanSample> samples = ScanRouteCeilings(cfg_, *obj, *odr, step, scan_dist);
+    const PolicyFoldResult         fold    = ApplyPolicyConstraints(samples, cfg_, ctx.policy);
     ApplyComfortDecelPass(samples, cfg_);
     ApplyJerkSmoothing(samples, cfg_, step);
-    EmitSnapshot(samples, policy_markers, snap);
+    EmitSnapshot(samples, fold.markers, snap);
+    // Recorded during the fold, NOT re-derived from the finished profile: after
+    // the comfort/jerk passes have shaped the numbers, "who lowered this" is no
+    // longer recoverable from the profile alone.
+    snap.binding_constraint_index = fold.binding_constraint_index;
 
     return snap;
 }

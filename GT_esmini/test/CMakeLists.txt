@@ -25,6 +25,7 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_SignalJunctionResolver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_RouteLanePlan.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_LaneChangeInitiation.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_PolicyConstraintFold.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_OvertakeManeuver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_VirtualDriverTelemetryJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/virtualdriver/test_PolicyDetail.cpp
