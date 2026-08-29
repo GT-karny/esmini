@@ -600,3 +600,77 @@ TEST(LaneChangeInitiationState, DefaultConstructedIsNotArmed)
     EXPECT_FALSE(state.armed);
     EXPECT_EQ(state.direction_indicator, 0);
 }
+
+// ─────────────────── aborted_reason: completion vs abort (vd_intent_layer.md §3-4) ───────────
+//
+// These are a MATCHED PAIR on purpose (design vd_intent_layer.md §9-2 item 9): aborted_reason is
+// the ONLY information anywhere in the system that separates "the lane change finished" from
+// "the lane change was given up on", so a test that only ever exercises the abort side would
+// pass just as well against an implementation that sets the field unconditionally.
+
+TEST(LaneChangeInitiationState, DefaultConstructedHasNoAbortedReason)
+{
+    const LaneChangeInitiationState state;
+    EXPECT_EQ(state.aborted_reason, "");
+}
+
+TEST(LaneChangeInitiationState, CompletionDisarmLeavesTheAbortedReasonEmpty)
+{
+    LaneChangeInitiationState state;
+    ArmLaneChangeHop(state, 7, -2, -1, -1);
+
+    DisarmLaneChangeHop(state);  // the COMPLETION path
+
+    EXPECT_FALSE(state.armed);
+    EXPECT_EQ(state.aborted_reason, "");
+}
+
+TEST(LaneChangeInitiationState, AbortRecordsTheReasonAndOtherwiseMatchesDisarm)
+{
+    LaneChangeInitiationState aborted;
+    LaneChangeInitiationState completed;
+    ArmLaneChangeHop(aborted, 7, -2, -1, -1);
+    ArmLaneChangeHop(completed, 7, -2, -1, -1);
+
+    AbortLaneChangeHop(aborted, kAbortReasonManualLateral);
+    DisarmLaneChangeHop(completed);
+
+    EXPECT_EQ(aborted.aborted_reason, "manual_lateral");
+    EXPECT_EQ(completed.aborted_reason, "");
+
+    // Everything the CONTROL side can see must be identical between the two paths -- the abort
+    // is an observation-only refinement of the disarm (design's "既存挙動はビット単位で不変").
+    EXPECT_EQ(aborted.armed, completed.armed);
+    EXPECT_EQ(aborted.hop_track_id, completed.hop_track_id);
+    EXPECT_EQ(aborted.hop_target_lane_id, completed.hop_target_lane_id);
+    EXPECT_EQ(aborted.direction_step, completed.direction_step);
+    EXPECT_EQ(aborted.direction_indicator, completed.direction_indicator);
+}
+
+TEST(LaneChangeInitiationState, EachSuppressionTokenRoundTrips)
+{
+    for (const char* reason : {kAbortReasonStoryboard, kAbortReasonResumeMerge, kAbortReasonManualLateral})
+    {
+        LaneChangeInitiationState state;
+        ArmLaneChangeHop(state, 1, 2, 1, 1);
+        AbortLaneChangeHop(state, reason);
+        EXPECT_EQ(state.aborted_reason, std::string(reason));
+    }
+}
+
+// The trap this guards (design §3-4's "次の arm で消す"): if a re-arm did not clear the
+// breadcrumb, the NEXT hop's normal completion would still read as an abort, and the intent
+// layer would report ABORTING for a lane change that finished perfectly.
+TEST(LaneChangeInitiationState, ReArmingClearsAStaleAbortedReason)
+{
+    LaneChangeInitiationState state;
+    ArmLaneChangeHop(state, 7, -2, -1, -1);
+    AbortLaneChangeHop(state, kAbortReasonStoryboard);
+    ASSERT_EQ(state.aborted_reason, "storyboard");
+
+    ArmLaneChangeHop(state, 8, -3, -1, -1);  // a fresh hop
+    EXPECT_EQ(state.aborted_reason, "");
+
+    DisarmLaneChangeHop(state);  // ...which then completes normally
+    EXPECT_EQ(state.aborted_reason, "");
+}

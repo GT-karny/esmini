@@ -264,6 +264,12 @@ struct LaneChangeInitiationSnapshot
     bool        gap_accepted        = false;  // last-evaluated gap-acceptance verdict
     std::string gap_reason;                   // "" = accepted; else "lead_gap" | "rear_gap" | "rear_ttc"
     bool        signal_active       = false;  // AD-LC path is requesting the indicator (pre-signal or armed) -- design doc section 11-8
+    // docs/virtualdriver/design/vd_intent_layer.md section 3-4. Why the most recent hop stopped
+    // being armed: "" = it COMPLETED (or none has run yet), else one of
+    // "storyboard" | "resume_merge" | "manual_lateral" = it was ABORTED mid-flight.
+    // Mirrors LaneChangeInitiationState::aborted_reason; see that field for why this one bit is
+    // the only thing that separates a finished lane change from an abandoned one.
+    std::string aborted_reason;
 };
 
 // vd-func:FUNC-056 AD overtake maneuver

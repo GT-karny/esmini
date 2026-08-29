@@ -238,11 +238,24 @@ void ArmLaneChangeHop(LaneChangeInitiationState& state,
     state.direction_step      = direction_step;
     state.direction_indicator = direction_indicator;
     state.last_gap_reason.clear();
+    // design vd_intent_layer.md section 3-4: "次の arm で消す". A fresh hop has not been
+    // aborted, so the breadcrumb from the PREVIOUS one must not leak into it -- otherwise the
+    // intent layer would read a stale abort and call this hop's completion an ABORTING.
+    state.aborted_reason.clear();
 }
 
 void DisarmLaneChangeHop(LaneChangeInitiationState& state)
 {
     state.armed = false;
+}
+
+void AbortLaneChangeHop(LaneChangeInitiationState& state, const std::string& reason)
+{
+    // Same single write DisarmLaneChangeHop makes -- the abort path must not differ from the
+    // completion path in anything the CONTROL side can see (design vd_intent_layer.md's
+    // "既存挙動はビット単位で不変" requirement); the reason string is observation only.
+    state.armed          = false;
+    state.aborted_reason = reason;
 }
 
 }  // namespace gt_esmini

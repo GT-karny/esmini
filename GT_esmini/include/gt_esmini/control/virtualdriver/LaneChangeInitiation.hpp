@@ -201,7 +201,34 @@ struct LaneChangeInitiationState
     // disarm so telemetry can show "why not yet" even while armed==false. "" means the last
     // evaluated gap was accepted (or no gap has been evaluated yet this run).
     std::string  last_gap_reason;
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 3-4's "足りない素材": WHY the most
+    // recent hop stopped being armed -- "" when it ran to COMPLETION, one of the three
+    // kAbortReason* tokens below when it was ABORTED mid-flight.
+    //
+    // This one field is the ONLY thing separating those two cases anywhere in the system.
+    // `armed` goes true->false on both paths, and the non-armed telemetry recomputes
+    // n_remaining/required_m from the NEXT hop that is due, so nothing else survives to say
+    // what just happened. The intent layer's COMPLETING-vs-ABORTING split (design section
+    // 3-2-1) rests entirely on it; see that design's section 9-2 item 9, which pins the two
+    // as a matched pair of tests for exactly this reason.
+    //
+    // Set by AbortLaneChangeHop() only, cleared by ArmLaneChangeHop(). DisarmLaneChangeHop()
+    // -- the COMPLETION path -- deliberately does not touch it: that separation is what makes
+    // "completed" the structural default rather than a case someone has to remember to encode.
+    // Kept across the disarm as a breadcrumb, same convention as last_gap_reason above.
+    std::string  aborted_reason;
 };
+
+// Fixed vocabulary for LaneChangeInitiationState::aborted_reason (design section 3-4). These
+// are the three conditions that make up the controller's `suppressed` predicate, in the design
+// doc section 2 priority order -- storyboard lateral action, then resume-merge, then a manual
+// lateral override. One token per condition, never a combined string: a consumer asking "why
+// was the lane change abandoned" needs the specific answer, and a compound value would have to
+// be parsed.
+inline constexpr const char* kAbortReasonStoryboard    = "storyboard";
+inline constexpr const char* kAbortReasonResumeMerge   = "resume_merge";
+inline constexpr const char* kAbortReasonManualLateral = "manual_lateral";
 
 // Begin a hop: latches state.armed=true and every field above. Does NOT touch any ResumeMerge*
 // instance -- the caller arms its own separate ResumeMergeState right alongside this call (design
@@ -212,10 +239,30 @@ void ArmLaneChangeHop(LaneChangeInitiationState& state,
                       int                        direction_step,
                       int                        direction_indicator);
 
-// End the current hop (completion, or a suppression per design doc section 2's priority order:
-// storyboard lateral action running / resume-merge active / manual lateral override). Only `armed`
-// is cleared -- the rest is left in place as a "what was this hop" breadcrumb, same convention as
-// DisarmResumeMerge.
+// End the current hop by COMPLETION. Only `armed` is cleared -- the rest is left in place as a
+// "what was this hop" breadcrumb, same convention as DisarmResumeMerge.
+//
+// aborted_reason is NOT touched here, and that is the point (design vd_intent_layer.md section
+// 3-4): this is the completion path, so "" -- whatever the last arm left behind -- is the
+// correct answer. A suppression must call AbortLaneChangeHop() below instead.
 void DisarmLaneChangeHop(LaneChangeInitiationState& state);
+
+// End the current hop by ABORT (a suppression per design doc section 2's priority order:
+// storyboard lateral action running / resume-merge active / manual lateral override). Does
+// exactly what DisarmLaneChangeHop does -- clears `armed`, touches nothing else -- and
+// additionally records `reason` in state.aborted_reason.
+//
+// Deliberately a SEPARATE function rather than a defaulted argument on DisarmLaneChangeHop:
+// the two call sites in ControllerVirtualDriver mean genuinely different things (design
+// vd_intent_layer.md section 3-2-1's "終わる状態と戻る状態は同じではない"), and a defaulted
+// argument would let a future call site pick the wrong one silently. `reason` should be one of
+// the kAbortReason* tokens above.
+//
+// NOTE this does NOT stop the lateral motion by itself -- neither does DisarmLaneChangeHop.
+// Both only stop the hop's bookkeeping; the caller disarms the ResumeMergeState that is
+// actually generating the offset. Where the body then converges is not controlled (design
+// section 3-2-2), which is why ABORTING is defined as "the aborted lateral motion has not
+// settled on any lane centre yet" rather than "returning to the original lane".
+void AbortLaneChangeHop(LaneChangeInitiationState& state, const std::string& reason);
 
 }  // namespace gt_esmini

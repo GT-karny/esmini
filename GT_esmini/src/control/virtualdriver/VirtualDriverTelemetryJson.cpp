@@ -276,7 +276,11 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"dist_to_connection\":" << t.lane_change.dist_to_connection
        << ",\"gap_accepted\":" << b(t.lane_change.gap_accepted)
        << ",\"gap_reason\":\"" << t.lane_change.gap_reason << "\""
-       << ",\"signal_active\":" << b(t.lane_change.signal_active) << "}";
+       << ",\"signal_active\":" << b(t.lane_change.signal_active)
+       // vd_intent_layer.md section 3-4: "" = the last hop COMPLETED, non-empty = it was
+       // ABORTED. Read alongside `armed`: the pair (armed false, aborted_reason non-empty) is
+       // the only signature an abandoned lane change leaves behind.
+       << ",\"aborted_reason\":\"" << t.lane_change.aborted_reason << "\"}";
 
     // vd-func:FUNC-056 AD overtake maneuver (OvertakeManeuver.hpp). Additive top-level block;
     // consumers that predate it simply ignore it. `considered` is the field to read first --

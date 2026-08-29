@@ -1022,7 +1022,18 @@ void ControllerVirtualDriver::Step(double timeStep)
             // Abort the in-progress hop (design doc section 2: "進行中なら中止" for all three
             // suppression triggers). No fourth disarm trigger is added to resume-merge's own
             // state machine -- that direction is closed by design (section 9's scope table).
-            DisarmLaneChangeHop(lc_init_state_);
+            //
+            // AbortLaneChangeHop, NOT DisarmLaneChangeHop: this is the ABORT path, and
+            // vd_intent_layer.md section 3-4 needs it distinguishable from the completion
+            // disarm further down (which stays DisarmLaneChangeHop). The three tokens below
+            // are `suppressed`'s own three constituent conditions, tested in the design doc
+            // section 2 priority order so the reported reason is the one that actually
+            // pre-empted the hop when more than one holds at once. Control-side behaviour is
+            // unchanged -- both functions clear exactly `armed`.
+            AbortLaneChangeHop(lc_init_state_,
+                               has_lateral_storyboard_action ? kAbortReasonStoryboard
+                               : resume_merge_state_.active  ? kAbortReasonResumeMerge
+                                                             : kAbortReasonManualLateral);
             DisarmResumeMerge(lc_merge_state_);
         }
 
@@ -2370,6 +2381,11 @@ void ControllerVirtualDriver::Step(double timeStep)
     // permanently 0 when lc_init_cfg_.enabled is false (see the header doc on lc_signal_dir_), so
     // this needs no separate enabled check.
     telemetry_.lane_change.signal_active       = (lc_signal_dir_ != 0);
+    // vd_intent_layer.md section 3-4. Published straight from the latch (not from a local),
+    // because it is deliberately a breadcrumb that OUTLIVES the frame the abort happened on --
+    // the lateral motion an abort leaves behind takes several frames to settle, and the intent
+    // layer needs to keep calling that stretch ABORTING for its whole duration.
+    telemetry_.lane_change.aborted_reason      = lc_init_state_.aborted_reason;
 
     // 11e. vd-func:FUNC-056 AD overtake maneuver telemetry (OvertakeManeuver.hpp). Computed above
     // (before the is_integrator gate, into the ot_diag_* locals) but published only here, same
