@@ -889,6 +889,40 @@ signals:
       exposure=frame。route を持たないエンティティ（AssignRouteAction 未使用シナリオが
       大半）では diagnostic=="no_route" として現れる（劣化ではなく通常状態、同 §4-5）。
 
+  - id: vd_intent
+    title: ego の運転意図（外形）— 何を・どの段階まで・いつ・誰に対して
+    exposure: [frame]
+    state: "(b)"
+    emit: VdIntentProjection.cpp ProjectVdIntents → ControllerVirtualDriver.cpp 節11f（telemetry_.intents 代入）→ VirtualDriverTelemetryJson.cpp（intents ブロック）
+    note: >-
+      docs/virtualdriver/design/vd_intent_layer.md §4-1 の外形配列。**ANNOUNCED 以降に達した
+      意図だけ**が載る＝各行は「外から見える何か」（指示器・ブレーキランプ・実際の動き）に
+      対応しており、だから matcher が読んでよい。停止・減速・車線変更・右左折・追い越し・譲りの
+      6種を1つの語彙（IntentKind / IntentPhase）で表し、`kind` 別のコードを消費側に書かせない
+      （新しいマニューバが増えるたびに消費側を改修する構造を止めるのが本層の目的、§1-1）。
+      `eta_s = -1` は「算出したが原理的に答えが無い」（計画停止点の向こう側）であって未測定では
+      **ない** — 0 と読んではいけない（§6-2。制御用の速度床を出力へ流さないための規律）。
+      `has_position` が別にあるのは (0,0) が正当な世界座標だから。`id` で
+      signal:vd_intent_reasons と結合する。**新しい vd-func は起こさない**（観測層）。
+
+  - id: vd_intent_reasons
+    title: ego の運転意図（内部判断）— なぜするのか・なぜできないのか・なぜやめたのか
+    exposure: [debug]
+    state: "(b)"
+    emit: VdIntentProjection.cpp ProjectVdIntents → ControllerVirtualDriver.cpp 節11f（telemetry_.intent_reasons 代入）→ VirtualDriverTelemetryJson.cpp（intent_reasons ブロック）
+    note: >-
+      vd_intent_layer.md §4-1 の内部判断配列。POSSIBLE / PLANNED を含む全段階を持ち、
+      動機（source、常に1つ）・阻害（blockers[]、0個以上）・取り消し（cancel_reason）を
+      **別フィールドで**持つ（混ぜると junk drawer になる、§8）。**exposure=debug＝
+      verdict-trust 対象外。matcher はこの配列を読まない。**
+      構造化データには `gt.` / `gt.dbg.` の接頭辞という手段が使えないので、**配列を物理的に
+      2本に割ることが接頭辞と同じ強度の代替**であり、検査は「matcher が intent_reasons を
+      参照していないか」の grep 1つで済む（§4-2）。名前に "debug" を含めないのは、これが HMI
+      にとっては主要コンテンツだから（人に「なぜ止まるのか」を見せるのはデバッグではない）—
+      方針は名前ではなくこのカタログと lint が持つ。
+      `blockers[].measured` を verdict に使ってはいけない理由が§8-5にある: AD 自身の測定値なので、
+      AD の測り方が間違っていたら matcher はその間違いを追認する（GroundTruth から自分で測ること）。
+
   - id: overtake_decision
     title: 追い越しの検討・抑止・フェーズ（なぜ追い越したか／なぜ追い越さなかったか）
     exposure: [frame]

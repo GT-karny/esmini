@@ -2360,3 +2360,39 @@ edges:
       ユニットが実装欠陥を2件捕まえている: envelope の振幅上限が rate 段で押し戻される
       （AdSteeringEnvelope のジャーク段が shipped-disabled のままである当の非対称）と、
       抑制時のランプダウンが要求の「即時中断」に反していたこと。
+
+  # ---- 意図層（docs/virtualdriver/design/vd_intent_layer.md、2026-08-29） ----
+  # realizes 辺は張らない。本層は運転機能ではなく観測層で、function_catalog_vd_ad.yaml の
+  # tier/layer/agent/dim いずれの軸にも乗らないため、新しい vd-func を起こさない判断
+  # （設計書冒頭）。実現するものが無いので realizes の宛先も無い。
+  - from: vd-component:intent-layer
+    to: vd-component:lane-change-initiation
+    type: depends-on
+    source: GT_esmini/docs/virtualdriver/design/vd_intent_layer.md
+    note: >-
+      投影の素材の依存。単に telemetry を読むだけではなく、**この層のために
+      lane_change.aborted_reason を新設させている**（設計 §3-4）: armed の true→false は完了でも
+      中止でも起きるため、その1フィールドが COMPLETING と ABORTING を分ける唯一の情報になる。
+      「生産者のいない語彙値を残さない」という規律から、ABORTING を語彙に入れる条件が
+      このフィールドの同時実装だった。横位置の収束判定（|lane_offset|）も同じ層の観測に依存する。
+
+  - from: vd-component:intent-layer
+    to: vd-component:overtake-maneuver
+    type: depends-on
+    source: GT_esmini/docs/virtualdriver/design/vd_intent_layer.md
+    note: >-
+      overtake.phase の6値を IntentPhase へ畳み、blocked_reason の1語（特に "gap"）を
+      blockers[] へ分解する。**追い越しが立っている間 LANE_CHANGE 行は出さない**（設計 §3-1-1）:
+      追い越しは車線変更のホップ機構を丸ごと借りているので、両方出すと同じ横移動が2行に見える。
+      上位意図が下位を抑制するというこの関係は、overtake-maneuver -> depends-on ->
+      lane-change-initiation の実装依存が投影の側に現れたものである。
+
+  - from: vd-component:intent-layer
+    to: vd-component:route-lane-plan
+    type: depends-on
+    source: GT_esmini/docs/virtualdriver/design/vd_intent_layer.md
+    note: >-
+      LANE_CHANGE / TURN の動機（source="route"）と POSSIBLE の判定が route_lane.valid /
+      on_target_lane に乗る。取り消し理由の rerouted も同層由来。
+      **診断のみで是正しない**という route-lane-plan の性格がそのまま投影に現れ、
+      「経路帯から外れているのに移る先が無い」場面が blocker no_target_lane になる。

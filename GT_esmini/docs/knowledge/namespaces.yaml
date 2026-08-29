@@ -384,7 +384,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/component_catalog_vd.yaml
     status: active
-    count: 15
+    count: 16
     notes: >-
       2026-08-02 新設。**動機**: 3段チェーン（実装 -> realizes -> vd-func -> realizes -> req）の
       実装側ノードは `policy`（ITrafficPolicy 実装）しか登録されておらず、プランナー・
@@ -406,7 +406,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(_[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/signal_catalog.yaml
     status: active
-    count: 55
+    count: 61
     notes: >-
       検証スパイン④観測の一級市民（capability_model.md §4）。canonical は
       **OSI .proto 面（GroundTruth / HostVehicleData）**で、`vd_metrics.py` の

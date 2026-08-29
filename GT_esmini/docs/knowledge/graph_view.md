@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:2ee45f17d2b7105d -->
+<!-- generated-from: sha256:5956d90d6a250fde -->
 
-ノード 239・辺 294（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 240・辺 297（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -237,6 +237,7 @@ flowchart LR
     n_vd_component_lane_change_initiation["lane-change-initiation"]
     n_vd_component_overtake_maneuver["overtake-maneuver"]
     n_vd_component_lane_keep_assist["lane-keep-assist"]
+    n_vd_component_intent_layer["intent-layer"]
   end
   subgraph sg_scenario_variant["scenario-variant｜生成シナリオ変体（NN_topic__pNNN）"]
     n_scenario_variant_09_crosswalk_pedestrian__p005["09_crosswalk_pedestrian__p005"]
@@ -574,6 +575,9 @@ flowchart LR
   n_matcher_steer_output_absent -->|verifies| n_req_vd_ad_REQ_AD_027
   n_vd_component_lane_keep_assist -->|realizes| n_vd_func_FUNC_080
   n_vd_func_FUNC_080 -->|sustained-by| n_gate_unit_ctest
+  n_vd_component_intent_layer -->|depends-on| n_vd_component_lane_change_initiation
+  n_vd_component_intent_layer -->|depends-on| n_vd_component_overtake_maneuver
+  n_vd_component_intent_layer -->|depends-on| n_vd_component_route_lane_plan
 ```
 
 ## 辺の一覧（type別）
@@ -665,7 +669,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `feature:F9` | `gate:regression-gate` | 用途(b)「VD検証の背景交通」で回帰ゲートに載せるには、先に SUMO の乱数を潰す必要がある。 ベースライン凍結は自己決定論性が前提だが SUMO は既定で乱数を使うため、シード固定 （.sumocfg の <seed> と randomTrips/duarouter の需要生成側の両方）と3回連続実行の 一致確認を済ませるまでバッチをゲートへ配線してはいけない。着手時点で判明している 設計上の拘束として記録する。用途(a)「手動運転の周囲交通」にはこの拘束は掛からない （設定で分ける）ので、F9 全体がゲートと衝突するわけではない |
 
-### depends-on (27)
+### depends-on (30)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -696,6 +700,9 @@ flowchart LR
 | `proposal:P18` | `feature:F7` | 被験者応答テレメトリの反応時間計測は切替イベント（manual/auto_transition エッジ）が基準点 |
 | `vd-component:overtake-maneuver` | `vd-component:lane-change-initiation` | 追い越しは車線変更の「動機」を1つ足す層であり、ホップ機構 （ArmLaneChangeHop / ArmResumeMerge / ScanAdjacentLaneGap / EvaluateGapAcceptance / RequiredLaneChangeDistance / ShouldSignalLaneChangeHop）を丸ごと借りている。 ただし**enable フラグは独立**（overtake_enabled と lane_change_initiation_enabled）。 同居させると「経路追従の車線変更だけ欲しい」利用者が追い越しまで有効化してしまうため。 安全弁が ShouldAttemptLaneChangeHop / ShouldSignalLaneChangeHop を呼ぶときだけ cfg.enabled=true に上書きしたコピーを渡す（両関数が enabled を内部で見るため）。 |
 | `req-vd-ad:REQ-AD-024` | `req-vd-ad:REQ-AD-017` | 経路ガードは RouteLanePlan が出す target_lanes / dist_to_connection にそのまま依存する。 **現在バンドの target_lanes には下流の要求が既に畳み込まれている**（BuildRouteLanePlan が 最終ウェイポイントから後ろ向きに伝播させるため）ので、追い越しガードは次のバンドを 先読みする必要が無い。REQ-AD-017 段 a/b が成立していなければこのガードは成立しない。 |
+| `vd-component:intent-layer` | `vd-component:lane-change-initiation` | 投影の素材の依存。単に telemetry を読むだけではなく、**この層のために lane_change.aborted_reason を新設させている**（設計 §3-4）: armed の true→false は完了でも 中止でも起きるため、その1フィールドが COMPLETING と ABORTING を分ける唯一の情報になる。 「生産者のいない語彙値を残さない」という規律から、ABORTING を語彙に入れる条件が このフィールドの同時実装だった。横位置の収束判定（|lane_offset|）も同じ層の観測に依存する。 |
+| `vd-component:intent-layer` | `vd-component:overtake-maneuver` | overtake.phase の6値を IntentPhase へ畳み、blocked_reason の1語（特に "gap"）を blockers[] へ分解する。**追い越しが立っている間 LANE_CHANGE 行は出さない**（設計 §3-1-1）: 追い越しは車線変更のホップ機構を丸ごと借りているので、両方出すと同じ横移動が2行に見える。 上位意図が下位を抑制するというこの関係は、overtake-maneuver -> depends-on -> lane-change-initiation の実装依存が投影の側に現れたものである。 |
+| `vd-component:intent-layer` | `vd-component:route-lane-plan` | LANE_CHANGE / TURN の動機（source="route"）と POSSIBLE の判定が route_lane.valid / on_target_lane に乗る。取り消し理由の rerouted も同層由来。 **診断のみで是正しない**という route-lane-plan の性格がそのまま投影に現れ、 「経路帯から外れているのに移る先が無い」場面が blocker no_target_lane になる。 |
 
 ### merged-into (3)
 
