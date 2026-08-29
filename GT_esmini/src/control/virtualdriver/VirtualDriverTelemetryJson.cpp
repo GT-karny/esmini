@@ -268,6 +268,19 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"diagnostic\":\"" << t.route_lane.diagnostic << "\""
        << ",\"reason\":\"" << t.route_lane.reason << "\"}";
 
+    // vd_intent_layer.md section 3-3: the brake lamp as actually driven (debounced), which is
+    // the only externally visible announcement a stop or a slowdown has.
+    os << ",\"brake_light_on\":" << b(t.brake_light_on);
+
+    // vd_intent_layer.md section 7: the OBSERVATION-only junction lookahead. Same shape as
+    // junction_turn, different contract -- it walks past ordinary road boundaries and runs on
+    // every frame, but its distances carry no legal meaning and it never reaches an indicator.
+    // All defaults (0 / -1 / false) when intent_turn_lookahead_m is 0.0, which is the default:
+    // an empty block means "the scan was off", NOT "no turn ahead".
+    os << ",\"junction_turn_observed\":{\"dir\":" << t.junction_turn_observed.dir
+       << ",\"dist_to_entry_m\":" << t.junction_turn_observed.dist_to_entry_m
+       << ",\"on_connector\":" << b(t.junction_turn_observed.on_connector) << "}";
+
     // vd_intent_layer.md section 8-2's blocker row. Shared by lane_change.blockers and
     // overtake.blockers so the two arrays are the same shape -- a consumer writes one reader.
     //
@@ -338,6 +351,55 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"blockers\":";
     write_blockers(t.overtake.blockers);
     os << "}";
+
+    // vd_intent_layer.md section 4-1. TWO arrays, and the split is the verdict boundary
+    // (section 4-2): `intents` is the external form -- every row reached ANNOUNCED, so it
+    // corresponds to something an outside observer could have seen, and matchers may read it.
+    // `intent_reasons` is the internal judgement and matchers must NOT. Rows join on `id`.
+    //
+    // The name deliberately avoids "debug" even though the catalog marks it exposure=debug: for
+    // an HMI this is the primary content -- telling a person why the car is braking is not
+    // debugging. The name says what the thing is; the trust policy lives in the catalog and the
+    // lint.
+    os << ",\"intents\":[";
+    for (size_t i = 0; i < t.intents.size(); ++i)
+    {
+        const auto& intent = t.intents[i];
+        if (i) os << ",";
+        os << "{\"id\":" << intent.id
+           << ",\"kind\":\"" << IntentKindName(intent.kind) << "\""
+           << ",\"phase\":\"" << IntentPhaseName(intent.phase) << "\""
+           << ",\"distance_m\":" << intent.distance_m
+           // -1 means "computed, and the answer does not exist" -- past a planned stop the
+           // arrival time depends on how long the stop lasts. NOT "unmeasured", and never 0.
+           << ",\"eta_s\":" << intent.eta_s
+           << ",\"subject_osi_id\":" << intent.subject_osi_id
+           // (0,0) is a legal world coordinate, so "no position" needs its own flag.
+           << ",\"has_position\":" << b(intent.has_position)
+           << ",\"x\":" << intent.x
+           << ",\"y\":" << intent.y << "}";
+    }
+    os << "],\"intent_reasons\":[";
+    for (size_t i = 0; i < t.intent_reasons.size(); ++i)
+    {
+        const auto& reason = t.intent_reasons[i];
+        if (i) os << ",";
+        os << "{\"id\":" << reason.id
+           << ",\"kind\":\"" << IntentKindName(reason.kind) << "\""
+           << ",\"phase\":\"" << IntentPhaseName(reason.phase) << "\""
+           // motive (why) / obstruction (why not) / cancellation (why given up on) are three
+           // different questions and are kept in three different fields -- mixed together they
+           // become a junk drawer nobody can query.
+           << ",\"source\":\"" << reason.source << "\""
+           << ",\"tier\":\"" << reason.tier << "\""
+           << ",\"binding_lon\":" << b(reason.binding_lon)
+           << ",\"binding_lat\":" << b(reason.binding_lat)
+           << ",\"committed\":" << b(reason.committed)
+           << ",\"blockers\":";
+        write_blockers(reason.blockers);
+        os << ",\"cancel_reason\":\"" << reason.cancel_reason << "\"}";
+    }
+    os << "]";
 
     os << "}";
 

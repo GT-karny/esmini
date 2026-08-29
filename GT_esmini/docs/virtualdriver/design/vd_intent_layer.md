@@ -859,6 +859,32 @@ HMI が「対向直進車のため右折待ちです」と表示したい場合�
 手動実行のバッチなので、**明示的に走らせる手順を実装 PR の説明に書くこと**。
 常設ゲートが自分の変更を通過しないことに気づかないのが、この種の変更の典型的な落とし方である。
 
+#### 実行手順（実装 PR はこれをそのまま回す）
+
+```powershell
+$py = "DriverScript/.venv/Scripts/python.exe"
+& $py GT_esmini/scripts/verification/gt_sim_test.py batch `
+      resources/xosc/verification/route_lane_batch.yaml --out test_results/intent_route_lane
+& $py GT_esmini/scripts/verification/gt_sim_test.py batch `
+      resources/xosc/verification/overtake_batch.yaml   --out test_results/intent_overtake
+```
+
+**この2本には committed baseline が無い**（`GT_esmini/test/regression_baseline/` にあるのは
+car_following / aeb_safety / manualdrive_adas / anticipation / handoff / stop_line_pairing の6本）。
+したがって `check_regression_baseline.py` による per-scenario 照合は使えず、
+判定は各シナリオの `*.expectations.yaml` の verdict そのものになる。
+
+**それで足りる理由**: これらの expectations は変更前に**実測して置かれた値**である
+（`route_lane_batch.yaml` の較正状態の段落、`max_deviations: 0` / `min_lead_s` /
+`expect_blocked_reason: route_budget` 等）。全シナリオが PASS のままなら、
+**expectations が測っている軸については**挙動が動いていない。
+
+**それで足りない範囲を先に書いておく**: expectations が測っていない量
+（テレメトリの他フィールド、フレーム単位の軌跡）は、この手順では押さえられない。
+そこまで要るなら変更前のコミットでビルドして telemetry.jsonl を取り、差分を取る必要がある。
+本層の変更は制御へ戻る経路を持たない設計なので前者で足りると判断したが、
+**「ゲート緑」と書くときはどちらを回したのかを明示すること。**
+
 ---
 
 ## 10. config キー（確定。実装者はこの名前を使うこと）

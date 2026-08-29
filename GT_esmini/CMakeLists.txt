@@ -121,6 +121,7 @@ set(GT_CONTROL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/ResumeMergeProfile.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AutoIndicatorPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/VdIntent.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/VdIntentProjection.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/VirtualDriverTelemetryJson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/AdasFunctionReport.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/control/virtualdriver/RouteLanePlan.cpp

@@ -239,6 +239,12 @@ private:
     // the OvertakeManeuver.hpp free functions are pure and hold no state of their own.
     OvertakeConfig ot_cfg_;
     OvertakePhase  ot_phase_ = OvertakePhase::IDLE;
+
+    // docs/virtualdriver/design/vd_intent_layer.md. Everything the intent projection remembers
+    // between frames: stable ids and the minimum-dwell timers. Nothing else in the controller
+    // reads it -- the projection is a read-only view of the finished telemetry and has no path
+    // back into control, which is why it is safe to have ON by default.
+    VdIntentState vd_intent_state_;
     // The lead vehicle this pass targets, latched at IDLE->SIGNAL_OUT and held through PASS's
     // HasClearedLead check (design doc section 5-1: re-resolving "nearest same-lane lead" every
     // frame would swap targets the instant the lead is passed).

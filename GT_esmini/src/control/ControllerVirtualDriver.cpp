@@ -2189,6 +2189,35 @@ void ControllerVirtualDriver::Step(double timeStep)
         maneuver_dir = DetectJunctionTurn(dstate.speed, timeStep, junction_turn_result);
     }
     ictx.maneuver_dir = maneuver_dir;
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 7. OBSERVATION-only scan, run
+    // OUTSIDE the `maneuver_dir == 0` gate above and AFTER ictx.maneuver_dir has already been
+    // fixed, so there is no way for it to reach the indicator even by accident.
+    //
+    // Two things it fixes, neither of which the gated scan can:
+    //   * range -- RouteLookaheadNextJunctionTurn walks past ordinary road boundaries, so a turn
+    //     several roads ahead is visible (the gated one stops at the first boundary; see
+    //     JunctionTurn.hpp);
+    //   * coverage -- the gated scan does not run at all on frames where a lane change owns the
+    //     indicator, so junction_turn goes blank mid-lane-change (design section 2-4).
+    //
+    // Default OFF (intent_turn_lookahead_m == 0.0): the scan costs ~150 MoveAlongS calls per
+    // frame at 300 m, unlike the projection itself which is free.
+    JunctionTurnSnapshot junction_turn_observed;
+    if (vd_config_.intent_turn_lookahead_m > 0.0 && object_ != nullptr)
+    {
+        if (roadmanager::OpenDrive* odr_obs = roadmanager::Position::GetOpenDrive())
+        {
+            const JunctionTurnLookahead observed =
+                RouteLookaheadNextJunctionTurn(object_->pos_,
+                                               odr_obs,
+                                               vd_config_.intent_turn_lookahead_m,
+                                               std::max(0.1, vd_config_.intent_turn_scan_step_m));
+            junction_turn_observed.dir             = observed.dir;
+            junction_turn_observed.dist_to_entry_m = observed.dist_to_entry;
+            junction_turn_observed.on_connector    = observed.on_connector;
+        }
+    }
     ictx.sim_time     = sim_time_;
     ictx.manual_left  = manual_ind.left_on;
     ictx.manual_right = manual_ind.right_on;
@@ -2362,7 +2391,17 @@ void ControllerVirtualDriver::Step(double timeStep)
     // (docs/virtualdriver/design/junction_turn_signal.md section 3-4). Mirrors the
     // raw lookahead DetectJunctionTurn handed back above -- stays at its struct
     // defaults (0/-1.0/false) while a lane change owns the indicator this frame.
+    // vd_intent_layer.md section 3-3. Straight from the latch ApplyLights (section 10 above,
+    // which has already run this frame) drives the lamp with -- not re-derived from cmd.brake,
+    // which would lose the debounce and disagree with the light on exactly the frames the
+    // debounce is there for.
+    telemetry_.brake_light_on = brake_light_on_;
+
     telemetry_.junction_turn = junction_turn_result;
+    // vd_intent_layer.md section 7. Deliberately a SECOND block rather than a widening of the
+    // one above: that one is the legally-meaningful signal lookahead and REQ-AD-021 verifies
+    // against it, so its contract must not move. All defaults when the scan is off.
+    telemetry_.junction_turn_observed = junction_turn_observed;
 
     // feature:F7 resume-merge telemetry (design doc
     // resume_merge_trajectory_design.md section 8-6). Controller-owned merge
@@ -2478,6 +2517,23 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.overtake.blocked_reason = ot_diag_blocked_reason;
     telemetry_.overtake.blockers       = ot_diag_blockers;
     telemetry_.overtake.cleared_lead   = ot_diag_cleared_lead;
+
+    // 11f. The intent layer (docs/virtualdriver/design/vd_intent_layer.md).
+    //
+    // LAST on purpose (design section 2-4). It reads the FINISHED telemetry_ and nothing else --
+    // policy constraints, the mid/long profile, lane_change, overtake, junction_turn, the brake
+    // lamp -- and folds the four separate maneuver vocabularies above into one. Running it any
+    // earlier would mean projecting a half-filled frame.
+    //
+    // Read-only: nothing it produces reaches a pedal or a steering command, which is why it can
+    // default ON. The only part that costs anything is the junction observation scan (section 7),
+    // and that has its own key defaulting to OFF.
+    {
+        const VdIntentFrame intent_frame =
+            ProjectVdIntents(vd_intent_state_, telemetry_, timeStep, vd_config_.IntentConfig());
+        telemetry_.intents        = intent_frame.intents;
+        telemetry_.intent_reasons = intent_frame.reasons;
+    }
 
     // 12. Base controller step
     scenarioengine::Controller::Step(timeStep);

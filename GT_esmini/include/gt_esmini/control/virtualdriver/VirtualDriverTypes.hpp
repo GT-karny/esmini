@@ -381,6 +381,18 @@ struct VirtualDriverTelemetry
     double lane_offset = 0.0;  // lateral offset from lane center [m]
     double s           = 0.0;  // road s [m]
 
+    // docs/virtualdriver/design/vd_intent_layer.md section 3-3 (and its section 1-4
+    // 覆った想定3). The brake lamp as it is ACTUALLY being driven -- ApplyLights writes this
+    // from the same latch it hands to the light itself, including the 0.05 pedal threshold and
+    // the 0.35 s hold that stops the speed PID flickering it.
+    //
+    // The intent layer needs it because the only externally visible ANNOUNCEMENT of a stop, in a
+    // real car as much as here, is the brake lamp -- OSI brake_light_state is NORMAL/STRONG and
+    // does not distinguish stopping from slowing. Deriving it from driver.brake instead would be
+    // a SECOND definition of the same quantity that does not know about the debounce, so the lamp
+    // and the report would disagree on exactly the frames the debounce exists for.
+    bool brake_light_on        = false;
+
     // Override status (per domain).
     bool override_lateral      = false;
     bool override_longitudinal = false;
@@ -556,11 +568,40 @@ struct VirtualDriverTelemetry
     TrafficPolicySnapshot  policy;    // Phase 3+
     IndicatorSnapshot      indicator;
     JunctionTurnSnapshot   junction_turn; // req-vd-ad:REQ-AD-021: JunctionTurn.hpp RouteLookaheadJunctionTurn snapshot
+    // docs/virtualdriver/design/vd_intent_layer.md section 7. Same struct, DIFFERENT contract:
+    // this one comes from RouteLookaheadNextJunctionTurn, which walks past ordinary road
+    // boundaries, and it is evaluated UNCONDITIONALLY -- not only on the frames where no lane
+    // change owns the indicator, which is the gap that makes junction_turn above go blank
+    // mid-lane-change.
+    //
+    // Its distances have NO legal meaning (the statutory 30 m lives in junction_turn), and it
+    // never reaches an indicator. All defaults while intent_turn_lookahead_m is 0.0, which is
+    // the default -- so this block being empty means "the scan was off", not "no turn ahead".
+    JunctionTurnSnapshot   junction_turn_observed;
     FrontBumperSnapshot    front_bumper;  // F5: leading-edge road localization
     ResumeMergeSnapshot    resume_merge;  // feature:F7 resume-merge state machine
     RouteLanePlanSnapshot  route_lane;    // RouteLanePlan.hpp: route-lane conformance diagnostic
     LaneChangeInitiationSnapshot lane_change;  // LaneChangeInitiation.hpp: vd-func:FUNC-055 state
     OvertakeSnapshot       overtake;      // OvertakeManeuver.hpp: vd-func:FUNC-056 state
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 4-1. The four maneuver vocabularies
+    // above, projected onto ONE. Filled last, from everything above it, by ProjectVdIntents --
+    // which is why these two are at the bottom of the struct and why nothing else reads them.
+    //
+    // TWO ARRAYS, and the split IS the verdict boundary (section 4-2). `intents` is the external
+    // form: only intents that reached ANNOUNCED are in it, so every row corresponds to something
+    // an outside observer could in principle have seen, and a matcher may trust it.
+    // `intent_reasons` is the internal judgement -- POSSIBLE and PLANNED included, blockers
+    // included -- and matchers must NOT read it (signal:vd_intent_reasons, exposure debug).
+    //
+    // The prefix trick the rest of the KV telemetry uses (gt. vs gt.dbg.) has nothing to hang on
+    // in structured rows, so the array is physically split instead; the check is a single grep
+    // for "does a matcher mention intent_reasons".
+    //
+    // The two are one dataset seen from two sides: rows join on `id`, which is stable across
+    // frames for as long as the intent lives.
+    std::vector<VdIntent>       intents;
+    std::vector<VdIntentReason> intent_reasons;
 };
 
 }  // namespace gt_esmini
