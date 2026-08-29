@@ -139,7 +139,44 @@ else if (sim_time_ >= brake_light_hold_until_) { brake_light_on_ = false; }
 すでに `""` を「該当なし」に使っているのと同じ流儀であり、消費側から見て
 blocker の要素の形が常に同じになる（キーの有無で分岐しなくてよい）。
 
-#### 覆った想定5: 呼び出し位置の節番号（§2-4）
+#### 覆った想定5: 「減速中」に直接の素材が無い（§3-3）
+
+§3-3 は `STOP` / `SLOW` / `YIELD` の EXECUTING を「減速中」と書いている。
+だが「減速中」は状態であって量ではなく、**どの意図が減速させているのか**は
+テレメトリのどこにも無い。§1-2 (a) が「欠けているもの」の筆頭に挙げたのが、まさにこれである。
+
+**採る形**: §5 の `binding_constraint_index` をそのまま EXECUTING の判定に使う。
+
+| 出所 | EXECUTING の条件 |
+| :--- | :--- |
+| `policy.constraints[i]` 由来 | `brake_light_on` かつ `binding_constraint_index == i` |
+| `midlong.constraints[]` 由来（curve / speed_limit / junction） | `brake_light_on` かつ `binding_constraint_index < 0`（政策制約は誰も効いていない＝道路側の天井が支配）かつ**最も近い** midlong 制約であること |
+
+§5 は「主語」を取り戻すために作った量なので、それを「今この減速を決めているのは誰か」の
+判定へそのまま使うのが筋である。別に「減速中」の定義をもう1つ作ると、§6-4 で禁じた
+「同じ量の2つ目の定義」になる。
+
+道路天井由来の `SLOW` に `binding_lon` が立たないのは仕様である（§5-2 の
+`binding_constraint_index` は政策制約の索引で、`-1` は「政策制約は誰も効いていない」を意味する）。
+EXECUTING の判定にだけ上の代替を使い、**`binding_lon` は嘘をつかない**。
+
+#### 覆った想定6: `no_target_lane` に生産者が無い（§8-4）
+
+§8-4 の `no_target_lane` は「`route_lane.diagnostic` / `reason` から」とあるが、
+現行の投影規則（§3-3 の LANE_CHANGE POSSIBLE ＝ `n_remaining > 0`）では**この blocker が
+立つ場面に LANE_CHANGE 意図が存在しない**。`target_lanes` が空なら `ComputeLaneHopPlan` は
+無効を返し、`n_remaining` は 0 になるからである。生産者のいない語彙値が1つ残る。
+
+**採る形**: LANE_CHANGE の POSSIBLE を `route_lane.valid && !on_target_lane` に広げる。
+`target_lanes` が空でない限り `!on_target_lane ⟺ n_remaining > 0` なので、
+これは**「経路帯から外れているのに移る先が無い」場面だけを増やす真部分集合の拡張**である。
+その場面で blocker `no_target_lane` が立つ。
+
+広げないと、この状況はどちらの向きにも沈黙する ── ホップが計画されない → ギャップが評価されない
+→ `blockers[]` は空 → 「何も邪魔していない」と読める。§3-2 の POSSIBLE の定義
+（「要件は見えているが、まだやると決めていない」）にも素直に合う。
+
+#### 覆った想定7: 呼び出し位置の節番号（§2-4）
 
 §2-4 は「節11a-11d の後、節11e として置く」と書いていたが、現行の
 `ControllerVirtualDriver::Step` は 11a〜11e まで使用済みである（11e = `telemetry_.overtake`、
@@ -293,7 +330,7 @@ HMI が言うべき文が違う（「戻ります」と「取りやめました�
 
 | 機能 | POSSIBLE | PLANNED | ANNOUNCED | EXECUTING | COMPLETING |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `LANE_CHANGE` | `n_remaining > 0` | `dist_to_connection <= required_m` かつ未 arm | `signal_active` | `armed` | arm 解除済み・`aborted_reason` が空・`\|lane_offset\|` が未収束（§1-4 覆った想定2） |
+| `LANE_CHANGE` | `route_lane.valid` かつ `!on_target_lane`（§1-4 覆った想定6。`target_lanes` が空でない限り `n_remaining > 0` と同値） | `dist_to_connection <= required_m` かつ未 arm | `signal_active` | `armed` | arm 解除済み・`aborted_reason` が空・`\|lane_offset\|` が未収束（§1-4 覆った想定2） |
 | `OVERTAKE` | `considered` | — | `phase = signal_out` | `phase = moving_out \| pass` | `phase = signal_back \| moving_back` |
 | `STOP`（信号） | 制約出現かつ `committed = false` | `committed = true` かつ未減速 | ブレーキランプ点灯 | 減速中 | `phase = green` で消滅 |
 | `STOP`（標識） | 制約出現 | — | `gt.stop_yield.phase = approach` | `= hold` | `= creep` → `cleared` |
@@ -701,6 +738,13 @@ HMI が「対向直進車のため右折待ちです」と表示したい場合�
 1. `accepted` の値が現状と**ビット単位で同一**であること。
 2. 既存の単一文字列 `reason` は**互換のため残し**、`blockers[]` の**先頭要素の `code` と常に一致する**
    こと。すなわち front-to-back の**評価順を変えない**（打ち切りをやめるだけ）。
+
+   > **`reason` の値集合は1つ増える。** `""` / `lead_gap` / `rear_gap` / `rear_ttc` に
+   > **`side_overlap`** が加わる（§8-3）。並走している場面で `lead_gap` / `rear_gap` の代わりに
+   > 出る。上の「先頭要素の `code` と常に一致する」を守る以上、これは避けられない。
+   > `accepted` は変わらない（重なっている車体は、ギャップ 0 と同じ比較で落ちる）。
+   > `gap_reason` を読む matcher は現時点で1つも無い（`overtake.blocked_reason` の方は
+   > `expect_blocked_reason` が読んでいるが、そちらは**変更しない**）。
 3. **既存の `test_LaneChangeInitiation.cpp` を1行も書き換えずに通ること。**
 
 3 が最も効く受入条件である。書き換えが要るなら、それは挙動が変わった証拠であって、

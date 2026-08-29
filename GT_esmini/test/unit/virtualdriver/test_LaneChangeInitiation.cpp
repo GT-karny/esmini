@@ -674,3 +674,249 @@ TEST(LaneChangeInitiationState, ReArmingClearsAStaleAbortedReason)
     DisarmLaneChangeHop(state);  // ...which then completes normally
     EXPECT_EQ(state.aborted_reason, "");
 }
+
+// ───────────────────── blockers[]: every failing condition (vd_intent_layer.md §8-2) ─────────
+//
+// §9-2 item 6 calls the two-element case "the ONLY direct evidence that the evaluation no longer
+// stops at the first failure". Everything else about this change is invisible: accepted is
+// unchanged, reason is unchanged, and the vehicle moves identically. If the short-circuit came
+// back tomorrow, this file is the only thing that would notice.
+
+TEST(GapAcceptanceBlockers, AnAcceptedGapHasNoBlockers)
+{
+    const LaneChangeGapSample gap;  // nothing on either side
+    const auto result = EvaluateGapAcceptance(gap, 15.0, GapCfg());
+    EXPECT_TRUE(result.accepted);
+    EXPECT_TRUE(result.blockers.empty());
+    EXPECT_EQ(result.reason, "");
+}
+
+// THE test. Front and rear both short at once: the old form reported "lead_gap" and the fact that
+// the rear was also blocked did not exist anywhere in the output.
+TEST(GapAcceptanceBlockers, FrontAndRearBlockedSimultaneouslyGiveTwoElements)
+{
+    const LaneChangeInitiationConfig cfg = GapCfg();  // gap_min_m=8, headway_lead=1.2, rear=1.0
+    LaneChangeGapSample              gap;
+    const double                     v_ego = 20.0;  // required_lead = max(8, 24) = 24
+
+    gap.has_lead    = true;
+    gap.gap_lead_m  = 9.8;   // short of 24
+    gap.lead_osi_id = 11;
+    gap.has_rear    = true;
+    gap.v_rear_mps  = 15.0;  // slower than ego -> the TTC condition does not apply
+    gap.gap_rear_m  = 6.2;   // short of max(8, 15*1.0) = 15
+    gap.rear_osi_id = 12;
+
+    const auto result = EvaluateGapAcceptance(gap, v_ego, cfg);
+
+    EXPECT_FALSE(result.accepted);
+    ASSERT_EQ(result.blockers.size(), 2u);
+
+    // Front first: the evaluation ORDER is unchanged, which is what keeps reason == blockers[0].
+    EXPECT_EQ(result.blockers[0].code, "lead_gap");
+    EXPECT_EQ(result.blockers[0].where, IntentWhere::FRONT);
+    EXPECT_EQ(result.blockers[0].subject_osi_id, 11);
+    EXPECT_EQ(result.blockers[0].quantity, "gap_m");
+    EXPECT_DOUBLE_EQ(result.blockers[0].measured, 9.8);
+    EXPECT_DOUBLE_EQ(result.blockers[0].required, 24.0);
+
+    EXPECT_EQ(result.blockers[1].code, "rear_gap");
+    EXPECT_EQ(result.blockers[1].where, IntentWhere::REAR);
+    EXPECT_EQ(result.blockers[1].subject_osi_id, 12);
+    EXPECT_DOUBLE_EQ(result.blockers[1].measured, 6.2);
+    EXPECT_DOUBLE_EQ(result.blockers[1].required, 15.0);
+
+    EXPECT_EQ(result.reason, "lead_gap");  // §8-7 (2)
+}
+
+// The rear gap AND the rear TTC can both fail, and used to be mutually exclusive purely because
+// the gap check returned first. "Too close" and "too close and closing hard" are different waits.
+TEST(GapAcceptanceBlockers, RearGapAndRearTtcCanBothFire)
+{
+    const LaneChangeInitiationConfig cfg = GapCfg();  // gap_ttc_min_s = 3.0
+    LaneChangeGapSample              gap;
+    gap.has_rear    = true;
+    gap.v_rear_mps  = 20.0;
+    gap.gap_rear_m  = 5.0;  // required_rear = max(8, 20) = 20 -> fails; ttc = 5/10 = 0.5 -> fails
+    gap.rear_osi_id = 12;
+
+    const auto result = EvaluateGapAcceptance(gap, /*v_ego=*/10.0, cfg);
+
+    ASSERT_EQ(result.blockers.size(), 2u);
+    EXPECT_EQ(result.blockers[0].code, "rear_gap");
+    EXPECT_EQ(result.blockers[1].code, "rear_ttc");
+    EXPECT_EQ(result.blockers[1].quantity, "ttc_s");
+    EXPECT_DOUBLE_EQ(result.blockers[1].measured, 0.5);
+    EXPECT_DOUBLE_EQ(result.blockers[1].required, 3.0);
+    EXPECT_EQ(result.reason, "rear_gap");
+}
+
+TEST(GapAcceptanceBlockers, AllThreeConditionsCanFailAtOnce)
+{
+    const LaneChangeInitiationConfig cfg = GapCfg();
+    LaneChangeGapSample              gap;
+    gap.has_lead   = true;
+    gap.gap_lead_m = 1.0;
+    gap.has_rear   = true;
+    gap.v_rear_mps = 20.0;
+    gap.gap_rear_m = 5.0;
+
+    const auto result = EvaluateGapAcceptance(gap, /*v_ego=*/10.0, cfg);
+
+    ASSERT_EQ(result.blockers.size(), 3u);
+    EXPECT_EQ(result.blockers[0].code, "lead_gap");
+    EXPECT_EQ(result.blockers[1].code, "rear_gap");
+    EXPECT_EQ(result.blockers[2].code, "rear_ttc");
+}
+
+// §9-2 item 8. A reversed pair (required_lead compared against gap_rear_m, say) produces numbers
+// that both look plausible, so it survives inspection -- this is the check that does not.
+TEST(GapAcceptanceBlockers, MeasuredIsAlwaysBelowRequired)
+{
+    const LaneChangeInitiationConfig cfg = GapCfg();
+    LaneChangeGapSample              gap;
+    gap.has_lead       = true;
+    gap.gap_lead_m     = 0.0;
+    gap.lead_overlap_m = -3.5;  // alongside
+    gap.has_rear       = true;
+    gap.v_rear_mps     = 25.0;
+    gap.gap_rear_m     = 4.0;
+
+    const auto result = EvaluateGapAcceptance(gap, /*v_ego=*/12.0, cfg);
+
+    ASSERT_FALSE(result.blockers.empty());
+    for (const auto& blocker : result.blockers)
+    {
+        if (blocker.quantity.empty()) continue;  // no quantity -> nothing to compare
+        EXPECT_LT(blocker.measured, blocker.required)
+            << "blocker " << blocker.code << " reports measured >= required";
+    }
+}
+
+// ───────────────────── side_overlap (§8-3) ─────────────────────
+//
+// A car exactly abreast is filed by the one-dimensional gap model as either a very close leader
+// or a very close follower. The overlap fields are what make it visible as neither.
+
+TEST(GapAcceptanceBlockers, ANegativeLeadOverlapIsLabelledSideNotFront)
+{
+    const LaneChangeInitiationConfig cfg = GapCfg();
+    LaneChangeGapSample              gap;
+    gap.has_lead       = true;
+    gap.gap_lead_m     = 0.0;   // floored
+    gap.lead_overlap_m = -2.4;  // the bodies overlap by 2.4 m
+    gap.lead_osi_id    = 11;
+
+    const auto result = EvaluateGapAcceptance(gap, /*v_ego=*/10.0, cfg);
+
+    ASSERT_EQ(result.blockers.size(), 1u);
+    EXPECT_EQ(result.blockers[0].where, IntentWhere::SIDE);
+    EXPECT_EQ(result.blockers[0].code, "side_overlap");
+    EXPECT_DOUBLE_EQ(result.blockers[0].measured, -2.4);  // the negative gap, as-is
+    EXPECT_EQ(result.blockers[0].subject_osi_id, 11);
+    EXPECT_EQ(result.reason, "side_overlap");
+    EXPECT_FALSE(result.accepted);
+}
+
+TEST(GapAcceptanceBlockers, ANegativeRearOverlapIsLabelledSideNotRear)
+{
+    const LaneChangeInitiationConfig cfg = GapCfg();
+    LaneChangeGapSample              gap;
+    gap.has_rear       = true;
+    gap.gap_rear_m     = 0.0;
+    gap.rear_overlap_m = -1.1;
+    gap.v_rear_mps     = 5.0;  // slower than ego -> TTC does not apply, so this stays one row
+
+    const auto result = EvaluateGapAcceptance(gap, /*v_ego=*/10.0, cfg);
+
+    ASSERT_EQ(result.blockers.size(), 1u);
+    EXPECT_EQ(result.blockers[0].where, IntentWhere::SIDE);
+    EXPECT_EQ(result.blockers[0].code, "side_overlap");
+    EXPECT_DOUBLE_EQ(result.blockers[0].measured, -1.1);
+}
+
+// The negative control for the pair above: the SAME failing gaps with no overlap must stay
+// front/rear. Without it, an implementation that labelled everything side would pass.
+TEST(GapAcceptanceBlockers, AZeroOverlapKeepsTheFrontAndRearLabels)
+{
+    const LaneChangeInitiationConfig cfg = GapCfg();
+    LaneChangeGapSample              gap;
+    gap.has_lead   = true;
+    gap.gap_lead_m = 3.0;  // short, but not overlapping (lead_overlap_m stays 0.0)
+    gap.has_rear   = true;
+    gap.gap_rear_m = 2.0;
+    gap.v_rear_mps = 5.0;
+
+    const auto result = EvaluateGapAcceptance(gap, /*v_ego=*/10.0, cfg);
+
+    ASSERT_EQ(result.blockers.size(), 2u);
+    EXPECT_EQ(result.blockers[0].where, IntentWhere::FRONT);
+    EXPECT_EQ(result.blockers[0].code, "lead_gap");
+    EXPECT_EQ(result.blockers[1].where, IntentWhere::REAR);
+    EXPECT_EQ(result.blockers[1].code, "rear_gap");
+}
+
+// §8-7 (1)/(2) as an executable statement, over a grid rather than a handful of cases: for every
+// sample, accepted must equal "no condition failed" and reason must equal blockers[0].code. The
+// expected values are recomputed the OLD, short-circuiting way, so this pins the property the
+// rewrite had to preserve independently of the rewrite itself.
+TEST(GapAcceptanceBlockers, AcceptedAndReasonAgreeWithTheBlockerListEverywhere)
+{
+    const LaneChangeInitiationConfig cfg = GapCfg();
+
+    for (double v_ego : {0.0, 5.0, 12.0, 25.0})
+    {
+        for (double gap_lead : {0.0, 3.0, 9.0, 25.0, 60.0})
+        {
+            for (double gap_rear : {0.0, 3.0, 9.0, 25.0, 60.0})
+            {
+                for (double v_rear : {0.0, 5.0, 12.0, 30.0})
+                {
+                    for (int mask = 0; mask < 4; ++mask)
+                    {
+                        LaneChangeGapSample gap;
+                        gap.has_lead   = (mask & 1) != 0;
+                        gap.has_rear   = (mask & 2) != 0;
+                        gap.gap_lead_m = gap_lead;
+                        gap.gap_rear_m = gap_rear;
+                        gap.v_rear_mps = v_rear;
+
+                        const auto result = EvaluateGapAcceptance(gap, v_ego, cfg);
+
+                        bool        expect_accepted = true;
+                        std::string expect_reason;
+                        if (gap.has_lead && gap.gap_lead_m < std::max(cfg.gap_min_m, v_ego * cfg.gap_headway_lead_s))
+                        {
+                            expect_accepted = false;
+                            expect_reason   = "lead_gap";
+                        }
+                        else if (gap.has_rear &&
+                                 gap.gap_rear_m < std::max(cfg.gap_min_m, gap.v_rear_mps * cfg.gap_headway_rear_s))
+                        {
+                            expect_accepted = false;
+                            expect_reason   = "rear_gap";
+                        }
+                        else if (gap.has_rear && gap.v_rear_mps > v_ego &&
+                                 gap.gap_rear_m / (gap.v_rear_mps - v_ego) < cfg.gap_ttc_min_s)
+                        {
+                            expect_accepted = false;
+                            expect_reason   = "rear_ttc";
+                        }
+
+                        EXPECT_EQ(result.accepted, expect_accepted)
+                            << "v_ego=" << v_ego << " lead=" << gap_lead << " rear=" << gap_rear
+                            << " v_rear=" << v_rear << " mask=" << mask;
+                        EXPECT_EQ(result.reason, expect_reason)
+                            << "v_ego=" << v_ego << " lead=" << gap_lead << " rear=" << gap_rear
+                            << " v_rear=" << v_rear << " mask=" << mask;
+                        EXPECT_EQ(result.accepted, result.blockers.empty());
+                        if (!result.blockers.empty())
+                        {
+                            EXPECT_EQ(result.reason, result.blockers.front().code);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

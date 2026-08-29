@@ -268,6 +268,29 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"diagnostic\":\"" << t.route_lane.diagnostic << "\""
        << ",\"reason\":\"" << t.route_lane.reason << "\"}";
 
+    // vd_intent_layer.md section 8-2's blocker row. Shared by lane_change.blockers and
+    // overtake.blockers so the two arrays are the same shape -- a consumer writes one reader.
+    //
+    // where is "" when no position applies (the blocker is a property of the maneuver, not of
+    // another road user), and quantity is "" when there is no measurable amount, in which case
+    // measured/required are meaningless and must not be read as 0. Both are the same "" ==
+    // not-applicable convention gap_reason and route_lane.diagnostic already use.
+    auto write_blockers = [&os](const std::vector<IntentBlocker>& blockers) {
+        os << "[";
+        for (size_t i = 0; i < blockers.size(); ++i)
+        {
+            const auto& blocker = blockers[i];
+            if (i) os << ",";
+            os << "{\"where\":\"" << IntentWhereName(blocker.where) << "\""
+               << ",\"subject_osi_id\":" << blocker.subject_osi_id
+               << ",\"code\":\"" << blocker.code << "\""
+               << ",\"quantity\":\"" << blocker.quantity << "\""
+               << ",\"measured\":" << blocker.measured
+               << ",\"required\":" << blocker.required << "}";
+        }
+        os << "]";
+    };
+
     // vd-func:FUNC-055 AD lane-change initiation (LaneChangeInitiation.hpp). Additive top-level
     // block; consumers that predate it simply ignore it. gap_reason is the field to read first
     // for "why hasn't it armed yet" ("" == last evaluated gap was accepted, or nothing evaluated).
@@ -284,7 +307,13 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        // vd_intent_layer.md section 3-4: "" = the last hop COMPLETED, non-empty = it was
        // ABORTED. Read alongside `armed`: the pair (armed false, aborted_reason non-empty) is
        // the only signature an abandoned lane change leaves behind.
-       << ",\"aborted_reason\":\"" << t.lane_change.aborted_reason << "\"}";
+       << ",\"aborted_reason\":\"" << t.lane_change.aborted_reason << "\""
+       // vd_intent_layer.md section 8-2: EVERY failing gap condition. gap_reason above is
+       // blockers[0].code; this is the whole list, so "blocked in front" and "blocked in front
+       // AND behind" stop looking identical.
+       << ",\"blockers\":";
+    write_blockers(t.lane_change.blockers);
+    os << "}";
 
     // vd-func:FUNC-056 AD overtake maneuver (OvertakeManeuver.hpp). Additive top-level block;
     // consumers that predate it simply ignore it. `considered` is the field to read first --
@@ -303,7 +332,12 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"required_m\":" << t.overtake.required_m
        << ",\"route_budget_m\":" << t.overtake.route_budget_m
        << ",\"blocked_reason\":\"" << t.overtake.blocked_reason << "\""
-       << ",\"cleared_lead\":" << b(t.overtake.cleared_lead) << "}";
+       << ",\"cleared_lead\":" << b(t.overtake.cleared_lead)
+       // vd_intent_layer.md section 8-4: blocked_reason broken out per obstacle. Notably it
+       // splits the single "gap" token back into front / rear / alongside.
+       << ",\"blockers\":";
+    write_blockers(t.overtake.blockers);
+    os << "}";
 
     os << "}";
 

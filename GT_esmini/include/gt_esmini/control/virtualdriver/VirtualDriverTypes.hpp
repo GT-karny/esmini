@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gt_esmini/control/virtualdriver/VdIntent.hpp"
+
 #include <vector>
 #include <string>
 #include <utility>
@@ -296,6 +298,14 @@ struct LaneChangeInitiationSnapshot
     // Mirrors LaneChangeInitiationState::aborted_reason; see that field for why this one bit is
     // the only thing that separates a finished lane change from an abandoned one.
     std::string aborted_reason;
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 8-2. EVERY gap condition that failed
+    // on the most recently evaluated gap, not just the first. gap_reason above is
+    // blockers[0].code and stays for compatibility; this array is what distinguishes "blocked
+    // in front" from "blocked in front AND behind", which is the state a waiting driver most
+    // needs told apart. Empty when the gap was accepted, when none was evaluated this frame, or
+    // when the feature is off.
+    std::vector<IntentBlocker> blockers;
 };
 
 // vd-func:FUNC-056 AD overtake maneuver
@@ -324,6 +334,13 @@ struct OvertakeSnapshot
     // "no_passing_lane" / "suppressed".
     std::string blocked_reason;
     bool        cleared_lead    = false;   // HasClearedLead fired for the current pass (section 5-1)
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 8-4. blocked_reason above is a
+    // single coarse token -- notably it collapses the lead / follower / alongside cases of a
+    // same-direction gap refusal into one word, "gap". This array carries them separately, each
+    // with the vehicle it is about and the measured-vs-required pair. blocked_reason is
+    // unchanged and remains the field the overtake matchers read (expect_blocked_reason).
+    std::vector<IntentBlocker> blockers;
 };
 
 // req-vd-ad:REQ-AD-021 / vd-func:FUNC-061 junction-turn indicator pre-arm

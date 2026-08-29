@@ -34,6 +34,8 @@
 
 #include "CommonMini.hpp"
 
+#include "gt_esmini/control/virtualdriver/VdIntent.hpp"
+
 namespace scenarioengine
 {
 class Object;
@@ -153,18 +155,69 @@ struct LaneChangeGapSample
     bool   has_rear   = false;
     double gap_rear_m = 0.0;
     double v_rear_mps = 0.0;
+
+    // Which vehicles these are, in the OSI id space (control/common/OsiIdentity.hpp), so a
+    // rejection can name the car rather than just the direction (design vd_intent_layer.md
+    // section 8-1 (c): ScanAdjacentLaneGap already HAS the objects in hand and was throwing
+    // them away). -1 = no vehicle on that side. NOT the scenario entity index -- only the OSI
+    // id joins against a GroundTruth recording, which is what lets a consumer point at the
+    // actual vehicle on screen.
+    int    lead_osi_id = -1;
+    int    rear_osi_id = -1;
+
+    // How deeply the two bodies overlap LONGITUDINALLY, in metres, <= 0. 0.0 means no overlap.
+    //
+    // gap_lead_m / gap_rear_m are floored at 0 by ScanAdjacentLaneGap, so "alongside" is
+    // indistinguishable from "almost touching" in them -- and the gap model itself is
+    // one-dimensional (Position::Delta's ds sign files every vehicle as either ahead or
+    // behind), so a car exactly abreast is reported as a very close leader or a very close
+    // follower. These two fields carry the UNFLOORED value so that case stays visible (design
+    // vd_intent_layer.md section 8-3, and its section 1-4 覆った想定1 for why the floor is
+    // still there).
+    //
+    // Deliberately a SEPARATE field rather than removing the floor from gap_*_m: the acceptance
+    // conditions read only the floored values, so "the accepted verdict is bit-identical" holds
+    // by construction rather than by argument (section 8-7 (1)). The 0.0 default also means a
+    // hand-built sample cannot accidentally look like an overlap -- which a raw unfloored gap
+    // field WOULD do, since gap_lead_m = 5.0 beside a defaulted raw of 0.0 is self-contradictory.
+    double lead_overlap_m = 0.0;
+    double rear_overlap_m = 0.0;
 };
 
 // ScanAdjacentLaneGap's engine-dependent scan, factored out here as an ENGINE-INDEPENDENT pure
 // function of the sample + v_ego + config (design doc section 4's table, verbatim): tests exercise
 // this directly with synthetic samples, no loaded road network required (mirrors
-// LeadVehicleAware's lead_idm:: split). reason is one of "" (accepted) / "lead_gap" / "rear_gap" /
-// "rear_ttc" -- the FIRST condition that failed (design doc's three conditions are evaluated
-// front-to-back; a caller only needs to know why once).
+// LeadVehicleAware's lead_idm:: split).
 struct GapAcceptanceResult
 {
-    bool        accepted = true;
+    bool accepted = true;
+
+    // The FIRST condition that failed, kept for compatibility with everything that already
+    // reads it (telemetry lane_change.gap_reason, LaneChangeInitiationState::last_gap_reason).
+    // "" = accepted. Always equal to blockers.front().code when blockers is non-empty (design
+    // vd_intent_layer.md section 8-7 (2)) -- which is why the evaluation ORDER below must not
+    // change even though the short-circuit is gone.
+    //
+    // Value set: "" / "lead_gap" / "rear_gap" / "rear_ttc" / "side_overlap". The last is NEW:
+    // it replaces lead_gap/rear_gap on the frames where the two bodies actually overlap
+    // longitudinally, which the one-dimensional gap model used to report as a very small
+    // forward or rearward gap (section 8-3). It never changes `accepted` -- an overlapping
+    // body fails the same comparison a zero gap does.
     std::string reason;
+
+    // EVERY condition that failed, in front-to-back evaluation order (design section 8-2 (1)).
+    //
+    // WHY THIS IS A LIST. The old form stopped at the first failure and returned one string, so
+    // "the lane ahead is blocked AND someone is right behind me" collapsed to "lead_gap" -- and
+    // telling those two situations apart is precisely what a driver (or an HMI, or a verifier
+    // asking "how long is this wait going to last") most needs. Evaluating all three conditions
+    // instead of short-circuiting costs two extra comparisons.
+    //
+    // `accepted` is UNCHANGED by this: it is blockers.empty(), which is exactly the old "did we
+    // return early at least once". The control path reads only `accepted`
+    // (ControllerVirtualDriver.cpp), never the reason, so removing the short-circuit cannot
+    // move the vehicle.
+    std::vector<IntentBlocker> blockers;
 };
 GapAcceptanceResult EvaluateGapAcceptance(const LaneChangeGapSample&        gap,
                                           double                            v_ego,
