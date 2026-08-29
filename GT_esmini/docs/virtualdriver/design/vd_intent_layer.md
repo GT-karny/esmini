@@ -830,7 +830,7 @@ HMI が「対向直進車のため右折待ちです」と表示したい場合�
 | 負の対照 | 期待 | 既存資産 |
 | :--- | :--- | :--- |
 | `intent_enabled = false` | `intents[]` と `intent_reasons[]` の**両方**が空 | — |
-| 直進で交差点を通過 | `TURN` 意図が出ない | `junction_turn_signal.md` §4-3 の直進負例を流用 |
+| 直進で交差点を通過 | `TURN` 意図が出ない。**`on_connector` だけでは TURN にしない** — 直進の接続路は `on_connector=true` / `dir=0` で出る（2026-08-29 実機で捕捉。単体テストは「交差点の近くにすら居ない」しか見ておらず素通しした） | `junction_turn_signal.md` §4-3 の直進負例を流用 |
 | 青信号を通過 | `STOP` 意図が出ない | 既存の traffic light シナリオ |
 | 追い越しの実行中 | `LANE_CHANGE` 行が出ない（`OVERTAKE` のみ） | 既存の overtake シナリオ |
 | `intent_turn_lookahead_m = 0.0` | TURN の `POSSIBLE` が出ない（`ANNOUNCED` は従来どおり出る） | — |

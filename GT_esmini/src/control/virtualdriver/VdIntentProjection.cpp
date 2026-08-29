@@ -508,19 +508,27 @@ VdIntentFrame ProjectVdIntents(VdIntentState&                state,
         cand.kind   = IntentKind::TURN;
         cand.source = "route";
 
+        // on_connector alone is NOT a turn. A junction connector that carries the route
+        // STRAIGHT through reports on_connector=true with dir==0, and calling that a TURN would
+        // make the intent fire on every intersection the ego merely drives across -- which is
+        // exactly the negative control in design section 9-3 ("straight through a junction
+        // produces no TURN"). Caught on a real run, not by the unit test, because the unit test
+        // only covered "nowhere near a junction": a field that is always true looks identical to
+        // a field that is correct until something makes it say no.
         bool present = true;
-        if (telemetry.junction_turn.on_connector)
+        if (telemetry.junction_turn.on_connector && telemetry.junction_turn.dir != 0)
         {
             cand.phase       = IntentPhase::EXECUTING;
             cand.distance_m  = 0.0;
             cand.binding_lat = !lc.armed;
         }
-        else if (telemetry.junction_turn.dir != 0)
+        else if (!telemetry.junction_turn.on_connector && telemetry.junction_turn.dir != 0)
         {
             cand.phase      = IntentPhase::ANNOUNCED;
             cand.distance_m = telemetry.junction_turn.dist_to_entry_m;
         }
-        else if (cfg.turn_lookahead_m > 0.0 && telemetry.junction_turn_observed.dir != 0)
+        else if (cfg.turn_lookahead_m > 0.0 && telemetry.junction_turn_observed.dir != 0 &&
+                 !telemetry.junction_turn_observed.on_connector)
         {
             cand.phase      = IntentPhase::POSSIBLE;
             cand.distance_m = telemetry.junction_turn_observed.dist_to_entry_m;

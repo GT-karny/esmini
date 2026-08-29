@@ -735,6 +735,57 @@ TEST(VdIntentNegativeControls, DrivingStraightThroughProducesNoTurn)
     EXPECT_FALSE(HasKind(ProjectVdIntents(state, t, 0.05, Cfg()), IntentKind::TURN));
 }
 
+// The version of the control above that ACTUALLY BITES, and the reason it is here: the first one
+// only says "no turn when nowhere near a junction", which every implementation passes. Driving
+// STRAIGHT ACROSS a junction is the case that separates them -- the ego really is on a connector
+// (on_connector=true) and there really is no turn (dir==0).
+//
+// A real run caught this; the unit test above did not. An always-true field is indistinguishable
+// from a correct one until something makes it say no, and "nowhere near a junction" was never
+// going to be that something.
+TEST(VdIntentNegativeControls, BeingOnAStraightConnectorIsNotATurn)
+{
+    VdIntentState          state;
+    VirtualDriverTelemetry t     = Frame();
+    t.junction_turn.on_connector = true;   // physically inside the intersection...
+    t.junction_turn.dir          = 0;      // ...going straight across it
+
+    EXPECT_FALSE(HasKind(ProjectVdIntents(state, t, 0.05, Cfg()), IntentKind::TURN))
+        << "merely being on a junction connector was reported as a TURN";
+
+    // Positive control, same run: give the connector a direction and the TURN must appear. Without
+    // this pair the fix could be "never report TURN at all" and still look green.
+    VdIntentState state2;
+    t.junction_turn.dir = -1;
+    const VdIntentFrame   frame = ProjectVdIntents(state2, t, 0.05, Cfg());
+    const VdIntentReason* r     = FindReason(frame, IntentKind::TURN);
+    ASSERT_NE(r, nullptr) << "a real turn stopped being reported";
+    EXPECT_EQ(r->phase, IntentPhase::EXECUTING);
+}
+
+// Same trap on the observation-scan side: the long-range scan reports on_connector too, and a
+// straight crossing seen 300 m out is no more a turn than one being driven through now.
+TEST(VdIntentNegativeControls, AStraightCrossingSeenByTheObservationScanIsNotATurn)
+{
+    VdIntentConfig cfg   = Cfg();
+    cfg.turn_lookahead_m = 400.0;
+
+    VdIntentState          state;
+    VirtualDriverTelemetry t              = Frame();
+    t.junction_turn_observed.on_connector = true;
+    t.junction_turn_observed.dir          = 0;
+    EXPECT_FALSE(HasKind(ProjectVdIntents(state, t, 0.05, cfg), IntentKind::TURN));
+
+    VdIntentState state2;
+    t.junction_turn_observed.dir             = 1;
+    t.junction_turn_observed.on_connector    = false;
+    t.junction_turn_observed.dist_to_entry_m = 280.0;
+    const VdIntentFrame   frame = ProjectVdIntents(state2, t, 0.05, cfg);
+    const VdIntentReason* r     = FindReason(frame, IntentKind::TURN);
+    ASSERT_NE(r, nullptr);
+    EXPECT_EQ(r->phase, IntentPhase::POSSIBLE);
+}
+
 TEST(VdIntentNegativeControls, AGreenLightProducesNoStop)
 {
     VdIntentState          state;
