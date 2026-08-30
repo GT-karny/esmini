@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from GT_esmini.web.backend.models.scenario import (
     ScenarioDetail,
@@ -17,8 +18,82 @@ from GT_esmini.web.backend.models.scenario import (
 from GT_esmini.web.backend.config import SCENARIOS_DIR
 from GT_esmini.web.backend.services import scenario_service
 from GT_esmini.web.backend.services import road_geometry_service
+from GT_esmini.web.backend.services import road_service
+from GT_esmini.web.backend.services.route_planner_service import (
+    RoutePlanError,
+    plan_route,
+)
+from GT_esmini.web.backend.services.scenario_builder_service import (
+    ScenarioBuildError,
+    build_route_scenario,
+)
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
+
+
+class BuildFromRoutePoint(BaseModel):
+    x: float
+    y: float
+
+
+class BuildFromRouteRequest(BaseModel):
+    road_id: str
+    points: list[BuildFromRoutePoint] = Field(min_length=2)
+    ego_speed: float = 13.889
+    strategy: str = "shortest"
+    # VirtualDriver opt-ins. "lane_change_initiation" is what lets the vehicle
+    # actually move into the lane the route requires -- without it the run still
+    # works, it just records the deviation instead of correcting it.
+    policies: list[str] = Field(default_factory=lambda: ["lane_change_initiation"])
+    description: str = "GT_Sim route-plan scenario"
+
+
+@router.post("/build-from-route", status_code=201)
+async def build_from_route(req: BuildFromRouteRequest):
+    """Plan a route through clicked points and save it as a temporary scenario.
+
+    The result is an ordinary temp scenario id, so everything downstream (the
+    VirtualDriver variant path, the run launcher, the viewer) treats it exactly
+    like an uploaded file -- no second execution path.
+    """
+    xodr_path = road_service.resolve_road_path(req.road_id)
+    if xodr_path is None:
+        raise HTTPException(status_code=404, detail=f"Road '{req.road_id}' not found")
+
+    try:
+        plan = plan_route(
+            xodr_path,
+            [{"x": p.x, "y": p.y} for p in req.points],
+            strategy=req.strategy,
+        )
+    except RoutePlanError as exc:
+        unavailable = {
+            "library_unavailable",
+            "route_api_missing",
+            "route_direction_api_missing",
+        }
+        raise HTTPException(
+            status_code=503 if exc.code in unavailable else 422,
+            detail={"code": exc.code, "message": str(exc), **exc.detail},
+        ) from exc
+
+    try:
+        xml_str = build_route_scenario(
+            xodr_path,
+            plan["waypoints"],
+            start=plan["snapped"][0],
+            ego_speed=req.ego_speed,
+            policies=req.policies,
+            route_length=plan["length"],
+            description=req.description,
+        )
+    except ScenarioBuildError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": exc.code, "message": str(exc)}
+        ) from exc
+
+    saved = scenario_service.save_temp_scenario(xml_str)
+    return {**saved, "route": plan}
 
 
 @router.get("", response_model=list[ScenarioListItem])
