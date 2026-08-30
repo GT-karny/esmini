@@ -976,6 +976,65 @@ function annotationQuery(params?: AnnotationRunFilters): string {
   return s ? `?${s}` : '';
 }
 
+// --- Route planning types ---
+
+export interface RoadListItem {
+  road_id: string;
+  name: string;
+  source: 'catalog' | 'upload';
+  path: string;
+  size: number;
+}
+
+export interface RoutePoint {
+  x: number;
+  y: number;
+}
+
+export interface RouteWaypoint {
+  road_id: number;
+  junction_id: number | null;
+  lane_id: number;
+  s: number;
+  x: number;
+  y: number;
+  z: number;
+  h: number;
+}
+
+export interface RouteLaneChange {
+  road_id: number;
+  s: number;
+  from_lane_id: number;
+  to_lane_id: number;
+}
+
+export interface RoutePlan {
+  waypoints: RouteWaypoint[];
+  lane_changes: RouteLaneChange[];
+  length: number;
+  diagnostic: string;
+  /** Where each clicked point landed after snapping to a lane. */
+  snapped: Array<{ road_id: number; lane_id: number; s: number; x: number; y: number; h: number }>;
+}
+
+export interface BuildFromRouteBody {
+  road_id: string;
+  points: RoutePoint[];
+  ego_speed?: number;
+  strategy?: string;
+  policies?: string[];
+  description?: string;
+}
+
+export interface BuildFromRouteResult {
+  scenario_id: string;
+  entities: unknown;
+  road_file: string;
+  expires_at: string;
+  route: RoutePlan;
+}
+
 // --- API functions ---
 
 export const api = {
@@ -1051,6 +1110,26 @@ export const api = {
     request<OdrMetadata>(
       `/api/projects/${projectId}/scenarios/${scenarioFile}/odr-metadata`,
     ),
+
+  // Route planning (click a start/goal on the map -> runnable scenario)
+  listRoads: () => request<RoadListItem[]>(`/api/roads`),
+
+  getRoadGeometryById: (roadId: string) =>
+    request<{
+      boundaries: Array<{ road_id: number; type: string; points: [number, number][] }>;
+    }>(`/api/roads/${encodeURIComponent(roadId)}/geometry`),
+
+  planRoute: (roadId: string, points: RoutePoint[], strategy = 'shortest') =>
+    request<RoutePlan>(`/api/roads/route-plan`, {
+      method: 'POST',
+      body: JSON.stringify({ road_id: roadId, points, strategy }),
+    }),
+
+  buildScenarioFromRoute: (body: BuildFromRouteBody) =>
+    request<BuildFromRouteResult>(`/api/scenarios/build-from-route`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   // VirtualDriver verification (replay)
   getVerificationRuns: () =>

@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from GT_esmini.web.backend.models.scenario import RoadUploadResponse
-from GT_esmini.web.backend.services import road_service
+from GT_esmini.web.backend.services import road_geometry_service, road_service
 from GT_esmini.web.backend.services.route_planner_service import (
     RoutePlanError,
     plan_route,
@@ -31,6 +31,19 @@ class RoutePlanRequest(BaseModel):
 async def list_roads():
     """List selectable OpenDRIVE files (catalog + temporary uploads)."""
     return road_service.list_roads()
+
+
+@router.get("/{road_id}/geometry")
+async def road_geometry(road_id: str):
+    """Lane-boundary polylines for a road, for the 2D map view.
+
+    Same payload the scenario-scoped endpoint returns, keyed by road instead --
+    the route planner starts from a road, not from an existing scenario.
+    """
+    xodr_path = road_service.resolve_road_path(road_id)
+    if xodr_path is None:
+        raise HTTPException(status_code=404, detail=f"Road '{road_id}' not found")
+    return road_geometry_service.extract_road_geometry(xodr_path)
 
 
 @router.post("/route-plan")
