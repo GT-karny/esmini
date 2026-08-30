@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:5956d90d6a250fde -->
+<!-- generated-from: sha256:13aa784d2e9f0d78 -->
 
-ノード 240・辺 297（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 241・辺 299（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -269,6 +269,7 @@ flowchart LR
     n_gate_vd_behavior_regression["vd-behavior-regression"]
     n_gate_aeb_safety_regression["aeb-safety-regression"]
     n_gate_manualdrive_adas_regression["manualdrive-adas-regression"]
+    n_gate_route_lane_regression["route-lane-regression"]
     n_gate_anticipation_driving_regression["anticipation-driving-regression"]
     n_gate_integration_ctest["integration-ctest"]
     n_gate_regression_gate["regression-gate"]
@@ -500,6 +501,8 @@ flowchart LR
   n_vd_func_FUNC_079 -->|sustained-by| n_gate_manualdrive_adas_regression
   n_vd_func_FUNC_080 -->|sustained-by| n_gate_manualdrive_adas_regression
   n_vd_func_FUNC_081 -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_route_lane_plan_holds -->|sustained-by| n_gate_route_lane_regression
+  n_matcher_indicator_leads_lane_change -->|sustained-by| n_gate_route_lane_regression
   n_matcher_deceleration_profile_smooth -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_speed_reduction_before_landmark -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_indicator_leads_junction_turn -->|sustained-by| n_gate_anticipation_driving_regression
@@ -840,7 +843,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (48)
+### sustained-by (50)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -879,6 +882,8 @@ flowchart LR
 | `vd-func:FUNC-079` | `gate:manualdrive-adas-regression` | AccLonController の統合挙動（gate:unit-ctest は同機能の単体側） |
 | `vd-func:FUNC-080` | `gate:manualdrive-adas-regression` | LaneKeepAssist の統合挙動（gate:unit-ctest は同機能の単体側） |
 | `vd-func:FUNC-081` | `gate:manualdrive-adas-regression` | SpeedLimiter の統合挙動（gate:unit-ctest は同機能の単体側） |
+| `matcher:route_lane_plan_holds` | `gate:route-lane-regression` | 目標レーン帯の算出・逸脱検出・接続点までの是正（req-vd-ad:REQ-AD-017 段 a/b/c）を 6シナリオで常設判定。診断のみ2本と是正4本の両向きが1バッチに入っているので、 発起を黙って殺す変更は是正側4本が落ちる。 |
+| `matcher:indicator_leads_lane_change` | `gate:route-lane-regression` | 自発車線変更に同期した方向指示器の法定リード（req-vd-ad:REQ-AD-018 段 a/b/c）。 本バッチの是正4本が発起するので同じ実行で発火する。 |
 | `matcher:deceleration_profile_smooth` | `gate:anticipation-driving-regression` | decelerate_for_curve / decelerate_for_left_turn / speed_limit_change の3シナリオ。 osi:true で **a=osi の面1直読加速度**（ego_accel_long ●）から bounded decel/jerk を判定。 |
 | `matcher:speed_reduction_before_landmark` | `gate:anticipation-driving-regression` | 4シナリオ（curve/left_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。 |
 | `matcher:indicator_leads_junction_turn` | `gate:anticipation-driving-regression` | 3シナリオ（decelerate_for_left_turn / junction_turn_signal_long_connector / cross_straight_junction）。このバッチは run_regression_gate.ps1 Step 2.7 と CI の vd-behavioral-regression ジョブの**両方**で走るため、新しい gate を起こさずに ⑥常設を満たせる（junction_turn_signal.md §4-3）。 **req-vd-ad:REQ-AD-018 が sustained-by 未結線のまま放置されている状態を再生産しない** ために、matcher の新設と同じサイクルで結線した（あちらの route_lane_batch.yaml は baseline すら無く、ゲートにも CI にも載っていない孤立 matcher になっている）。 |

@@ -1425,6 +1425,27 @@ edges:
     source: scripts/run_regression_gate.ps1
     note: SpeedLimiter の統合挙動（gate:unit-ctest は同機能の単体側）
 
+  # ---- ⑥常設: 経路レーン matcher を常設ゲートへ（2026-08-30） ----
+  # 06_route_lane の6資産は存在し、通り、手動でだけ回されていた＝どの常設ゲートにも
+  # 乗っていなかった。run_regression_gate.ps1 Step 2.11 として結線して閉じる。
+  # ベースラインは3回連続実行の自己決定論性を確認してから凍結し、比較器が実際に赤に
+  # なることを記録済み matcher status の反転で実証してから受け入れた。
+  - from: matcher:route_lane_plan_holds
+    to: gate:route-lane-regression
+    type: sustained-by
+    source: resources/xosc/verification/route_lane_batch.yaml
+    note: >-
+      目標レーン帯の算出・逸脱検出・接続点までの是正（req-vd-ad:REQ-AD-017 段 a/b/c）を
+      6シナリオで常設判定。診断のみ2本と是正4本の両向きが1バッチに入っているので、
+      発起を黙って殺す変更は是正側4本が落ちる。
+  - from: matcher:indicator_leads_lane_change
+    to: gate:route-lane-regression
+    type: sustained-by
+    source: resources/xosc/verification/route_lane_batch.yaml
+    note: >-
+      自発車線変更に同期した方向指示器の法定リード（req-vd-ad:REQ-AD-018 段 a/b/c）。
+      本バッチの是正4本が発起するので同じ実行で発火する。
+
   # ---- ⑥常設: 先読み運転 matcher を常設ゲートへ（2026-07-21・§5.1 の穴を塞ぐ） ----
   # sustained-by 欠6件（全て 05_anticipation 系）のうち5件を gate:anticipation-driving-regression
   # で閉じる（run_regression_gate.ps1 Step 2.7）。lane_change_count は本バッチに車線変更シナリオが

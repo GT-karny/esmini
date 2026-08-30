@@ -1,0 +1,61 @@
+manifest: resources/xosc/verification/route_lane_batch.yaml
+note: Committed regression baseline for the VirtualDriver behavioral batch. Compared per-scenario/per-matcher
+  by scripts/check_regression_baseline.py. Any deviation (new fail OR a known fail turning pass) fails
+  the check. Refresh ONLY after an intentional behavior change, with --update, and review the diff before
+  committing.
+expected_summary:
+  pass: 6
+  fail: 0
+  needs-review: 0
+  error: 0
+scenarios:
+  merge_required_for_exit_ramp:
+    status: pass
+    matchers:
+    - event: route_lane_plan_holds
+      status: pass
+  route_valid_off_target_lane_for_exit_ramp:
+    status: pass
+    matchers:
+    - event: route_lane_plan_holds
+      status: pass
+    - event: route_lane_plan_holds
+      status: pass
+    - event: route_lane_plan_holds
+      status: pass
+  lane_change_to_exit_ramp:
+    status: pass
+    matchers:
+    - event: route_lane_plan_holds
+      status: pass
+    - event: route_lane_plan_holds
+      status: pass
+    - event: indicator_leads_lane_change
+      status: pass
+  lane_change_to_exit_ramp_with_traffic:
+    status: pass
+    matchers:
+    - event: route_lane_plan_holds
+      status: pass
+    - event: route_lane_plan_holds
+      status: pass
+    - event: indicator_leads_lane_change
+      status: pass
+  lane_change_to_exit_ramp_at_constant_speed:
+    status: pass
+    matchers:
+    - event: route_lane_plan_holds
+      status: pass
+    - event: route_lane_plan_holds
+      status: pass
+    - event: indicator_leads_lane_change
+      status: pass
+  lane_change_to_exit_ramp_during_gradual_acceleration:
+    status: pass
+    matchers:
+    - event: route_lane_plan_holds
+      status: pass
+    - event: route_lane_plan_holds
+      status: pass
+    - event: indicator_leads_lane_change
+      status: pass
