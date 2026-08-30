@@ -103,7 +103,9 @@ def measure(xodr: Path, net: Path) -> dict:
 
     lib_path = REPO_ROOT / "DriverScript" / "bin" / "esminiRMLib.dll"
     if not lib_path.is_file():
-        raise SystemExit(f"esminiRMLib.dll not found at {lib_path} (Release build needed)")
+        raise SystemExit(
+            f"esminiRMLib.dll not found at {lib_path} (Release build needed)"
+        )
 
     lanes, offset = load_net_lanes(net)
     if not lanes:
