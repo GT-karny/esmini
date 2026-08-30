@@ -163,3 +163,42 @@ def test_missing_xodr_rejected(tmp_path):
     with pytest.raises(ScenarioBuildError) as excinfo:
         build_route_scenario(tmp_path / "nope.xodr", ROUTER_WAYPOINTS)
     assert excinfo.value.code == "xodr_not_found"
+
+
+# ---------------------------------------------------------------------------
+# Background traffic (feature:F9)
+# ---------------------------------------------------------------------------
+
+
+def test_sumo_controller_is_inline_not_a_catalog_reference(tmp_path):
+    """GT_Sim absolutizes paths inside the xosc but NOT inside catalog files, so a
+    CatalogReference'd SUMO controller fails with "Failed to localize controller
+    file" (exit 1). The host entity must therefore declare it inline."""
+    cfg = tmp_path / "r.sumocfg"
+    cfg.write_text("<configuration/>", encoding="utf-8")
+    root = _parse(
+        build_route_scenario(XODR, ROUTER_WAYPOINTS, start=CLICKED_START, sumocfg=cfg)
+    )
+    host = [
+        so
+        for so in root.findall(".//ScenarioObject")
+        if so.get("name") == "SumoVehicles"
+    ]
+    assert len(host) == 1, "background-traffic host entity missing"
+    assert host[0].find("CatalogReference") is None
+    props = {
+        p.get("name"): p.get("value")
+        for p in host[0].findall("./ObjectController/Controller/Properties/Property")
+    }
+    assert props["esminiController"] == "GTSumoTrafficController"
+    file_el = host[0].find("./ObjectController/Controller/Properties/File")
+    assert file_el is not None
+    import os
+
+    assert os.path.isabs(file_el.get("filepath"))
+
+
+def test_no_traffic_host_when_no_sumocfg(xml_str):
+    root = _parse(xml_str)
+    names = [so.get("name") for so in root.findall(".//ScenarioObject")]
+    assert names == ["Ego"]

@@ -117,6 +117,7 @@ def build_route_scenario(
     policies: list[str] | None = None,
     route_length: float | None = None,
     description: str = "GT_Sim route-plan scenario",
+    sumocfg: str | Path | None = None,
 ) -> str:
     """Render a route scenario as an OpenSCENARIO XML string.
 
@@ -137,6 +138,8 @@ def build_route_scenario(
             as the controller's ``policies`` Property for simulation_runner to read.
         route_length: planned route distance [m], used to size the StopTrigger.
         description: FileHeader description.
+        sumocfg: path to a .sumocfg to run background traffic from. Generate one
+            with scripts/xodr_to_sumo_net.py --demand N. Omit for an empty road.
 
     Raises:
         ScenarioBuildError: no waypoints, or the xodr is missing.
@@ -205,6 +208,34 @@ def build_route_scenario(
             "Property",
             {"name": "policies", "value": ",".join(policies)},
         )
+
+    if sumocfg:
+        # Background traffic host. It is NOT a participant: the controller removes
+        # it at Init and uses it only as the 3D template for spawned vehicles.
+        #
+        # The controller is declared INLINE, never via a CatalogReference: GT_Sim
+        # absolutizes only filepath/path attributes inside the xosc itself, not
+        # inside catalog files, so a catalog-referenced SUMO controller dies with
+        # "Failed to localize controller file" (exit 1). Measured in
+        # GT_esmini/docs/features/sumo_background_traffic.md section 5.
+        traffic = ET.SubElement(entities, "ScenarioObject", {"name": "SumoVehicles"})
+        _vehicle_element(traffic)
+        traffic_oc = ET.SubElement(traffic, "ObjectController")
+        traffic_ctrl = ET.SubElement(
+            traffic_oc, "Controller", {"name": "gtSumoTraffic"}
+        )
+        traffic_props = ET.SubElement(traffic_ctrl, "Properties")
+        ET.SubElement(
+            traffic_props,
+            "Property",
+            {"name": "esminiController", "value": "GTSumoTrafficController"},
+        )
+        ET.SubElement(
+            traffic_props,
+            "Property",
+            {"name": "overrideVehicleScaleMode", "value": "BBToModel"},
+        )
+        ET.SubElement(traffic_props, "File", {"filepath": str(Path(sumocfg).resolve())})
 
     storyboard = ET.SubElement(root, "Storyboard")
     init = ET.SubElement(storyboard, "Init")
