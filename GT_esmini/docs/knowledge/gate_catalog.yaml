@@ -175,6 +175,39 @@ gates:
       **昇格手順**: CI で数回ベースライン安定を確認後、compare ステップの continue-on-error を外す
       （ローカルは既定を -FailOnBehavioral 相当へ）。
 
+  - id: route-lane-regression
+    title: 経路レーン計画・自発車線変更 挙動回帰（route_lane バッチ vs committed baseline）
+    command: >-
+      gt_sim_test.py batch resources/xosc/verification/route_lane_batch.yaml →
+      scripts/check_regression_baseline.py --baseline GT_esmini/test/regression_baseline/route_lane_expected.yaml
+    context: local  # regression-gate Step 2.11。CI 未結線（まずローカルで安定を見る）
+    blocking: false  # 既定 WARN。-FailOnBehavioral でハード化
+    requires: [release-build, venv]  # GT_esminiLib.dll を in-process ロード。osi 不要（telemetry.jsonl のみで判定）
+    covers: >-
+      vd-func:FUNC-050（RouteLanePlan）と vd-func:FUNC-055（自発車線変更の発起）＝
+      req-vd-ad:REQ-AD-017 段 a/b/c を6シナリオで常設判定。**主張の両向きが1ファイルに入っている**のが要点:
+      診断のみ2本（merge_required_for_exit_ramp = invalid_route 診断／
+      route_valid_off_target_lane_for_exit_ramp = 目標レーン帯からの逸脱検出。
+      lane_change_initiation を**有効化しない**＝是正しないことの確認）と、
+      是正する4本（lane_change_to_exit_ramp 系。policies:[lane_change_initiation] で有効化し、
+      max_deviations:0 で「接続点を目標レーン帯に乗ったまま通過した」を判定）。
+      発起を黙って殺す変更は後者4本が落ちるので、全部通ってすり抜けることがない。
+      matcher:route_lane_plan_holds と matcher:indicator_leads_lane_change が発火する。
+    not_covers: >-
+      req-vd-ad:REQ-AD-017 の**段 d/e（逸脱後の経路復帰・終点での停車）は未実装で対象外**。
+      req-vd-ad:REQ-AD-016 は段 b（解決失敗を沈黙させない）のみで、段 a/c（経路の補完・
+      起終点のみからの探索）は本バッチの守備範囲ではない — 段 c のバックエンド実装
+      （route_planner_service）は web backend の pytest 側が受け持つ。
+      vd-func:FUNC-056（追い越し）は別動機の発起なので本バッチには入らない。
+    note: >-
+      06_route_lane の6資産は**どの常設ゲートにも乗っていなかった**（存在し、通り、手動でだけ
+      回されていた＝手入れされているように見えたまま腐る典型）。2026-08-30 に Step 2.11 として結線。
+      ベースライン凍結は**3回連続実行の自己決定論性を確認してから**行った（揮発する出力ディレクトリ名を
+      正規化すると6件とも verdict がバイト一致）。さらに**比較器が実際に赤になることを、記録済み matcher の
+      status を1つ反転させて実証**（deviations=1）してから緑を受け入れている — 赤にできないゲートはゲートではない。
+      **昇格手順**: ローカルで数回安定を確認後、CI の vd-behavioral-regression job へ相乗りさせ
+      （別 artifact で切り分け）、その後 -FailOnBehavioral 相当を既定にする。
+
   # ---- ODR 適合（面1を測る系＝§0.3 の「手本」） ----
   - id: manualdrive-adas-regression
     title: 手動運転中ADAS 挙動回帰（manualdrive_adas バッチ vs committed baseline）

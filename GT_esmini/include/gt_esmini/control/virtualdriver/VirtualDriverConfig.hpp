@@ -10,6 +10,7 @@
 #include "gt_esmini/control/virtualdriver/LaneChangeInitiation.hpp"
 #include "gt_esmini/control/virtualdriver/OvertakeManeuver.hpp"
 #include "gt_esmini/control/virtualdriver/AutoIndicatorPolicy.hpp"
+#include "gt_esmini/control/virtualdriver/VdIntentProjection.hpp"
 #include "gt_esmini/control/virtualdriver/policies/LeadVehicleAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/TrafficLightAware.hpp"
 #include "gt_esmini/control/virtualdriver/policies/StopYieldSignAware.hpp"
@@ -157,6 +158,37 @@ struct VirtualDriverConfig
     double indicator_min_distance_m = 30.0;
     double indicator_lead_time   = 2.0;
     double indicator_min_on_time = 0.3;
+
+    // --- Intent layer (docs/virtualdriver/design/vd_intent_layer.md section 10) ---
+    // OBSERVATION-only forward scan for the next junction turn on the route, used to publish
+    // junction_turn_observed. Distinct from indicator_min_distance_m above, which is the LEGAL
+    // signal distance and is not affected by anything here.
+    //
+    // Default 0.0 = OFF. The intent projection itself is free (it re-reads numbers the frame
+    // already produced), but this scan is not: 300 m at 2 m resolution is 150 MoveAlongS calls
+    // per frame. Splitting them means config carries the distinction between "the free
+    // projection" and "the scan you pay for" (design section 7-4), so a run that only wants the
+    // projection never pays.
+    // The projection itself: ON by default. It can be, because it has no path back into
+    // control -- it re-reads numbers the frame already produced and appends two arrays.
+    bool   intent_enabled           = true;
+    // Compute eta_s. With this off every intent reports -1, which means the same thing it always
+    // means: asked, and there is no answer. Never 0.
+    bool   intent_eta_enabled       = true;
+    // [s] How long an intent that reached ANNOUNCED lingers as COMPLETING/ABANDONED after its
+    // condition goes, so a consumer sees the ending rather than a row disappearing between
+    // frames. tier == safety is exempt (design section 8-9).
+    double intent_min_dwell_s       = 1.0;
+    // [m] |lane_offset| below which an aborted lateral motion counts as settled and ABORTING
+    // ends. NOT "back in the original lane" -- an abort only stops the offset generator, nothing
+    // steers the body back (design section 3-2-2).
+    double intent_abort_converged_offset_m = 0.3;
+    double intent_turn_lookahead_m  = 0.0;
+    // Resolution of that scan [m]. Do NOT coarsen it to save time: the scan detects a road
+    // change by track id only, so a step longer than a short connector steps over the connector
+    // entirely and reports the ordinary road beyond it -- "no turn" at exactly the junctions
+    // that have one (design section 7-4).
+    double intent_turn_scan_step_m  = 2.0;
 
     // --- Traffic policies (Phase 3) ---
     // On/off per policy. Default OFF so Phase 1/2 behavior is unchanged unless a
@@ -378,6 +410,7 @@ struct VirtualDriverConfig
     // LaneChangeInitiationCfg() -- overtake_enabled is its OWN gate.
     OvertakeConfig                 OvertakeCfg() const;
     AutoIndicatorConfig            IndicatorConfig() const;
+    VdIntentConfig                 IntentConfig() const;  // vd_intent_layer.md section 10
     LeadVehicleAwareConfig         LeadConfig() const;
     TrafficLightAwareConfig        TrafficLightConfig() const;
     StopYieldSignAwareConfig       StopYieldConfig() const;

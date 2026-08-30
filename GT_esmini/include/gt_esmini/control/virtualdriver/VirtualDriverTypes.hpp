@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gt_esmini/control/virtualdriver/VdIntent.hpp"
+
 #include <vector>
 #include <string>
 #include <utility>
@@ -100,6 +102,32 @@ struct MidLongPlannerSnapshot
     // Labelled constraint points (curve / junction / speed-limit) with world XY.
     std::vector<MidLongConstraint>         constraints;
     bool                                   valid = false;
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 5 -- the winner the
+    // std::min() fold used to throw away.
+    //
+    // ApplyPolicyConstraints() folds every policy constraint into one speed
+    // profile, and after the fold "which constraint is actually holding the car
+    // back right now" is gone: a red light, a lead vehicle and a crosswalk all
+    // become one number. Consumers could approximate it (highest tier, then
+    // nearest s) but each would invent its own rule and different screens would
+    // give different answers, so the decision is made here, once, by the code
+    // that actually did the folding.
+    //
+    // Index into the SAME TrafficPolicySnapshot::constraints vector that was fed
+    // in (MidLongContext::policy), which is also the one published as
+    // telemetry.policy -- so a consumer joins on the index directly.
+    //
+    // -1 means NO policy constraint is governing at the ego: either none were
+    // emitted, or the road-geometry ceiling (curvature / speed limit / junction)
+    // is lower than any of them right there. It does NOT mean "not computed".
+    //
+    // Measured at the ego's own position (the s_ahead == 0 sample) and recorded
+    // during the fold itself, so it names the constraint that WON, not one that
+    // merely exists. The later comfort-decel and jerk passes can lower that
+    // sample further; they are shaping, not deciding, and deliberately do not
+    // change this attribution.
+    int                                    binding_constraint_index = -1;
 };
 
 // A single constraint emitted by a traffic policy (Phase 3).
@@ -264,6 +292,20 @@ struct LaneChangeInitiationSnapshot
     bool        gap_accepted        = false;  // last-evaluated gap-acceptance verdict
     std::string gap_reason;                   // "" = accepted; else "lead_gap" | "rear_gap" | "rear_ttc"
     bool        signal_active       = false;  // AD-LC path is requesting the indicator (pre-signal or armed) -- design doc section 11-8
+    // docs/virtualdriver/design/vd_intent_layer.md section 3-4. Why the most recent hop stopped
+    // being armed: "" = it COMPLETED (or none has run yet), else one of
+    // "storyboard" | "resume_merge" | "manual_lateral" = it was ABORTED mid-flight.
+    // Mirrors LaneChangeInitiationState::aborted_reason; see that field for why this one bit is
+    // the only thing that separates a finished lane change from an abandoned one.
+    std::string aborted_reason;
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 8-2. EVERY gap condition that failed
+    // on the most recently evaluated gap, not just the first. gap_reason above is
+    // blockers[0].code and stays for compatibility; this array is what distinguishes "blocked
+    // in front" from "blocked in front AND behind", which is the state a waiting driver most
+    // needs told apart. Empty when the gap was accepted, when none was evaluated this frame, or
+    // when the feature is off.
+    std::vector<IntentBlocker> blockers;
 };
 
 // vd-func:FUNC-056 AD overtake maneuver
@@ -292,6 +334,13 @@ struct OvertakeSnapshot
     // "no_passing_lane" / "suppressed".
     std::string blocked_reason;
     bool        cleared_lead    = false;   // HasClearedLead fired for the current pass (section 5-1)
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 8-4. blocked_reason above is a
+    // single coarse token -- notably it collapses the lead / follower / alongside cases of a
+    // same-direction gap refusal into one word, "gap". This array carries them separately, each
+    // with the vehicle it is about and the measured-vs-required pair. blocked_reason is
+    // unchanged and remains the field the overtake matchers read (expect_blocked_reason).
+    std::vector<IntentBlocker> blockers;
 };
 
 // req-vd-ad:REQ-AD-021 / vd-func:FUNC-061 junction-turn indicator pre-arm
@@ -331,6 +380,18 @@ struct VirtualDriverTelemetry
     int    lane_id     = 0;    // current lane id
     double lane_offset = 0.0;  // lateral offset from lane center [m]
     double s           = 0.0;  // road s [m]
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 3-3 (and its section 1-4
+    // 覆った想定3). The brake lamp as it is ACTUALLY being driven -- ApplyLights writes this
+    // from the same latch it hands to the light itself, including the 0.05 pedal threshold and
+    // the 0.35 s hold that stops the speed PID flickering it.
+    //
+    // The intent layer needs it because the only externally visible ANNOUNCEMENT of a stop, in a
+    // real car as much as here, is the brake lamp -- OSI brake_light_state is NORMAL/STRONG and
+    // does not distinguish stopping from slowing. Deriving it from driver.brake instead would be
+    // a SECOND definition of the same quantity that does not know about the debounce, so the lamp
+    // and the report would disagree on exactly the frames the debounce exists for.
+    bool brake_light_on        = false;
 
     // Override status (per domain).
     bool override_lateral      = false;
@@ -507,11 +568,40 @@ struct VirtualDriverTelemetry
     TrafficPolicySnapshot  policy;    // Phase 3+
     IndicatorSnapshot      indicator;
     JunctionTurnSnapshot   junction_turn; // req-vd-ad:REQ-AD-021: JunctionTurn.hpp RouteLookaheadJunctionTurn snapshot
+    // docs/virtualdriver/design/vd_intent_layer.md section 7. Same struct, DIFFERENT contract:
+    // this one comes from RouteLookaheadNextJunctionTurn, which walks past ordinary road
+    // boundaries, and it is evaluated UNCONDITIONALLY -- not only on the frames where no lane
+    // change owns the indicator, which is the gap that makes junction_turn above go blank
+    // mid-lane-change.
+    //
+    // Its distances have NO legal meaning (the statutory 30 m lives in junction_turn), and it
+    // never reaches an indicator. All defaults while intent_turn_lookahead_m is 0.0, which is
+    // the default -- so this block being empty means "the scan was off", not "no turn ahead".
+    JunctionTurnSnapshot   junction_turn_observed;
     FrontBumperSnapshot    front_bumper;  // F5: leading-edge road localization
     ResumeMergeSnapshot    resume_merge;  // feature:F7 resume-merge state machine
     RouteLanePlanSnapshot  route_lane;    // RouteLanePlan.hpp: route-lane conformance diagnostic
     LaneChangeInitiationSnapshot lane_change;  // LaneChangeInitiation.hpp: vd-func:FUNC-055 state
     OvertakeSnapshot       overtake;      // OvertakeManeuver.hpp: vd-func:FUNC-056 state
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 4-1. The four maneuver vocabularies
+    // above, projected onto ONE. Filled last, from everything above it, by ProjectVdIntents --
+    // which is why these two are at the bottom of the struct and why nothing else reads them.
+    //
+    // TWO ARRAYS, and the split IS the verdict boundary (section 4-2). `intents` is the external
+    // form: only intents that reached ANNOUNCED are in it, so every row corresponds to something
+    // an outside observer could in principle have seen, and a matcher may trust it.
+    // `intent_reasons` is the internal judgement -- POSSIBLE and PLANNED included, blockers
+    // included -- and matchers must NOT read it (signal:vd_intent_reasons, exposure debug).
+    //
+    // The prefix trick the rest of the KV telemetry uses (gt. vs gt.dbg.) has nothing to hang on
+    // in structured rows, so the array is physically split instead; the check is a single grep
+    // for "does a matcher mention intent_reasons".
+    //
+    // The two are one dataset seen from two sides: rows join on `id`, which is stable across
+    // frames for as long as the intent lives.
+    std::vector<VdIntent>       intents;
+    std::vector<VdIntentReason> intent_reasons;
 };
 
 }  // namespace gt_esmini

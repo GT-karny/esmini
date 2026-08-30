@@ -81,6 +81,10 @@ const DoubleField kDoubleFields[] = {
     {"lane_change_gap_ttc_min_s", &VirtualDriverConfig::lane_change_gap_ttc_min_s},
     {"lane_change_lateral_accel_comfort", &VirtualDriverConfig::lane_change_lateral_accel_comfort},
     {"lane_change_indicator_lead_time_s", &VirtualDriverConfig::lane_change_indicator_lead_time_s},
+    {"intent_min_dwell_s", &VirtualDriverConfig::intent_min_dwell_s},              // vd_intent_layer.md section 10
+    {"intent_abort_converged_offset_m", &VirtualDriverConfig::intent_abort_converged_offset_m},
+    {"intent_turn_lookahead_m", &VirtualDriverConfig::intent_turn_lookahead_m},
+    {"intent_turn_scan_step_m", &VirtualDriverConfig::intent_turn_scan_step_m},
     // AD overtake maneuver (vd-func:FUNC-056). Only 5 new keys -- see design doc section 8.
     {"overtake_max_pass_time_s", &VirtualDriverConfig::overtake_max_pass_time_s},
     {"overtake_oncoming_lookahead_m", &VirtualDriverConfig::overtake_oncoming_lookahead_m},
@@ -187,6 +191,8 @@ const BoolField kBoolFields[] = {
     {"ffb_target_track_enabled", &VirtualDriverConfig::ffb_target_track_enabled},   // F7b
     {"ad_steering_envelope_enabled", &VirtualDriverConfig::ad_steering_envelope_enabled},  // feature:F7
     {"resume_merge_enabled", &VirtualDriverConfig::resume_merge_enabled},  // feature:F7
+    {"intent_enabled", &VirtualDriverConfig::intent_enabled},          // vd_intent_layer.md section 10
+    {"intent_eta_enabled", &VirtualDriverConfig::intent_eta_enabled},
     {"lane_change_initiation_enabled", &VirtualDriverConfig::lane_change_initiation_enabled},  // vd-func:FUNC-055
     {"overtake_enabled", &VirtualDriverConfig::overtake_enabled},  // vd-func:FUNC-056
     {"overtake_use_opposing_lane_enabled", &VirtualDriverConfig::overtake_use_opposing_lane_enabled},  // vd-func:FUNC-056
@@ -395,6 +401,20 @@ OvertakeConfig VirtualDriverConfig::OvertakeCfg() const
     c.max_pass_time_s            = overtake_max_pass_time_s;
     c.oncoming_lookahead_m       = overtake_oncoming_lookahead_m;
     c.oncoming_safety_factor     = overtake_oncoming_safety_factor;
+    return c;
+}
+
+VdIntentConfig VirtualDriverConfig::IntentConfig() const
+{
+    VdIntentConfig c;
+    c.enabled                  = intent_enabled;
+    c.eta_enabled              = intent_eta_enabled;
+    c.min_dwell_s              = intent_min_dwell_s;
+    // Passed through as a GATE, not as a distance: the projection only needs to know whether
+    // junction_turn_observed was populated at all this frame (design section 9-3's negative
+    // control -- an all-defaults block means the scan was off, not "no turn ahead").
+    c.turn_lookahead_m         = intent_turn_lookahead_m;
+    c.abort_converged_offset_m = intent_abort_converged_offset_m;
     return c;
 }
 

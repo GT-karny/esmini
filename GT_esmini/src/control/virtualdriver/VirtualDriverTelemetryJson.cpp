@@ -190,7 +190,11 @@ std::string ToJson(const VirtualDriverTelemetry& t)
         os << "{\"s\":" << c.s << ",\"x\":" << c.x << ",\"y\":" << c.y
            << ",\"v\":" << c.v << ",\"kind\":\"" << c.kind << "\"}";
     }
-    os << "]}";
+    os << "]"
+       // vd_intent_layer.md section 5: which policy.constraints[] entry is actually
+       // setting the speed at the ego right now. -1 = none of them (the road
+       // ceiling governs, or there are none) -- NOT "not computed".
+       << ",\"binding_constraint_index\":" << t.midlong.binding_constraint_index << "}";
 
     // Phase 3 traffic policies. constraints[] is the union emitted by the enabled
     // policies (lead-vehicle / traffic-light / stop-yield sign); the planner folds
@@ -264,6 +268,42 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"diagnostic\":\"" << t.route_lane.diagnostic << "\""
        << ",\"reason\":\"" << t.route_lane.reason << "\"}";
 
+    // vd_intent_layer.md section 3-3: the brake lamp as actually driven (debounced), which is
+    // the only externally visible announcement a stop or a slowdown has.
+    os << ",\"brake_light_on\":" << b(t.brake_light_on);
+
+    // vd_intent_layer.md section 7: the OBSERVATION-only junction lookahead. Same shape as
+    // junction_turn, different contract -- it walks past ordinary road boundaries and runs on
+    // every frame, but its distances carry no legal meaning and it never reaches an indicator.
+    // All defaults (0 / -1 / false) when intent_turn_lookahead_m is 0.0, which is the default:
+    // an empty block means "the scan was off", NOT "no turn ahead".
+    os << ",\"junction_turn_observed\":{\"dir\":" << t.junction_turn_observed.dir
+       << ",\"dist_to_entry_m\":" << t.junction_turn_observed.dist_to_entry_m
+       << ",\"on_connector\":" << b(t.junction_turn_observed.on_connector) << "}";
+
+    // vd_intent_layer.md section 8-2's blocker row. Shared by lane_change.blockers and
+    // overtake.blockers so the two arrays are the same shape -- a consumer writes one reader.
+    //
+    // where is "" when no position applies (the blocker is a property of the maneuver, not of
+    // another road user), and quantity is "" when there is no measurable amount, in which case
+    // measured/required are meaningless and must not be read as 0. Both are the same "" ==
+    // not-applicable convention gap_reason and route_lane.diagnostic already use.
+    auto write_blockers = [&os](const std::vector<IntentBlocker>& blockers) {
+        os << "[";
+        for (size_t i = 0; i < blockers.size(); ++i)
+        {
+            const auto& blocker = blockers[i];
+            if (i) os << ",";
+            os << "{\"where\":\"" << IntentWhereName(blocker.where) << "\""
+               << ",\"subject_osi_id\":" << blocker.subject_osi_id
+               << ",\"code\":\"" << blocker.code << "\""
+               << ",\"quantity\":\"" << blocker.quantity << "\""
+               << ",\"measured\":" << blocker.measured
+               << ",\"required\":" << blocker.required << "}";
+        }
+        os << "]";
+    };
+
     // vd-func:FUNC-055 AD lane-change initiation (LaneChangeInitiation.hpp). Additive top-level
     // block; consumers that predate it simply ignore it. gap_reason is the field to read first
     // for "why hasn't it armed yet" ("" == last evaluated gap was accepted, or nothing evaluated).
@@ -276,7 +316,17 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"dist_to_connection\":" << t.lane_change.dist_to_connection
        << ",\"gap_accepted\":" << b(t.lane_change.gap_accepted)
        << ",\"gap_reason\":\"" << t.lane_change.gap_reason << "\""
-       << ",\"signal_active\":" << b(t.lane_change.signal_active) << "}";
+       << ",\"signal_active\":" << b(t.lane_change.signal_active)
+       // vd_intent_layer.md section 3-4: "" = the last hop COMPLETED, non-empty = it was
+       // ABORTED. Read alongside `armed`: the pair (armed false, aborted_reason non-empty) is
+       // the only signature an abandoned lane change leaves behind.
+       << ",\"aborted_reason\":\"" << t.lane_change.aborted_reason << "\""
+       // vd_intent_layer.md section 8-2: EVERY failing gap condition. gap_reason above is
+       // blockers[0].code; this is the whole list, so "blocked in front" and "blocked in front
+       // AND behind" stop looking identical.
+       << ",\"blockers\":";
+    write_blockers(t.lane_change.blockers);
+    os << "}";
 
     // vd-func:FUNC-056 AD overtake maneuver (OvertakeManeuver.hpp). Additive top-level block;
     // consumers that predate it simply ignore it. `considered` is the field to read first --
@@ -295,7 +345,61 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"required_m\":" << t.overtake.required_m
        << ",\"route_budget_m\":" << t.overtake.route_budget_m
        << ",\"blocked_reason\":\"" << t.overtake.blocked_reason << "\""
-       << ",\"cleared_lead\":" << b(t.overtake.cleared_lead) << "}";
+       << ",\"cleared_lead\":" << b(t.overtake.cleared_lead)
+       // vd_intent_layer.md section 8-4: blocked_reason broken out per obstacle. Notably it
+       // splits the single "gap" token back into front / rear / alongside.
+       << ",\"blockers\":";
+    write_blockers(t.overtake.blockers);
+    os << "}";
+
+    // vd_intent_layer.md section 4-1. TWO arrays, and the split is the verdict boundary
+    // (section 4-2): `intents` is the external form -- every row reached ANNOUNCED, so it
+    // corresponds to something an outside observer could have seen, and matchers may read it.
+    // `intent_reasons` is the internal judgement and matchers must NOT. Rows join on `id`.
+    //
+    // The name deliberately avoids "debug" even though the catalog marks it exposure=debug: for
+    // an HMI this is the primary content -- telling a person why the car is braking is not
+    // debugging. The name says what the thing is; the trust policy lives in the catalog and the
+    // lint.
+    os << ",\"intents\":[";
+    for (size_t i = 0; i < t.intents.size(); ++i)
+    {
+        const auto& intent = t.intents[i];
+        if (i) os << ",";
+        os << "{\"id\":" << intent.id
+           << ",\"kind\":\"" << IntentKindName(intent.kind) << "\""
+           << ",\"phase\":\"" << IntentPhaseName(intent.phase) << "\""
+           << ",\"distance_m\":" << intent.distance_m
+           // -1 means "computed, and the answer does not exist" -- past a planned stop the
+           // arrival time depends on how long the stop lasts. NOT "unmeasured", and never 0.
+           << ",\"eta_s\":" << intent.eta_s
+           << ",\"subject_osi_id\":" << intent.subject_osi_id
+           // (0,0) is a legal world coordinate, so "no position" needs its own flag.
+           << ",\"has_position\":" << b(intent.has_position)
+           << ",\"x\":" << intent.x
+           << ",\"y\":" << intent.y << "}";
+    }
+    os << "],\"intent_reasons\":[";
+    for (size_t i = 0; i < t.intent_reasons.size(); ++i)
+    {
+        const auto& reason = t.intent_reasons[i];
+        if (i) os << ",";
+        os << "{\"id\":" << reason.id
+           << ",\"kind\":\"" << IntentKindName(reason.kind) << "\""
+           << ",\"phase\":\"" << IntentPhaseName(reason.phase) << "\""
+           // motive (why) / obstruction (why not) / cancellation (why given up on) are three
+           // different questions and are kept in three different fields -- mixed together they
+           // become a junk drawer nobody can query.
+           << ",\"source\":\"" << reason.source << "\""
+           << ",\"tier\":\"" << reason.tier << "\""
+           << ",\"binding_lon\":" << b(reason.binding_lon)
+           << ",\"binding_lat\":" << b(reason.binding_lat)
+           << ",\"committed\":" << b(reason.committed)
+           << ",\"blockers\":";
+        write_blockers(reason.blockers);
+        os << ",\"cancel_reason\":\"" << reason.cancel_reason << "\"}";
+    }
+    os << "]";
 
     os << "}";
 

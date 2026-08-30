@@ -153,6 +153,9 @@
 .PARAMETER SkipStopLine
     Skip Step 2.9 (stop-line pairing batch) only.
 
+.PARAMETER SkipRouteLane
+    Skip Step 2.11 (route-lane batch) only.
+
 .PARAMETER SkipManualAdas
     Skip Step 2.10 (ManualDrive ADAS batch) only, leaving the other batches in
     place.
@@ -252,6 +255,10 @@ param(
     [string]$ManualAdasBatch = "resources/xosc/verification/manualdrive_adas_batch.yaml",
     [string]$ManualAdasOutDir = "test_results/regression/manualdrive_adas",
     [string]$ManualAdasBaseline = "GT_esmini/test/regression_baseline/manualdrive_adas_expected.yaml",
+    [switch]$SkipRouteLane,
+    [string]$RouteLaneBatch = "resources/xosc/verification/route_lane_batch.yaml",
+    [string]$RouteLaneOutDir = "test_results/regression/route_lane",
+    [string]$RouteLaneBaseline = "GT_esmini/test/regression_baseline/route_lane_expected.yaml",
     [string]$Dll = ""
 )
 
@@ -959,6 +966,59 @@ if ($SkipBehavioral) {
         foreach ($m in $mdAdasMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
     } else {
         if (-not (Invoke-BehavioralBatch -Label "Step 2.10" -BatchPath $mdAdasBatchPath -OutPath $mdAdasOutPath -BaselinePath (Resolve-RepoPath $ManualAdasBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
+            $overallOk = $false
+        }
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Step 2.11 - Route-lane batch (reported gate, skippable)
+#
+# vd-func:FUNC-050 (RouteLanePlan) + vd-func:FUNC-055 (AD-initiated lane change),
+# i.e. req-vd-ad:REQ-AD-017 acceptance steps a/b/c. The 6 scenarios in
+# 06_route_lane/ were the only VirtualDriver verification assets NOT reachable
+# from any standing gate: they existed, passed, and were run by hand -- which is
+# how an asset quietly rots while looking maintained.
+#
+# The batch holds both directions of the claim in one file. Two scenarios check
+# that the plan only DIAGNOSES (lane_change_initiation left off, so the ego
+# crosses off-target and the deviation is recorded), and four check that it
+# CORRECTS (the same feature switched on via policies:, ego reaches the exit-ramp
+# lane). A change that silently disables the initiation therefore breaks the
+# correcting four rather than passing everything.
+#
+# Baseline frozen 2026-08-30 after a three-run self-determinism control: all six
+# verdicts byte-identical across runs once the volatile output-directory path is
+# normalised. The comparator was then shown to actually fail by flipping one
+# recorded matcher status (deviations=1) -- a gate that cannot go red is not a gate.
+#
+# NON-BLOCKING like the batches above (-FailOnBehavioral makes it hard).
+# ----------------------------------------------------------------------------
+if ($SkipBehavioral) {
+    Write-Host "==== Step 2.11: Route-lane batch - SKIPPED (-SkipBehavioral) ====" -ForegroundColor Yellow
+} elseif ($SkipRouteLane) {
+    Write-Host "==== Step 2.11: Route-lane batch - SKIPPED (-SkipRouteLane) ====" -ForegroundColor Yellow
+} else {
+    Write-Host "==== Step 2.11: Route-lane batch (gt_sim_test) ====" -ForegroundColor Cyan
+
+    # Same prerequisites as Steps 2 / 2.6 / 2.7 / 2.8 / 2.9 / 2.10 (venv + Release DLL).
+    $routeLaneBatchPath = Resolve-RepoPath $RouteLaneBatch
+    $routeLaneOutPath = Resolve-RepoPath $RouteLaneOutDir
+
+    $routeLaneMissing = @()
+    if ([string]::IsNullOrWhiteSpace($pyExe) -or -not (Test-Path $pyExe)) {
+        $routeLaneMissing += "verification venv python (DriverScript/.venv or GT_esmini/web/.venv)"
+    }
+    if (-not (Test-Path $dllPath)) {
+        $routeLaneMissing += "GT_esminiLib.dll at $dllPath (requires a completed $Config build)"
+    }
+    if (-not (Test-Path $routeLaneBatchPath)) { $routeLaneMissing += "batch manifest $routeLaneBatchPath" }
+
+    if ($routeLaneMissing.Count -gt 0) {
+        Write-Host "Step 2.11: SKIPPED - prerequisites missing:" -ForegroundColor Yellow
+        foreach ($m in $routeLaneMissing) { Write-Host "    - $m" -ForegroundColor Yellow }
+    } else {
+        if (-not (Invoke-BehavioralBatch -Label "Step 2.11" -BatchPath $routeLaneBatchPath -OutPath $routeLaneOutPath -BaselinePath (Resolve-RepoPath $RouteLaneBaseline) -PyExe $pyExe -Harness $harness -DllPath $dllPath)) {
             $overallOk = $false
         }
     }

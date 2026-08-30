@@ -2,6 +2,9 @@
 
 #include "gt_esmini/control/virtualdriver/IMidLongPlanner.hpp"
 
+#include <string>
+#include <vector>
+
 namespace gt_esmini
 {
 
@@ -37,6 +40,49 @@ struct ManeuverAwareSpeedPlannerConfig
     // Re-plan throttle (future optimization; unused in the per-frame baseline).
     double replan_distance   = 10.0;  // [m]
 };
+
+// One sampled point of the route-ahead speed ceiling, before policy constraints
+// are folded in. Public only so ApplyPolicyConstraints() below can be a pure,
+// engine-free function -- the same split lead_idm:: and LaneChangeInitiation.hpp
+// already use to keep their numeric cores testable without a loaded road network.
+struct MidLongScanSample
+{
+    double      s_ahead = 0.0;  // [m] ahead of the ego; the first sample is exactly 0
+    double      x       = 0.0;  // world [m]
+    double      y       = 0.0;  // world [m]
+    double      v       = 0.0;  // [m/s] ceiling at this point
+    std::string kind;           // "curve" | "junction" | "speed_limit" | "" (unconstrained)
+};
+
+// Result of folding the policy constraints into a ceiling profile.
+struct PolicyFoldResult
+{
+    // Marker points for the STOP_AT_S constraints, appended to the snapshot's
+    // constraints[] so the viewer can draw them.
+    std::vector<MidLongConstraint> markers;
+    // MidLongPlannerSnapshot::binding_constraint_index -- see that field for the
+    // full contract. -1 = the road ceiling governs at the ego (or nothing does).
+    int binding_constraint_index = -1;
+};
+
+// Folds every policy constraint into `samples` (in place, by std::min) and
+// reports which one ends up governing the ego's own sample.
+//
+// Pure: no engine, no road network, no controller state. Declared here rather
+// than kept file-local so the attribution rule -- "the LAST constraint to
+// strictly lower the s_ahead==0 sample, in emission order" -- is directly
+// assertable from a unit test with synthetic samples. Getting that rule wrong is
+// invisible in the profile itself (the numbers come out the same), so it needs
+// its own test rather than being inferred from behaviour.
+//
+// Constraints are applied in the order they appear, which is the order the
+// policies emitted them; since the fold is a min() this order does not affect
+// the resulting speeds, only which index is credited when two constraints tie at
+// the same value -- and "strictly lower" is what stops a tie from stealing the
+// credit from the constraint that actually did the work.
+PolicyFoldResult ApplyPolicyConstraints(std::vector<MidLongScanSample>&      samples,
+                                        const ManeuverAwareSpeedPlannerConfig& cfg,
+                                        const TrafficPolicySnapshot*           policy);
 
 // Phase 2 mid/long-horizon speed planner.
 //

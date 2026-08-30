@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:2ee45f17d2b7105d -->
+<!-- generated-from: sha256:13aa784d2e9f0d78 -->
 
-ノード 239・辺 294（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 241・辺 299（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -237,6 +237,7 @@ flowchart LR
     n_vd_component_lane_change_initiation["lane-change-initiation"]
     n_vd_component_overtake_maneuver["overtake-maneuver"]
     n_vd_component_lane_keep_assist["lane-keep-assist"]
+    n_vd_component_intent_layer["intent-layer"]
   end
   subgraph sg_scenario_variant["scenario-variant｜生成シナリオ変体（NN_topic__pNNN）"]
     n_scenario_variant_09_crosswalk_pedestrian__p005["09_crosswalk_pedestrian__p005"]
@@ -268,6 +269,7 @@ flowchart LR
     n_gate_vd_behavior_regression["vd-behavior-regression"]
     n_gate_aeb_safety_regression["aeb-safety-regression"]
     n_gate_manualdrive_adas_regression["manualdrive-adas-regression"]
+    n_gate_route_lane_regression["route-lane-regression"]
     n_gate_anticipation_driving_regression["anticipation-driving-regression"]
     n_gate_integration_ctest["integration-ctest"]
     n_gate_regression_gate["regression-gate"]
@@ -499,6 +501,8 @@ flowchart LR
   n_vd_func_FUNC_079 -->|sustained-by| n_gate_manualdrive_adas_regression
   n_vd_func_FUNC_080 -->|sustained-by| n_gate_manualdrive_adas_regression
   n_vd_func_FUNC_081 -->|sustained-by| n_gate_manualdrive_adas_regression
+  n_matcher_route_lane_plan_holds -->|sustained-by| n_gate_route_lane_regression
+  n_matcher_indicator_leads_lane_change -->|sustained-by| n_gate_route_lane_regression
   n_matcher_deceleration_profile_smooth -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_speed_reduction_before_landmark -->|sustained-by| n_gate_anticipation_driving_regression
   n_matcher_indicator_leads_junction_turn -->|sustained-by| n_gate_anticipation_driving_regression
@@ -574,6 +578,9 @@ flowchart LR
   n_matcher_steer_output_absent -->|verifies| n_req_vd_ad_REQ_AD_027
   n_vd_component_lane_keep_assist -->|realizes| n_vd_func_FUNC_080
   n_vd_func_FUNC_080 -->|sustained-by| n_gate_unit_ctest
+  n_vd_component_intent_layer -->|depends-on| n_vd_component_lane_change_initiation
+  n_vd_component_intent_layer -->|depends-on| n_vd_component_overtake_maneuver
+  n_vd_component_intent_layer -->|depends-on| n_vd_component_route_lane_plan
 ```
 
 ## 辺の一覧（type別）
@@ -665,7 +672,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `feature:F9` | `gate:regression-gate` | 用途(b)「VD検証の背景交通」で回帰ゲートに載せるには、先に SUMO の乱数を潰す必要がある。 ベースライン凍結は自己決定論性が前提だが SUMO は既定で乱数を使うため、シード固定 （.sumocfg の <seed> と randomTrips/duarouter の需要生成側の両方）と3回連続実行の 一致確認を済ませるまでバッチをゲートへ配線してはいけない。着手時点で判明している 設計上の拘束として記録する。用途(a)「手動運転の周囲交通」にはこの拘束は掛からない （設定で分ける）ので、F9 全体がゲートと衝突するわけではない |
 
-### depends-on (27)
+### depends-on (30)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -696,6 +703,9 @@ flowchart LR
 | `proposal:P18` | `feature:F7` | 被験者応答テレメトリの反応時間計測は切替イベント（manual/auto_transition エッジ）が基準点 |
 | `vd-component:overtake-maneuver` | `vd-component:lane-change-initiation` | 追い越しは車線変更の「動機」を1つ足す層であり、ホップ機構 （ArmLaneChangeHop / ArmResumeMerge / ScanAdjacentLaneGap / EvaluateGapAcceptance / RequiredLaneChangeDistance / ShouldSignalLaneChangeHop）を丸ごと借りている。 ただし**enable フラグは独立**（overtake_enabled と lane_change_initiation_enabled）。 同居させると「経路追従の車線変更だけ欲しい」利用者が追い越しまで有効化してしまうため。 安全弁が ShouldAttemptLaneChangeHop / ShouldSignalLaneChangeHop を呼ぶときだけ cfg.enabled=true に上書きしたコピーを渡す（両関数が enabled を内部で見るため）。 |
 | `req-vd-ad:REQ-AD-024` | `req-vd-ad:REQ-AD-017` | 経路ガードは RouteLanePlan が出す target_lanes / dist_to_connection にそのまま依存する。 **現在バンドの target_lanes には下流の要求が既に畳み込まれている**（BuildRouteLanePlan が 最終ウェイポイントから後ろ向きに伝播させるため）ので、追い越しガードは次のバンドを 先読みする必要が無い。REQ-AD-017 段 a/b が成立していなければこのガードは成立しない。 |
+| `vd-component:intent-layer` | `vd-component:lane-change-initiation` | 投影の素材の依存。単に telemetry を読むだけではなく、**この層のために lane_change.aborted_reason を新設させている**（設計 §3-4）: armed の true→false は完了でも 中止でも起きるため、その1フィールドが COMPLETING と ABORTING を分ける唯一の情報になる。 「生産者のいない語彙値を残さない」という規律から、ABORTING を語彙に入れる条件が このフィールドの同時実装だった。横位置の収束判定（|lane_offset|）も同じ層の観測に依存する。 |
+| `vd-component:intent-layer` | `vd-component:overtake-maneuver` | overtake.phase の6値を IntentPhase へ畳み、blocked_reason の1語（特に "gap"）を blockers[] へ分解する。**追い越しが立っている間 LANE_CHANGE 行は出さない**（設計 §3-1-1）: 追い越しは車線変更のホップ機構を丸ごと借りているので、両方出すと同じ横移動が2行に見える。 上位意図が下位を抑制するというこの関係は、overtake-maneuver -> depends-on -> lane-change-initiation の実装依存が投影の側に現れたものである。 |
+| `vd-component:intent-layer` | `vd-component:route-lane-plan` | LANE_CHANGE / TURN の動機（source="route"）と POSSIBLE の判定が route_lane.valid / on_target_lane に乗る。取り消し理由の rerouted も同層由来。 **診断のみで是正しない**という route-lane-plan の性格がそのまま投影に現れ、 「経路帯から外れているのに移る先が無い」場面が blocker no_target_lane になる。 |
 
 ### merged-into (3)
 
@@ -833,7 +843,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (48)
+### sustained-by (50)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -872,6 +882,8 @@ flowchart LR
 | `vd-func:FUNC-079` | `gate:manualdrive-adas-regression` | AccLonController の統合挙動（gate:unit-ctest は同機能の単体側） |
 | `vd-func:FUNC-080` | `gate:manualdrive-adas-regression` | LaneKeepAssist の統合挙動（gate:unit-ctest は同機能の単体側） |
 | `vd-func:FUNC-081` | `gate:manualdrive-adas-regression` | SpeedLimiter の統合挙動（gate:unit-ctest は同機能の単体側） |
+| `matcher:route_lane_plan_holds` | `gate:route-lane-regression` | 目標レーン帯の算出・逸脱検出・接続点までの是正（req-vd-ad:REQ-AD-017 段 a/b/c）を 6シナリオで常設判定。診断のみ2本と是正4本の両向きが1バッチに入っているので、 発起を黙って殺す変更は是正側4本が落ちる。 |
+| `matcher:indicator_leads_lane_change` | `gate:route-lane-regression` | 自発車線変更に同期した方向指示器の法定リード（req-vd-ad:REQ-AD-018 段 a/b/c）。 本バッチの是正4本が発起するので同じ実行で発火する。 |
 | `matcher:deceleration_profile_smooth` | `gate:anticipation-driving-regression` | decelerate_for_curve / decelerate_for_left_turn / speed_limit_change の3シナリオ。 osi:true で **a=osi の面1直読加速度**（ego_accel_long ●）から bounded decel/jerk を判定。 |
 | `matcher:speed_reduction_before_landmark` | `gate:anticipation-driving-regression` | 4シナリオ（curve/left_turn/speed_limit/traffic_lights）。ランドマーク手前で目標速度到達。 |
 | `matcher:indicator_leads_junction_turn` | `gate:anticipation-driving-regression` | 3シナリオ（decelerate_for_left_turn / junction_turn_signal_long_connector / cross_straight_junction）。このバッチは run_regression_gate.ps1 Step 2.7 と CI の vd-behavioral-regression ジョブの**両方**で走るため、新しい gate を起こさずに ⑥常設を満たせる（junction_turn_signal.md §4-3）。 **req-vd-ad:REQ-AD-018 が sustained-by 未結線のまま放置されている状態を再生産しない** ために、matcher の新設と同じサイクルで結線した（あちらの route_lane_batch.yaml は baseline すら無く、ゲートにも CI にも載っていない孤立 matcher になっている）。 |

@@ -34,6 +34,8 @@
 
 #include "CommonMini.hpp"
 
+#include "gt_esmini/control/virtualdriver/VdIntent.hpp"
+
 namespace scenarioengine
 {
 class Object;
@@ -153,18 +155,69 @@ struct LaneChangeGapSample
     bool   has_rear   = false;
     double gap_rear_m = 0.0;
     double v_rear_mps = 0.0;
+
+    // Which vehicles these are, in the OSI id space (control/common/OsiIdentity.hpp), so a
+    // rejection can name the car rather than just the direction (design vd_intent_layer.md
+    // section 8-1 (c): ScanAdjacentLaneGap already HAS the objects in hand and was throwing
+    // them away). -1 = no vehicle on that side. NOT the scenario entity index -- only the OSI
+    // id joins against a GroundTruth recording, which is what lets a consumer point at the
+    // actual vehicle on screen.
+    int    lead_osi_id = -1;
+    int    rear_osi_id = -1;
+
+    // How deeply the two bodies overlap LONGITUDINALLY, in metres, <= 0. 0.0 means no overlap.
+    //
+    // gap_lead_m / gap_rear_m are floored at 0 by ScanAdjacentLaneGap, so "alongside" is
+    // indistinguishable from "almost touching" in them -- and the gap model itself is
+    // one-dimensional (Position::Delta's ds sign files every vehicle as either ahead or
+    // behind), so a car exactly abreast is reported as a very close leader or a very close
+    // follower. These two fields carry the UNFLOORED value so that case stays visible (design
+    // vd_intent_layer.md section 8-3, and its section 1-4 覆った想定1 for why the floor is
+    // still there).
+    //
+    // Deliberately a SEPARATE field rather than removing the floor from gap_*_m: the acceptance
+    // conditions read only the floored values, so "the accepted verdict is bit-identical" holds
+    // by construction rather than by argument (section 8-7 (1)). The 0.0 default also means a
+    // hand-built sample cannot accidentally look like an overlap -- which a raw unfloored gap
+    // field WOULD do, since gap_lead_m = 5.0 beside a defaulted raw of 0.0 is self-contradictory.
+    double lead_overlap_m = 0.0;
+    double rear_overlap_m = 0.0;
 };
 
 // ScanAdjacentLaneGap's engine-dependent scan, factored out here as an ENGINE-INDEPENDENT pure
 // function of the sample + v_ego + config (design doc section 4's table, verbatim): tests exercise
 // this directly with synthetic samples, no loaded road network required (mirrors
-// LeadVehicleAware's lead_idm:: split). reason is one of "" (accepted) / "lead_gap" / "rear_gap" /
-// "rear_ttc" -- the FIRST condition that failed (design doc's three conditions are evaluated
-// front-to-back; a caller only needs to know why once).
+// LeadVehicleAware's lead_idm:: split).
 struct GapAcceptanceResult
 {
-    bool        accepted = true;
+    bool accepted = true;
+
+    // The FIRST condition that failed, kept for compatibility with everything that already
+    // reads it (telemetry lane_change.gap_reason, LaneChangeInitiationState::last_gap_reason).
+    // "" = accepted. Always equal to blockers.front().code when blockers is non-empty (design
+    // vd_intent_layer.md section 8-7 (2)) -- which is why the evaluation ORDER below must not
+    // change even though the short-circuit is gone.
+    //
+    // Value set: "" / "lead_gap" / "rear_gap" / "rear_ttc" / "side_overlap". The last is NEW:
+    // it replaces lead_gap/rear_gap on the frames where the two bodies actually overlap
+    // longitudinally, which the one-dimensional gap model used to report as a very small
+    // forward or rearward gap (section 8-3). It never changes `accepted` -- an overlapping
+    // body fails the same comparison a zero gap does.
     std::string reason;
+
+    // EVERY condition that failed, in front-to-back evaluation order (design section 8-2 (1)).
+    //
+    // WHY THIS IS A LIST. The old form stopped at the first failure and returned one string, so
+    // "the lane ahead is blocked AND someone is right behind me" collapsed to "lead_gap" -- and
+    // telling those two situations apart is precisely what a driver (or an HMI, or a verifier
+    // asking "how long is this wait going to last") most needs. Evaluating all three conditions
+    // instead of short-circuiting costs two extra comparisons.
+    //
+    // `accepted` is UNCHANGED by this: it is blockers.empty(), which is exactly the old "did we
+    // return early at least once". The control path reads only `accepted`
+    // (ControllerVirtualDriver.cpp), never the reason, so removing the short-circuit cannot
+    // move the vehicle.
+    std::vector<IntentBlocker> blockers;
 };
 GapAcceptanceResult EvaluateGapAcceptance(const LaneChangeGapSample&        gap,
                                           double                            v_ego,
@@ -201,7 +254,34 @@ struct LaneChangeInitiationState
     // disarm so telemetry can show "why not yet" even while armed==false. "" means the last
     // evaluated gap was accepted (or no gap has been evaluated yet this run).
     std::string  last_gap_reason;
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 3-4's "足りない素材": WHY the most
+    // recent hop stopped being armed -- "" when it ran to COMPLETION, one of the three
+    // kAbortReason* tokens below when it was ABORTED mid-flight.
+    //
+    // This one field is the ONLY thing separating those two cases anywhere in the system.
+    // `armed` goes true->false on both paths, and the non-armed telemetry recomputes
+    // n_remaining/required_m from the NEXT hop that is due, so nothing else survives to say
+    // what just happened. The intent layer's COMPLETING-vs-ABORTING split (design section
+    // 3-2-1) rests entirely on it; see that design's section 9-2 item 9, which pins the two
+    // as a matched pair of tests for exactly this reason.
+    //
+    // Set by AbortLaneChangeHop() only, cleared by ArmLaneChangeHop(). DisarmLaneChangeHop()
+    // -- the COMPLETION path -- deliberately does not touch it: that separation is what makes
+    // "completed" the structural default rather than a case someone has to remember to encode.
+    // Kept across the disarm as a breadcrumb, same convention as last_gap_reason above.
+    std::string  aborted_reason;
 };
+
+// Fixed vocabulary for LaneChangeInitiationState::aborted_reason (design section 3-4). These
+// are the three conditions that make up the controller's `suppressed` predicate, in the design
+// doc section 2 priority order -- storyboard lateral action, then resume-merge, then a manual
+// lateral override. One token per condition, never a combined string: a consumer asking "why
+// was the lane change abandoned" needs the specific answer, and a compound value would have to
+// be parsed.
+inline constexpr const char* kAbortReasonStoryboard    = "storyboard";
+inline constexpr const char* kAbortReasonResumeMerge   = "resume_merge";
+inline constexpr const char* kAbortReasonManualLateral = "manual_lateral";
 
 // Begin a hop: latches state.armed=true and every field above. Does NOT touch any ResumeMerge*
 // instance -- the caller arms its own separate ResumeMergeState right alongside this call (design
@@ -212,10 +292,30 @@ void ArmLaneChangeHop(LaneChangeInitiationState& state,
                       int                        direction_step,
                       int                        direction_indicator);
 
-// End the current hop (completion, or a suppression per design doc section 2's priority order:
-// storyboard lateral action running / resume-merge active / manual lateral override). Only `armed`
-// is cleared -- the rest is left in place as a "what was this hop" breadcrumb, same convention as
-// DisarmResumeMerge.
+// End the current hop by COMPLETION. Only `armed` is cleared -- the rest is left in place as a
+// "what was this hop" breadcrumb, same convention as DisarmResumeMerge.
+//
+// aborted_reason is NOT touched here, and that is the point (design vd_intent_layer.md section
+// 3-4): this is the completion path, so "" -- whatever the last arm left behind -- is the
+// correct answer. A suppression must call AbortLaneChangeHop() below instead.
 void DisarmLaneChangeHop(LaneChangeInitiationState& state);
+
+// End the current hop by ABORT (a suppression per design doc section 2's priority order:
+// storyboard lateral action running / resume-merge active / manual lateral override). Does
+// exactly what DisarmLaneChangeHop does -- clears `armed`, touches nothing else -- and
+// additionally records `reason` in state.aborted_reason.
+//
+// Deliberately a SEPARATE function rather than a defaulted argument on DisarmLaneChangeHop:
+// the two call sites in ControllerVirtualDriver mean genuinely different things (design
+// vd_intent_layer.md section 3-2-1's "終わる状態と戻る状態は同じではない"), and a defaulted
+// argument would let a future call site pick the wrong one silently. `reason` should be one of
+// the kAbortReason* tokens above.
+//
+// NOTE this does NOT stop the lateral motion by itself -- neither does DisarmLaneChangeHop.
+// Both only stop the hop's bookkeeping; the caller disarms the ResumeMergeState that is
+// actually generating the offset. Where the body then converges is not controlled (design
+// section 3-2-2), which is why ABORTING is defined as "the aborted lateral motion has not
+// settled on any lane centre yet" rather than "returning to the original lane".
+void AbortLaneChangeHop(LaneChangeInitiationState& state, const std::string& reason);
 
 }  // namespace gt_esmini

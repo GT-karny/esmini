@@ -183,6 +183,22 @@ struct OncomingSample
     bool   has_oncoming   = false;
     double gap_m          = 0.0;  // [m] range to the nearest oncoming vehicle
     double v_oncoming_mps = 0.0;
+    // The oncoming vehicle in the OSI id space (control/common/OsiIdentity.hpp), so a refusal
+    // can name the car it refused for (design vd_intent_layer.md section 8-4). -1 when
+    // has_oncoming is false. Same addition, same reason, as LaneChangeGapSample::lead_osi_id.
+    int    oncoming_osi_id = -1;
+};
+
+// AcceptOncomingGap-with-its-working-shown (design vd_intent_layer.md section 8-2 (3)).
+//
+// The bare bool answers "may I go" but throws away the number that says HOW SHORT the gap was,
+// which is exactly what an intent blocker needs to report ("42 m of room, 88 m needed"). That
+// number was a local inside the predicate -- the same shape of loss PolicyDetail.hpp was
+// created to fix for the policies.
+struct OncomingGapResult
+{
+    bool   accepted       = false;
+    double required_gap_m = 0.0;
 };
 
 // design doc section 7-2: an oncoming vehicle closes at (v_ego + v_oncoming), NOT at the same-
@@ -196,6 +212,14 @@ struct OncomingSample
 // section 7-2's "対向車線の占有時間") -- not derived inside this function, so it stays a pure
 // function of exactly the numbers named in its signature.
 bool AcceptOncomingGap(const OncomingSample& sample, double v_ego_mps, double t_total_s, const OvertakeConfig& cfg);
+
+// The same judgement, with required_gap_m handed back. AcceptOncomingGap above is implemented
+// in terms of THIS function rather than the other way round, so there is exactly one copy of
+// the formula and the reported requirement can never drift from the one that was applied.
+OncomingGapResult AcceptOncomingGapDetailed(const OncomingSample& sample,
+                                            double                v_ego_mps,
+                                            double                t_total_s,
+                                            const OvertakeConfig& cfg);
 
 // design doc section 4: the passing lane is "same direction, one step toward lane id 0" (the
 // centerline side) -- this single rule is correct under BOTH RHT (negative ids: -2 -> -1) and LHT

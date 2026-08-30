@@ -1,5 +1,7 @@
 #include "gt_esmini/control/virtualdriver/LaneChangeInitiation.hpp"
 
+#include "gt_esmini/control/common/OsiIdentity.hpp"
+
 #include "Entities.hpp"
 #include "RoadManager.hpp"
 
@@ -106,14 +108,30 @@ GapAcceptanceResult EvaluateGapAcceptance(const LaneChangeGapSample&        gap,
 {
     GapAcceptanceResult result;
 
+    // design vd_intent_layer.md section 8-2 (1) / 8-7: the three conditions are evaluated in
+    // the SAME front-to-back order as before, but NONE of them returns early any more. What was
+    // "stop at the first failure and name it" is now "collect every failure and name the first"
+    // -- accepted and reason come out identical, and the blockers a caller previously could not
+    // see (the follower sitting behind the leader that was already blocking) are all there.
+
     if (gap.has_lead)
     {
         const double required_lead = std::max(cfg.gap_min_m, v_ego * cfg.gap_headway_lead_s);
         if (gap.gap_lead_m < required_lead)
         {
-            result.accepted = false;
-            result.reason   = "lead_gap";
-            return result;
+            // section 8-3: a NEGATIVE unfloored gap means the two bodies overlap
+            // longitudinally, i.e. the "leader" is really alongside. Only the LABEL changes --
+            // gap_lead_m is floored at 0 and still fails this same comparison, so the verdict
+            // is untouched.
+            const bool    overlapping = gap.lead_overlap_m < 0.0;
+            IntentBlocker blocker;
+            blocker.where          = overlapping ? IntentWhere::SIDE : IntentWhere::FRONT;
+            blocker.subject_osi_id = gap.lead_osi_id;
+            blocker.code           = overlapping ? kBlockerSideOverlap : kBlockerLeadGap;
+            blocker.quantity       = kQuantityGapM;
+            blocker.measured       = overlapping ? gap.lead_overlap_m : gap.gap_lead_m;
+            blocker.required       = required_lead;
+            result.blockers.push_back(blocker);
         }
     }
 
@@ -122,29 +140,50 @@ GapAcceptanceResult EvaluateGapAcceptance(const LaneChangeGapSample&        gap,
         const double required_rear = std::max(cfg.gap_min_m, gap.v_rear_mps * cfg.gap_headway_rear_s);
         if (gap.gap_rear_m < required_rear)
         {
-            result.accepted = false;
-            result.reason   = "rear_gap";
-            return result;
+            const bool    overlapping = gap.rear_overlap_m < 0.0;
+            IntentBlocker blocker;
+            blocker.where          = overlapping ? IntentWhere::SIDE : IntentWhere::REAR;
+            blocker.subject_osi_id = gap.rear_osi_id;
+            blocker.code           = overlapping ? kBlockerSideOverlap : kBlockerRearGap;
+            blocker.quantity       = kQuantityGapM;
+            blocker.measured       = overlapping ? gap.rear_overlap_m : gap.gap_rear_m;
+            blocker.required       = required_rear;
+            result.blockers.push_back(blocker);
         }
 
         // TTC only applies while the follower is actually closing (v_rear > v_ego); a follower
         // that is stationary or slower relative to the ego cannot "catch up" in finite time, so
         // gap_rear_m / (v_rear - v_ego) would be negative or undefined there -- design doc
         // section 4's table gates this condition on "後続車が接近中" for exactly that reason.
+        //
+        // NOTE this now runs even when the rear GAP condition above already failed, which it
+        // could not before. That is the point: "too close AND closing fast" and "too close but
+        // drifting away" are different situations, and the old form could only report the
+        // first. It still cannot divide by zero -- the guard is a strict >.
         if (gap.v_rear_mps > v_ego)
         {
             const double closing = gap.v_rear_mps - v_ego;
             const double ttc     = gap.gap_rear_m / closing;
             if (ttc < cfg.gap_ttc_min_s)
             {
-                result.accepted = false;
-                result.reason   = "rear_ttc";
-                return result;
+                IntentBlocker blocker;
+                blocker.where          = IntentWhere::REAR;
+                blocker.subject_osi_id = gap.rear_osi_id;
+                blocker.code           = kBlockerRearTtc;
+                blocker.quantity       = kQuantityTtcS;
+                blocker.measured       = ttc;
+                blocker.required       = cfg.gap_ttc_min_s;
+                result.blockers.push_back(blocker);
             }
         }
     }
 
-    result.accepted = true;
+    // Identical to the old "returned early at least once": one failing condition is enough.
+    result.accepted = result.blockers.empty();
+    if (!result.accepted)
+    {
+        result.reason = result.blockers.front().code;  // section 8-7 (2)
+    }
     return result;
 }
 
@@ -209,18 +248,28 @@ LaneChangeGapSample ScanAdjacentLaneGap(const Object& ego, const Entities& entit
     {
         const double half_ego_front  = ego.boundingbox_.dimensions_.length_ / 2.0 + ego.boundingbox_.center_.x_;
         const double half_lead_rear  = lead_obj->boundingbox_.dimensions_.length_ / 2.0 - lead_obj->boundingbox_.center_.x_;
-        sample.has_lead   = true;
-        sample.gap_lead_m = std::max(0.0, lead_ds - half_ego_front - half_lead_rear);
-        sample.v_lead_mps = lead_obj->GetSpeed();
+        // Bumper-to-bumper freespace BEFORE the floor. gap_lead_m keeps the floor (every
+        // existing reader expects a non-negative gap); lead_overlap_m keeps the negative half,
+        // which is the only evidence that the "leader" is in fact alongside (design
+        // vd_intent_layer.md section 8-3).
+        const double raw      = lead_ds - half_ego_front - half_lead_rear;
+        sample.has_lead       = true;
+        sample.gap_lead_m     = std::max(0.0, raw);
+        sample.lead_overlap_m = std::min(0.0, raw);
+        sample.v_lead_mps     = lead_obj->GetSpeed();
+        sample.lead_osi_id    = OsiIdOf(lead_obj);
     }
 
     if (rear_obj)
     {
         const double half_ego_rear    = ego.boundingbox_.dimensions_.length_ / 2.0 - ego.boundingbox_.center_.x_;
         const double half_rear_front  = rear_obj->boundingbox_.dimensions_.length_ / 2.0 + rear_obj->boundingbox_.center_.x_;
-        sample.has_rear   = true;
-        sample.gap_rear_m = std::max(0.0, rear_ds - half_ego_rear - half_rear_front);
-        sample.v_rear_mps = rear_obj->GetSpeed();
+        const double raw      = rear_ds - half_ego_rear - half_rear_front;
+        sample.has_rear       = true;
+        sample.gap_rear_m     = std::max(0.0, raw);
+        sample.rear_overlap_m = std::min(0.0, raw);
+        sample.v_rear_mps     = rear_obj->GetSpeed();
+        sample.rear_osi_id    = OsiIdOf(rear_obj);
     }
 
     return sample;
@@ -238,11 +287,24 @@ void ArmLaneChangeHop(LaneChangeInitiationState& state,
     state.direction_step      = direction_step;
     state.direction_indicator = direction_indicator;
     state.last_gap_reason.clear();
+    // design vd_intent_layer.md section 3-4: "次の arm で消す". A fresh hop has not been
+    // aborted, so the breadcrumb from the PREVIOUS one must not leak into it -- otherwise the
+    // intent layer would read a stale abort and call this hop's completion an ABORTING.
+    state.aborted_reason.clear();
 }
 
 void DisarmLaneChangeHop(LaneChangeInitiationState& state)
 {
     state.armed = false;
+}
+
+void AbortLaneChangeHop(LaneChangeInitiationState& state, const std::string& reason)
+{
+    // Same single write DisarmLaneChangeHop makes -- the abort path must not differ from the
+    // completion path in anything the CONTROL side can see (design vd_intent_layer.md's
+    // "既存挙動はビット単位で不変" requirement); the reason string is observation only.
+    state.armed          = false;
+    state.aborted_reason = reason;
 }
 
 }  // namespace gt_esmini

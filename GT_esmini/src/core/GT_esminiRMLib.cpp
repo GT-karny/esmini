@@ -343,9 +343,17 @@ static Position::RouteStrategy MapRouteStrategy(int strategy)
     }
 }
 
-GT_RM_DLL_API int GT_RM_CalcRoute(uint32_t startRoadId, int startLaneId, double startS,
-                                  uint32_t targetRoadId, int targetLaneId, double targetS,
-                                  int routeStrategy)
+// Shared implementation. startHRelative selects the SEARCH DIRECTION off the start
+// road: LaneIndependentRouter::CalculatePath derives isInForwardDirection from
+// start.GetHRelative() and follows the SUCCESSOR link when forward, the PREDECESSOR
+// link otherwise (LaneIndependentRouter.cpp, "isInForwardDirection"). A Position that
+// was merely SetLanePos'd has hRelative == 0.0 (Position::Init()'s default), i.e.
+// "+s", so a route whose first hop leaves via the start road's PREDECESSOR end is
+// unreachable unless the caller says so. Same trap RouteLanePlan::Build works around
+// by carrying the original waypoint's heading.
+static int CalcRouteImpl(uint32_t startRoadId, int startLaneId, double startS,
+                         uint32_t targetRoadId, int targetLaneId, double targetS,
+                         int routeStrategy, double startHRelative)
 {
     g_routeWaypoints.clear();
     g_routeLaneChanges.clear();
@@ -356,6 +364,7 @@ GT_RM_DLL_API int GT_RM_CalcRoute(uint32_t startRoadId, int startLaneId, double 
 
     Position startPos;
     startPos.SetLanePos(static_cast<id_t>(startRoadId), startLaneId, startS, 0.0);
+    startPos.SetHeadingRelative(startHRelative);
 
     Position targetPos;
     targetPos.SetLanePos(static_cast<id_t>(targetRoadId), targetLaneId, targetS, 0.0);
@@ -389,6 +398,49 @@ GT_RM_DLL_API int GT_RM_CalcRoute(uint32_t startRoadId, int startLaneId, double 
     g_routeLength      = path.back().weight;
 
     return static_cast<int>(g_routeWaypoints.size());
+}
+
+GT_RM_DLL_API int GT_RM_CalcRoute(uint32_t startRoadId, int startLaneId, double startS,
+                                  uint32_t targetRoadId, int targetLaneId, double targetS,
+                                  int routeStrategy)
+{
+    // Unchanged behaviour (hRelative 0.0 == search along +s only). Kept as-is so the
+    // WASM binding and any existing caller keep their exact semantics; new callers
+    // that care about direction should use GT_RM_CalcRouteH.
+    return CalcRouteImpl(startRoadId, startLaneId, startS, targetRoadId, targetLaneId, targetS, routeStrategy, 0.0);
+}
+
+GT_RM_DLL_API int GT_RM_CalcRouteH(uint32_t startRoadId, int startLaneId, double startS,
+                                   uint32_t targetRoadId, int targetLaneId, double targetS,
+                                   int routeStrategy, double startHRelative)
+{
+    return CalcRouteImpl(startRoadId,
+                         startLaneId,
+                         startS,
+                         targetRoadId,
+                         targetLaneId,
+                         targetS,
+                         routeStrategy,
+                         startHRelative);
+}
+
+GT_RM_DLL_API int GT_RM_GetLaneDrivingDirection(uint32_t roadId, int laneId, double s)
+{
+    OpenDrive* odr = GetODR();
+    if (!odr) return 0;
+
+    Road* road = odr->GetRoadById(static_cast<id_t>(roadId));
+    if (!road) return 0;
+
+    Position pos;
+    if (pos.SetLanePos(static_cast<id_t>(roadId), laneId, s, 0.0) != Position::ReturnCode::OK)
+    {
+        return 0;
+    }
+
+    // Delegates to the one place that folds the road's RoadRule (LHT/RHT) into the
+    // lane-sign convention -- do not re-derive "negative lane id means +s" caller-side.
+    return pos.GetDrivingDirectionRelativeRoad();
 }
 
 GT_RM_DLL_API int GT_RM_GetRouteWaypointCount()

@@ -108,16 +108,32 @@ OvertakeRouteGuardResult EvaluateOvertakeRouteGuard(const OvertakeRouteGuardInpu
 
 bool AcceptOncomingGap(const OncomingSample& sample, double v_ego_mps, double t_total_s, const OvertakeConfig& cfg)
 {
+    // Delegates so the formula exists exactly once. If this had kept its own copy, the number a
+    // blocker REPORTS as required could drift from the number the maneuver actually APPLIED,
+    // and the diagnostic would quietly stop describing the decision it claims to explain.
+    return AcceptOncomingGapDetailed(sample, v_ego_mps, t_total_s, cfg).accepted;
+}
+
+OncomingGapResult AcceptOncomingGapDetailed(const OncomingSample& sample,
+                                            double                v_ego_mps,
+                                            double                t_total_s,
+                                            const OvertakeConfig& cfg)
+{
+    OncomingGapResult result;
     if (!sample.has_oncoming)
     {
-        return true;
+        // No oncoming vehicle: accepted, and required_gap_m stays 0 because there is no
+        // requirement to state -- not because the requirement happens to be zero.
+        result.accepted = true;
+        return result;
     }
 
     // Deliberately NOT EvaluateGapAcceptance's forward-gap formula (design doc section 7-2): an
     // oncoming vehicle closes at (v_ego + v_oncoming), not at a same-direction headway rate, so
     // reusing that formula here would silently drop the oncoming vehicle's own closing speed.
-    const double required_gap_m = (v_ego_mps + sample.v_oncoming_mps) * t_total_s * cfg.oncoming_safety_factor;
-    return sample.gap_m >= required_gap_m;
+    result.required_gap_m = (v_ego_mps + sample.v_oncoming_mps) * t_total_s * cfg.oncoming_safety_factor;
+    result.accepted       = sample.gap_m >= result.required_gap_m;
+    return result;
 }
 
 int OvertakePassingLaneId(int current_lane_id)

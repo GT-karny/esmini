@@ -101,6 +101,14 @@ thirdparty/osi-python/
 # into GT_esmini must carry its own attribution rather than vendoring these.
 thirdparty/parking_literature/
 
+# SUMO netconvert build (scripts/generate_sumo_netconvert.sh).
+# Sources + build trees, and the resulting binaries. Deliberately NOT committed
+# and NOT shipped in the distribution ZIP: SUMO is EPL-2.0, and the --lht build
+# is a Modified Work, so keeping the binaries out of the repo and the package
+# avoids the accompanying source/notice obligations entirely.
+thirdparty/sumo-build/
+thirdparty/sumo-tools/
+
 # Claude Code skills (external toolkits)
 .claude/skills/skill-creator/
 

@@ -15,7 +15,14 @@ from GT_esmini.web.backend.config import ESMINI_RM_LIB
 logger = logging.getLogger(__name__)
 
 # esminiRMLib is a global singleton — only one xodr at a time.
-_lock = threading.Lock()
+#
+# PUBLIC on purpose: ctypes.CDLL returns the SAME loaded module for a given path, so
+# every service that constructs EsminiRMLib in this process shares one OpenDrive.
+# Two of them Init()-ing different xodr files concurrently would silently answer from
+# the wrong map. Any new caller must take THIS lock, not one of its own —
+# route_planner_service does.
+ESMINI_RM_LOCK = threading.Lock()
+_lock = ESMINI_RM_LOCK  # backward-compatible alias for existing call sites
 
 # Cache: xodr absolute path → geometry dict
 _cache: dict[str, dict] = {}

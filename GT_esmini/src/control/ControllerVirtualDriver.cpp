@@ -980,6 +980,9 @@ void ControllerVirtualDriver::Step(double timeStep)
     double      lc_diag_dist_to_connection = -1.0;
     bool        lc_diag_gap_accepted       = false;
     std::string lc_diag_gap_reason;
+    // vd_intent_layer.md section 8-2: every failing gap condition, not just the first.
+    // Published alongside lc_diag_gap_reason (which stays == blockers[0].code).
+    std::vector<IntentBlocker> lc_diag_blockers;
 
     // vd-func:FUNC-056 AD overtake maneuver (docs/virtualdriver/design/overtake_maneuver.md).
     // Diagnostics-only locals, same convention as lc_diag_* above: computed every frame this
@@ -996,6 +999,10 @@ void ControllerVirtualDriver::Step(double timeStep)
     double      ot_diag_route_budget_m = -1.0;
     std::string ot_diag_blocked_reason;
     bool        ot_diag_cleared_lead   = false;
+    // vd_intent_layer.md section 8-4: the decomposition of ot_diag_blocked_reason. The coarse
+    // token stays exactly as it was (the overtake matchers read it); this carries the same
+    // refusal broken out per obstacle, with the vehicle and the measured-vs-required pair.
+    std::vector<IntentBlocker> ot_diag_blockers;
 
     if (lc_init_cfg_.enabled || ot_cfg_.enabled)
     {
@@ -1022,7 +1029,18 @@ void ControllerVirtualDriver::Step(double timeStep)
             // Abort the in-progress hop (design doc section 2: "進行中なら中止" for all three
             // suppression triggers). No fourth disarm trigger is added to resume-merge's own
             // state machine -- that direction is closed by design (section 9's scope table).
-            DisarmLaneChangeHop(lc_init_state_);
+            //
+            // AbortLaneChangeHop, NOT DisarmLaneChangeHop: this is the ABORT path, and
+            // vd_intent_layer.md section 3-4 needs it distinguishable from the completion
+            // disarm further down (which stays DisarmLaneChangeHop). The three tokens below
+            // are `suppressed`'s own three constituent conditions, tested in the design doc
+            // section 2 priority order so the reported reason is the one that actually
+            // pre-empted the hop when more than one holds at once. Control-side behaviour is
+            // unchanged -- both functions clear exactly `armed`.
+            AbortLaneChangeHop(lc_init_state_,
+                               has_lateral_storyboard_action ? kAbortReasonStoryboard
+                               : resume_merge_state_.active  ? kAbortReasonResumeMerge
+                                                             : kAbortReasonManualLateral);
             DisarmResumeMerge(lc_merge_state_);
         }
 
@@ -1063,6 +1081,18 @@ void ControllerVirtualDriver::Step(double timeStep)
                 diag_hop            = ComputeLaneHopPlan(reference_lane, route_lane_status.target_lanes);
                 lc_diag_n_remaining = diag_hop.valid ? diag_hop.n_remaining : 0;
                 lc_diag_required_m  = RequiredLaneChangeDistance(lc_diag_n_remaining, ego_speed, lc_init_cfg_);
+
+                // vd_intent_layer.md section 8-4. The route says the ego is outside the target
+                // lane band, yet offers no lane to move into (an empty band) -- so the lane
+                // change is not merely waiting for a gap, it has nowhere to go. Without this the
+                // situation is silent in both directions: no hop is planned, so no gap is ever
+                // evaluated, so blockers[] would stay empty and read as "nothing in the way".
+                if (!route_lane_status.on_target_lane && !diag_hop.valid)
+                {
+                    IntentBlocker blocker;
+                    blocker.code = kBlockerNoTargetLane;  // where stays NONE: not about a vehicle
+                    lc_diag_blockers.push_back(blocker);
+                }
             }
             // route_lane_status.dist_to_connection already carries the right value regardless of
             // armed state -- route_lane's own telemetry (11c.) publishes this same number every
@@ -1089,6 +1119,9 @@ void ControllerVirtualDriver::Step(double timeStep)
         OvertakeRouteGuardResult ot_guard;
         int                   ot_direction_step      = 0;
         bool                  ot_gap_or_oncoming_ok  = false;
+        // Per-obstacle rows behind the coarse "gap"/"oncoming" token (section 8-4),
+        // filled by whichever of the two entry-gap branches below actually runs.
+        std::vector<IntentBlocker> ot_gap_blockers;
 
         if (ot_cfg_.enabled)
         {
@@ -1166,13 +1199,34 @@ void ControllerVirtualDriver::Step(double timeStep)
                 {
                     const double ot_t_total = lc_merge_cfg_.duration_max_s * 2.0 + ot_trigger.t_pass_s;
                     const OncomingSample ot_oncoming = ScanOncomingGap(ot_direction_step, ot_cfg_.oncoming_lookahead_m);
-                    ot_gap_or_oncoming_ok = AcceptOncomingGap(ot_oncoming, ego_speed, ot_t_total, ot_cfg_);
+                    // ...Detailed, so the blocker below can report the required gap the decision
+                    // actually used instead of recomputing it (vd_intent_layer.md section 8-2 (3)).
+                    // The accepted verdict is the same function, unchanged.
+                    const OncomingGapResult ot_onc =
+                        AcceptOncomingGapDetailed(ot_oncoming, ego_speed, ot_t_total, ot_cfg_);
+                    ot_gap_or_oncoming_ok = ot_onc.accepted;
+                    if (!ot_onc.accepted)
+                    {
+                        IntentBlocker blocker;
+                        blocker.where          = IntentWhere::ONCOMING;
+                        blocker.subject_osi_id = ot_oncoming.oncoming_osi_id;
+                        blocker.code           = kBlockerOncomingGap;
+                        blocker.quantity       = kQuantityGapM;
+                        blocker.measured       = ot_oncoming.gap_m;
+                        blocker.required       = ot_onc.required_gap_m;
+                        ot_gap_blockers.push_back(blocker);
+                    }
                 }
                 else
                 {
                     const LaneChangeGapSample ot_gap =
                         ScanAdjacentLaneGap(*object_, *entities_, ot_direction_step, vd_config_.idm_lookahead);
-                    ot_gap_or_oncoming_ok = EvaluateGapAcceptance(ot_gap, ego_speed, lc_init_cfg_).accepted;
+                    // Same call, same verdict; the result now also carries WHICH conditions
+                    // failed, which is what turns overtake's single "gap" token into the
+                    // front / rear / alongside breakdown of section 8-4.
+                    const GapAcceptanceResult ot_gr = EvaluateGapAcceptance(ot_gap, ego_speed, lc_init_cfg_);
+                    ot_gap_or_oncoming_ok = ot_gr.accepted;
+                    ot_gap_blockers       = ot_gr.blockers;
                 }
             }
 
@@ -1202,6 +1256,37 @@ void ControllerVirtualDriver::Step(double timeStep)
             else
             {
                 ot_diag_blocked_reason = "";
+            }
+
+            // vd_intent_layer.md section 8-4. Built from the SAME branch that decided
+            // ot_diag_blocked_reason just above, so the two can never disagree about why the
+            // pass is not happening; this one simply says more. Empty whenever
+            // ot_diag_blocked_reason is "" -- there is nothing to report blocking then.
+            if (ot_diag_blocked_reason == kBlockerSuppressed)
+            {
+                IntentBlocker blocker;
+                blocker.code = kBlockerSuppressed;  // where stays NONE: not about another vehicle
+                ot_diag_blockers.push_back(blocker);
+            }
+            else if (ot_diag_blocked_reason == kBlockerNoPassingLane)
+            {
+                IntentBlocker blocker;
+                blocker.code = kBlockerNoPassingLane;
+                ot_diag_blockers.push_back(blocker);
+            }
+            else if (ot_diag_blocked_reason == kBlockerRouteBudget)
+            {
+                IntentBlocker blocker;
+                blocker.code     = kBlockerRouteBudget;
+                blocker.quantity = kQuantityBudgetM;
+                blocker.measured = route_lane_status.dist_to_connection;  // room actually left
+                blocker.required = ot_guard.required_m;                   // room the pass needs
+                ot_diag_blockers.push_back(blocker);
+            }
+            else if (!ot_diag_blocked_reason.empty())
+            {
+                // "gap" / "oncoming": the per-obstacle rows collected above.
+                ot_diag_blockers = ot_gap_blockers;
             }
 
             ot_diag_considered     = ot_trigger.considered;
@@ -1283,6 +1368,7 @@ void ControllerVirtualDriver::Step(double timeStep)
                         const GapAcceptanceResult gr = EvaluateGapAcceptance(gap, ego_speed, lc_init_cfg_);
                         lc_diag_gap_accepted           = gr.accepted;
                         lc_diag_gap_reason             = gr.reason;
+                        lc_diag_blockers               = gr.blockers;
                         lc_init_state_.last_gap_reason = gr.reason;
 
                         if (gr.accepted)
@@ -2103,6 +2189,35 @@ void ControllerVirtualDriver::Step(double timeStep)
         maneuver_dir = DetectJunctionTurn(dstate.speed, timeStep, junction_turn_result);
     }
     ictx.maneuver_dir = maneuver_dir;
+
+    // docs/virtualdriver/design/vd_intent_layer.md section 7. OBSERVATION-only scan, run
+    // OUTSIDE the `maneuver_dir == 0` gate above and AFTER ictx.maneuver_dir has already been
+    // fixed, so there is no way for it to reach the indicator even by accident.
+    //
+    // Two things it fixes, neither of which the gated scan can:
+    //   * range -- RouteLookaheadNextJunctionTurn walks past ordinary road boundaries, so a turn
+    //     several roads ahead is visible (the gated one stops at the first boundary; see
+    //     JunctionTurn.hpp);
+    //   * coverage -- the gated scan does not run at all on frames where a lane change owns the
+    //     indicator, so junction_turn goes blank mid-lane-change (design section 2-4).
+    //
+    // Default OFF (intent_turn_lookahead_m == 0.0): the scan costs ~150 MoveAlongS calls per
+    // frame at 300 m, unlike the projection itself which is free.
+    JunctionTurnSnapshot junction_turn_observed;
+    if (vd_config_.intent_turn_lookahead_m > 0.0 && object_ != nullptr)
+    {
+        if (roadmanager::OpenDrive* odr_obs = roadmanager::Position::GetOpenDrive())
+        {
+            const JunctionTurnLookahead observed =
+                RouteLookaheadNextJunctionTurn(object_->pos_,
+                                               odr_obs,
+                                               vd_config_.intent_turn_lookahead_m,
+                                               std::max(0.1, vd_config_.intent_turn_scan_step_m));
+            junction_turn_observed.dir             = observed.dir;
+            junction_turn_observed.dist_to_entry_m = observed.dist_to_entry;
+            junction_turn_observed.on_connector    = observed.on_connector;
+        }
+    }
     ictx.sim_time     = sim_time_;
     ictx.manual_left  = manual_ind.left_on;
     ictx.manual_right = manual_ind.right_on;
@@ -2276,7 +2391,17 @@ void ControllerVirtualDriver::Step(double timeStep)
     // (docs/virtualdriver/design/junction_turn_signal.md section 3-4). Mirrors the
     // raw lookahead DetectJunctionTurn handed back above -- stays at its struct
     // defaults (0/-1.0/false) while a lane change owns the indicator this frame.
+    // vd_intent_layer.md section 3-3. Straight from the latch ApplyLights (section 10 above,
+    // which has already run this frame) drives the lamp with -- not re-derived from cmd.brake,
+    // which would lose the debounce and disagree with the light on exactly the frames the
+    // debounce is there for.
+    telemetry_.brake_light_on = brake_light_on_;
+
     telemetry_.junction_turn = junction_turn_result;
+    // vd_intent_layer.md section 7. Deliberately a SECOND block rather than a widening of the
+    // one above: that one is the legally-meaningful signal lookahead and REQ-AD-021 verifies
+    // against it, so its contract must not move. All defaults when the scan is off.
+    telemetry_.junction_turn_observed = junction_turn_observed;
 
     // feature:F7 resume-merge telemetry (design doc
     // resume_merge_trajectory_design.md section 8-6). Controller-owned merge
@@ -2365,11 +2490,17 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.lane_change.dist_to_connection  = lc_diag_dist_to_connection;
     telemetry_.lane_change.gap_accepted        = lc_diag_gap_accepted;
     telemetry_.lane_change.gap_reason          = lc_diag_gap_reason;
+    telemetry_.lane_change.blockers            = lc_diag_blockers;
     // design doc section 11-8: signal_active is true whenever the AD-LC path is requesting the
     // indicator, whether pre-signaling or already armed -- lc_signal_dir_ is 0 in neither case and
     // permanently 0 when lc_init_cfg_.enabled is false (see the header doc on lc_signal_dir_), so
     // this needs no separate enabled check.
     telemetry_.lane_change.signal_active       = (lc_signal_dir_ != 0);
+    // vd_intent_layer.md section 3-4. Published straight from the latch (not from a local),
+    // because it is deliberately a breadcrumb that OUTLIVES the frame the abort happened on --
+    // the lateral motion an abort leaves behind takes several frames to settle, and the intent
+    // layer needs to keep calling that stretch ABORTING for its whole duration.
+    telemetry_.lane_change.aborted_reason      = lc_init_state_.aborted_reason;
 
     // 11e. vd-func:FUNC-056 AD overtake maneuver telemetry (OvertakeManeuver.hpp). Computed above
     // (before the is_integrator gate, into the ot_diag_* locals) but published only here, same
@@ -2384,7 +2515,25 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.overtake.required_m     = ot_diag_required_m;
     telemetry_.overtake.route_budget_m = ot_diag_route_budget_m;
     telemetry_.overtake.blocked_reason = ot_diag_blocked_reason;
+    telemetry_.overtake.blockers       = ot_diag_blockers;
     telemetry_.overtake.cleared_lead   = ot_diag_cleared_lead;
+
+    // 11f. The intent layer (docs/virtualdriver/design/vd_intent_layer.md).
+    //
+    // LAST on purpose (design section 2-4). It reads the FINISHED telemetry_ and nothing else --
+    // policy constraints, the mid/long profile, lane_change, overtake, junction_turn, the brake
+    // lamp -- and folds the four separate maneuver vocabularies above into one. Running it any
+    // earlier would mean projecting a half-filled frame.
+    //
+    // Read-only: nothing it produces reaches a pedal or a steering command, which is why it can
+    // default ON. The only part that costs anything is the junction observation scan (section 7),
+    // and that has its own key defaulting to OFF.
+    {
+        const VdIntentFrame intent_frame =
+            ProjectVdIntents(vd_intent_state_, telemetry_, timeStep, vd_config_.IntentConfig());
+        telemetry_.intents        = intent_frame.intents;
+        telemetry_.intent_reasons = intent_frame.reasons;
+    }
 
     // 12. Base controller step
     scenarioengine::Controller::Step(timeStep);
@@ -2592,9 +2741,10 @@ OncomingSample ControllerVirtualDriver::ScanOncomingGap(int direction_step, doub
     const double half_ego     = object_->boundingbox_.dimensions_.length_ / 2.0 + object_->boundingbox_.center_.x_;
     const double half_nearest = nearest->boundingbox_.dimensions_.length_ / 2.0 + nearest->boundingbox_.center_.x_;
 
-    sample.has_oncoming   = true;
-    sample.gap_m          = std::max(0.0, nearest_ds - half_ego - half_nearest);
-    sample.v_oncoming_mps = nearest->GetSpeed();
+    sample.has_oncoming    = true;
+    sample.gap_m           = std::max(0.0, nearest_ds - half_ego - half_nearest);
+    sample.v_oncoming_mps  = nearest->GetSpeed();
+    sample.oncoming_osi_id = OsiIdOf(nearest);
     return sample;
 }
 

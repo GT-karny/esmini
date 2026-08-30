@@ -2,6 +2,7 @@
 # Original source kept as a thin shim in DriverScript/realdriver/rm_lib.py for backward compatibility.
 
 import ctypes
+import math
 import os
 import sys
 
@@ -160,6 +161,44 @@ class RM_GeoReference(ctypes.Structure):
         ("towgs84_", ctypes.c_int),
         ("original_georef_str_", ctypes.c_char_p),
     ]
+
+
+# ---------------------------------------------------------------------------
+# GT lane-change-aware route calculation (GtOdrMetadataLib, GT_esminiLib.dll).
+# Field order MUST mirror GT_RM_RouteWaypoint / GT_RM_LaneChange in
+# GT_esmini/include/gt_esmini/core/GT_esminiRMLib.hpp -- ctypes reads these by
+# offset, so a reordering there silently yields garbage here.
+# ---------------------------------------------------------------------------
+class GT_RM_RouteWaypoint(ctypes.Structure):
+    _fields_ = [
+        ("roadId", id_t),
+        ("junctionId", id_t),  # 0xFFFFFFFF when not in a junction
+        ("laneId", ctypes.c_int),
+        ("s", ctypes.c_double),
+        ("x", ctypes.c_double),
+        ("y", ctypes.c_double),
+        ("z", ctypes.c_double),
+        ("h", ctypes.c_double),
+    ]
+
+
+class GT_RM_LaneChange(ctypes.Structure):
+    _fields_ = [
+        ("roadId", id_t),
+        ("s", ctypes.c_double),  # road-entry s; change should complete before road end
+        ("fromLaneId", ctypes.c_int),
+        ("toLaneId", ctypes.c_int),
+    ]
+
+
+# Route strategies -- mirror the GT_RM_ROUTE_* defines in GT_esminiRMLib.hpp.
+GT_RM_ROUTE_SHORTEST = 0
+GT_RM_ROUTE_FASTEST = 1
+GT_RM_ROUTE_MIN_INTERSECTIONS = 2
+
+# GT_RM_CalcRoute return codes (negative). Positive values are waypoint counts.
+GT_RM_ROUTE_ERR_ARGS = -1  # bad map / bad arguments
+GT_RM_ROUTE_ERR_NO_ROUTE = -2  # map fine, but no lane-connected path exists
 
 
 # RM_PositionMode enum values
@@ -1062,6 +1101,29 @@ class GtOdrMetadataLib:
         "GT_RM_GetVirtualJunctionsJson",
     )
 
+    # Lane-change-aware route calculation (LaneIndependentRouter). OPTIONAL for the
+    # same reason as _JSON_FUNCS_OPTIONAL: a DLL predating these exports must still
+    # load, with CalcRoute reporting the absence rather than raising at import time.
+    # These do NOT share the JSON buffer protocol -- each is signed individually in
+    # _setup_signatures.
+    _ROUTE_FUNCS_OPTIONAL = (
+        "GT_RM_CalcRoute",
+        "GT_RM_GetRouteWaypointCount",
+        "GT_RM_GetRouteWaypoint",
+        "GT_RM_GetRouteLength",
+        "GT_RM_GetLaneChangeCount",
+        "GT_RM_GetLaneChange",
+    )
+
+    # Direction-aware additions. Detected SEPARATELY from _ROUTE_FUNCS_OPTIONAL so a
+    # DLL carrying only the original six still reports HasRouteApi() == True and keeps
+    # working -- folding these into that set would demote such a build to "no route
+    # API at all", which is a bigger lie than "no direction control".
+    _ROUTE_DIR_FUNCS_OPTIONAL = (
+        "GT_RM_CalcRouteH",
+        "GT_RM_GetLaneDrivingDirection",
+    )
+
     def __init__(self, lib_path):
         """Initialize the wrapper.
 
@@ -1116,6 +1178,67 @@ class GtOdrMetadataLib:
                 fn.argtypes = [ctypes.c_char_p, ctypes.c_int]
                 fn.restype = ctypes.c_int
             self._optional_funcs[name] = fn
+
+        # Optional route exports. Present as a SET: CalcRoute without the getters is
+        # useless, so has_route_api() requires all six rather than probing each call.
+        self._has_route_api = all(
+            hasattr(self.lib, name) for name in self._ROUTE_FUNCS_OPTIONAL
+        )
+        if self._has_route_api:
+            self.lib.GT_RM_CalcRoute.argtypes = [
+                id_t,  # startRoadId
+                ctypes.c_int,  # startLaneId
+                ctypes.c_double,  # startS
+                id_t,  # targetRoadId
+                ctypes.c_int,  # targetLaneId
+                ctypes.c_double,  # targetS
+                ctypes.c_int,  # routeStrategy
+            ]
+            self.lib.GT_RM_CalcRoute.restype = ctypes.c_int
+
+            self.lib.GT_RM_GetRouteWaypointCount.argtypes = []
+            self.lib.GT_RM_GetRouteWaypointCount.restype = ctypes.c_int
+
+            self.lib.GT_RM_GetRouteWaypoint.argtypes = [
+                ctypes.c_int,
+                ctypes.POINTER(GT_RM_RouteWaypoint),
+            ]
+            self.lib.GT_RM_GetRouteWaypoint.restype = ctypes.c_int
+
+            self.lib.GT_RM_GetRouteLength.argtypes = []
+            self.lib.GT_RM_GetRouteLength.restype = ctypes.c_double
+
+            self.lib.GT_RM_GetLaneChangeCount.argtypes = []
+            self.lib.GT_RM_GetLaneChangeCount.restype = ctypes.c_int
+
+            self.lib.GT_RM_GetLaneChange.argtypes = [
+                ctypes.c_int,
+                ctypes.POINTER(GT_RM_LaneChange),
+            ]
+            self.lib.GT_RM_GetLaneChange.restype = ctypes.c_int
+
+        self._has_route_dir_api = self._has_route_api and all(
+            hasattr(self.lib, name) for name in self._ROUTE_DIR_FUNCS_OPTIONAL
+        )
+        if self._has_route_dir_api:
+            self.lib.GT_RM_CalcRouteH.argtypes = [
+                id_t,  # startRoadId
+                ctypes.c_int,  # startLaneId
+                ctypes.c_double,  # startS
+                id_t,  # targetRoadId
+                ctypes.c_int,  # targetLaneId
+                ctypes.c_double,  # targetS
+                ctypes.c_int,  # routeStrategy
+                ctypes.c_double,  # startHRelative
+            ]
+            self.lib.GT_RM_CalcRouteH.restype = ctypes.c_int
+
+            self.lib.GT_RM_GetLaneDrivingDirection.argtypes = [
+                id_t,
+                ctypes.c_int,
+                ctypes.c_double,
+            ]
+            self.lib.GT_RM_GetLaneDrivingDirection.restype = ctypes.c_int
 
     # =========================================================================
     # Initialization / Management
@@ -1199,3 +1322,206 @@ class GtOdrMetadataLib:
         if fn is None:
             return {}
         return self._get_json(fn)
+
+    # =========================================================================
+    # Lane-change-aware route calculation (roadmanager::LaneIndependentRouter)
+    #
+    # Unlike the road-level RoadPath that Route::AddWaypoint uses, this router
+    # verifies lane connectivity at EVERY hop, so it finds (and only finds)
+    # routes the vehicle can actually drive. That is what makes it usable for
+    # "give me a route between these two points" -- RoadPath would happily
+    # return a path whose final hop needs a lane change it never checked.
+    # =========================================================================
+
+    def HasRouteApi(self):
+        """True when the loaded DLL exports the full GT_RM_CalcRoute getter set.
+
+        Callers should branch on this rather than catching AttributeError: a
+        DLL built before commit 05ec5b48 loads fine but has none of them.
+        """
+        return self._has_route_api
+
+    def CalcRoute(
+        self,
+        start_road_id,
+        start_lane_id,
+        start_s,
+        target_road_id,
+        target_lane_id,
+        target_s,
+        route_strategy=GT_RM_ROUTE_SHORTEST,
+    ):
+        """Calculate a lane-change-aware route. Result is cached inside the DLL.
+
+        Returns the waypoint count (>= 0), or GT_RM_ROUTE_ERR_ARGS (-1) /
+        GT_RM_ROUTE_ERR_NO_ROUTE (-2). Read the result with GetRouteWaypoints()
+        and GetLaneChanges().
+
+        Raises:
+            RuntimeError: the DLL lacks the route exports (see HasRouteApi).
+        """
+        if not self._has_route_api:
+            raise RuntimeError(
+                "GT_esminiLib lacks the lane-change-aware route exports "
+                "(GT_RM_CalcRoute et al.); rebuild GT_esminiLib.dll (Protocol A)."
+            )
+        return self.lib.GT_RM_CalcRoute(
+            start_road_id,
+            start_lane_id,
+            start_s,
+            target_road_id,
+            target_lane_id,
+            target_s,
+            route_strategy,
+        )
+
+    def HasRouteDirectionApi(self):
+        """True when the DLL also exports GT_RM_CalcRouteH / GT_RM_GetLaneDrivingDirection.
+
+        False on a DLL that has the original route API but predates the direction-aware
+        additions -- such a build can only find routes leaving the start road's
+        SUCCESSOR end (see CalcRouteInDrivingDirection).
+        """
+        return self._has_route_dir_api
+
+    def GetLaneDrivingDirection(self, road_id, lane_id, s):
+        """Legal driving direction of a lane relative to the road's s-axis.
+
+        Returns +1 (drives +s), -1 (drives -s), or 0 on error / when the DLL predates
+        this export. Folds the road's RoadRule (LHT/RHT) -- do NOT re-derive this from
+        the lane-id sign caller-side, or LHT maps will silently route backwards.
+        """
+        if not self._has_route_dir_api:
+            return 0
+        return int(self.lib.GT_RM_GetLaneDrivingDirection(road_id, lane_id, s))
+
+    def CalcRouteH(
+        self,
+        start_road_id,
+        start_lane_id,
+        start_s,
+        target_road_id,
+        target_lane_id,
+        target_s,
+        route_strategy=GT_RM_ROUTE_SHORTEST,
+        start_h_relative=0.0,
+    ):
+        """CalcRoute with an explicit start heading relative to the road s-direction.
+
+        LaneIndependentRouter derives its search direction from this: forward
+        (< pi/2 or > 3pi/2) follows the start road's SUCCESSOR link, otherwise the
+        PREDECESSOR link. Plain CalcRoute leaves it at 0.0, so it can only ever find
+        routes leaving via the successor end.
+
+        Raises:
+            RuntimeError: the DLL lacks GT_RM_CalcRouteH (see HasRouteDirectionApi).
+        """
+        if not self._has_route_dir_api:
+            raise RuntimeError(
+                "GT_esminiLib lacks GT_RM_CalcRouteH; rebuild GT_esminiLib.dll "
+                "(Protocol A) to get direction-aware routing."
+            )
+        return self.lib.GT_RM_CalcRouteH(
+            start_road_id,
+            start_lane_id,
+            start_s,
+            target_road_id,
+            target_lane_id,
+            target_s,
+            route_strategy,
+            start_h_relative,
+        )
+
+    def CalcRouteInDrivingDirection(
+        self,
+        start_road_id,
+        start_lane_id,
+        start_s,
+        target_road_id,
+        target_lane_id,
+        target_s,
+        route_strategy=GT_RM_ROUTE_SHORTEST,
+    ):
+        """Route that departs in the start lane's LEGAL driving direction.
+
+        This is what a navigation query almost always wants: the driver leaves the
+        start point going the way that lane is legally driven, not "whichever way +s
+        happens to point". Falls back to plain CalcRoute on a DLL without the
+        direction API, which reproduces the old +s-only behaviour rather than failing.
+        """
+        if not self._has_route_dir_api:
+            return self.CalcRoute(
+                start_road_id,
+                start_lane_id,
+                start_s,
+                target_road_id,
+                target_lane_id,
+                target_s,
+                route_strategy,
+            )
+        direction = self.GetLaneDrivingDirection(start_road_id, start_lane_id, start_s)
+        # Mirrors Position::SetRouteWaypointDir's own mapping (RoadManager.hpp).
+        h_rel = math.pi if direction < 0 else 0.0
+        return self.CalcRouteH(
+            start_road_id,
+            start_lane_id,
+            start_s,
+            target_road_id,
+            target_lane_id,
+            target_s,
+            route_strategy,
+            h_rel,
+        )
+
+    def GetRouteWaypoints(self):
+        """Waypoints of the last CalcRoute as a list of dicts (empty if none)."""
+        if not self._has_route_api:
+            return []
+        out = []
+        for i in range(self.lib.GT_RM_GetRouteWaypointCount()):
+            wp = GT_RM_RouteWaypoint()
+            if self.lib.GT_RM_GetRouteWaypoint(i, ctypes.byref(wp)) != 0:
+                break
+            out.append(
+                {
+                    "road_id": int(wp.roadId),
+                    # ID_UNDEFINED (0xFFFFFFFF) means "not in a junction". Map it to
+                    # None so callers never print 4294967295 as if it were a real id.
+                    "junction_id": (
+                        None if wp.junctionId == 0xFFFFFFFF else int(wp.junctionId)
+                    ),
+                    "lane_id": int(wp.laneId),
+                    "s": float(wp.s),
+                    "x": float(wp.x),
+                    "y": float(wp.y),
+                    "z": float(wp.z),
+                    "h": float(wp.h),
+                }
+            )
+        return out
+
+    def GetLaneChanges(self):
+        """Lane changes the last route requires, as a list of dicts (empty if none)."""
+        if not self._has_route_api:
+            return []
+        out = []
+        for i in range(self.lib.GT_RM_GetLaneChangeCount()):
+            lc = GT_RM_LaneChange()
+            if self.lib.GT_RM_GetLaneChange(i, ctypes.byref(lc)) != 0:
+                break
+            out.append(
+                {
+                    "road_id": int(lc.roadId),
+                    "s": float(lc.s),
+                    "from_lane_id": int(lc.fromLaneId),
+                    "to_lane_id": int(lc.toLaneId),
+                }
+            )
+        return out
+
+    def GetRouteLength(self):
+        """Accumulated cost of the last route. Meters for SHORTEST, seconds for
+        FASTEST, junction count for MIN_INTERSECTIONS. Negative when no route."""
+        if not self._has_route_api:
+            return -1.0
+        return float(self.lib.GT_RM_GetRouteLength())

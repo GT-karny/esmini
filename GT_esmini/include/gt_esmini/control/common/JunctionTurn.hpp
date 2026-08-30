@@ -198,4 +198,87 @@ inline JunctionTurnLookahead RouteLookaheadJunctionTurn(const roadmanager::Posit
     return JunctionTurnLookahead{};
 }
 
+// OBSERVATION-ONLY lookahead for the NEXT junction turn on the route, however many plain road
+// boundaries lie in between (docs/virtualdriver/design/vd_intent_layer.md section 7).
+//
+// WHY THIS IS A SECOND FUNCTION AND NOT A BIGGER `lookahead` ARGUMENT (design section 7-1).
+// RouteLookaheadJunctionTurn above answers "is the next road boundary I cross a junction
+// connector". It works at 30 m only because at that range the ego is already on a road that
+// feeds the junction directly. Called with 300 m it does not look 300 m ahead -- it hits the
+// first ordinary road boundary and returns "none". The distance was never the limit; the
+// contract was.
+//
+// WHY NOT WIDEN THAT FUNCTION INSTEAD (design section 7-2). It is what the LEGAL indicator gate
+// depends on, including the one-frame lookahead that stopped the signal lighting up AFTER the
+// statutory 30 m point had already gone past (junction_turn_signal.md section 2-4; measured
+// 29.74 m before the fix). Keeping the observation on its own function makes "the signal gate is
+// untouched" a structural fact rather than a promise -- there is no shared code path to get
+// wrong.
+//
+// THIS FUNCTION MUST NEVER FEED AN INDICATOR DECISION. Callers pass its result to telemetry and
+// nothing else. The distances it reports (hundreds of metres) have no legal meaning; the
+// statutory signal distance is RouteLookaheadJunctionTurn's business.
+//
+// Do NOT coarsen `step` to save time. The loop only notices a road change via GetTrackId(), so a
+// step longer than a short connector steps straight over it and reports the ordinary road on the
+// far side -- i.e. "no turn" at precisely the junctions that need one (design section 7-4). 2 m
+// is the same resolution the signal path uses.
+//
+// Identical to RouteLookaheadJunctionTurn in every other respect (the already-on-a-connector
+// early return, the dist_to_entry correction for however far the last step carried the ego into
+// the connector). The ONE difference is marked below.
+inline JunctionTurnLookahead RouteLookaheadNextJunctionTurn(const roadmanager::Position& start,
+                                                            roadmanager::OpenDrive* odr,
+                                                            double lookahead,
+                                                            double step = kJunctionTurnLookaheadStepM)
+{
+    if (!odr || lookahead <= 0.0 || step <= 0.0) return JunctionTurnLookahead{};
+
+    // Already on a connector: same stateless answer as the signal-side function.
+    if (roadmanager::Road* start_road = odr->GetRoadById(start.GetTrackId()))
+    {
+        if (start_road->GetJunction() != ID_UNDEFINED)
+        {
+            const int trav_dir = TravDirFromDrivingDirection(start.GetDrivingDirectionRelativeRoad());
+            return JunctionTurnLookahead{ConnectorTurnDirection(start_road, trav_dir), 0.0, true};
+        }
+    }
+
+    roadmanager::Position pos;
+    pos.Duplicate(start);
+    pos.CopyRoute(start);
+
+    id_t   current_track = start.GetTrackId();
+    double traveled      = 0.0;
+
+    while (traveled < lookahead)
+    {
+        // [Issue #31] straight-most (0.0), not the randomizing -1.0 overload -- same reason as
+        // the signal-side scan: an off-route prediction must not re-roll the connecting road.
+        const int ret = static_cast<int>(pos.MoveAlongS(step, 0.0, 0.0, true,
+                                                        roadmanager::Position::MoveDirectionMode::HEADING_DIRECTION, true));
+        if (ret == static_cast<int>(roadmanager::Position::ReturnCode::ERROR_GENERIC)) break;
+        traveled += step;
+
+        const id_t track = pos.GetTrackId();
+        if (track == current_track) continue;
+        current_track = track;
+
+        roadmanager::Road* road = odr->GetRoadById(track);
+        if (!road) continue;
+
+        // *** THE ONE DIFFERENCE *** -- RouteLookaheadJunctionTurn returns an empty result here.
+        // This one keeps walking, which is the whole reason the function exists.
+        if (road->GetJunction() == ID_UNDEFINED) continue;
+
+        const int    trav_dir       = TravDirFromDrivingDirection(pos.GetDrivingDirectionRelativeRoad());
+        const int    dir            = ConnectorTurnDirection(road, trav_dir);
+        const double into_connector = (trav_dir >= 0) ? pos.GetS() : (road->GetLength() - pos.GetS());
+        const double dist_to_entry  = std::max(0.0, traveled - into_connector);
+
+        return JunctionTurnLookahead{dir, dist_to_entry, false};
+    }
+    return JunctionTurnLookahead{};
+}
+
 }  // namespace gt_esmini

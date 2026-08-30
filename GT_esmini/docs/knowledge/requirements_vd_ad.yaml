@@ -267,7 +267,18 @@ requirements:
       段 b のみ 2026-08 の RouteLanePlan で達成（ルート解決失敗の可視化）。
       段 a は esmini の Route が中間 road を自動補完するため部分的に成立するが、
       レーン接続が切れている場合は失敗する（成否が道路依存＝実測で確認済み）。
-      段 c が「起終点だけ与える」の本体で未着手。
+      **段 c は met:false のまま — ただし 2026-08-30 に「起終点だけから解く」機構そのものは
+      オーサリング時に実装された**（web backend の route_planner_service:
+      クリック2点 → EsminiRMLib で world→lane 逆引き → GT_RM_CalcRouteH →
+      Waypoint 列 → 生成 xosc）。本要求の statement は「**VD は** …導出し」と書いており、
+      生成 xosc を受け取る VD 自身が導出しているわけではない（VD には完成した Waypoint 列が
+      渡る）ので、これを met にするのは overclaim。VD 実行時の自力探索は次サイクル。
+      この過程で GT_RM_CalcRoute の方向欠陥を修正した（GT_RM_CalcRouteH /
+      GT_RM_GetLaneDrivingDirection を新設）: LaneIndependentRouter は探索方向を
+      start.GetHRelative() から決めるが旧 API は 0.0 のままだったため、**+s 側しか探索せず**
+      (1) predecessor 端へ出る正当な経路を「経路なし」と誤答し
+      (2) 車線を逆走する経路を有効として返していた。後者のほうが危険。
+      fabriksgatan 実測: road0/+1→road2/+1 が旧 -2 / 新 3、road3/+1→road0/+1 が旧 3 / 新 -2。
 
   - id: REQ-AD-017
     title: 与えられた経路のとおりに、必要な車線変更込みで走り切る
