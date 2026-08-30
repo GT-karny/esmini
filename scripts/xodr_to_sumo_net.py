@@ -63,13 +63,18 @@ USAGE
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-NETCONVERT = REPO_ROOT / "thirdparty" / "sumo-tools" / "bin" / "netconvert.exe"
+SUMO_TOOLS = REPO_ROOT / "thirdparty" / "sumo-tools"
+NETCONVERT = SUMO_TOOLS / "bin" / "netconvert.exe"
+DUAROUTER = SUMO_TOOLS / "bin" / "duarouter.exe"
+RANDOM_TRIPS = SUMO_TOOLS / "tools" / "randomTrips.py"
+VENV_PY = REPO_ROOT / "DriverScript" / ".venv" / "Scripts" / "python.exe"
 
 # OpenDRIVE lane types that must never become SUMO running lanes. Kept
 # deliberately tight: only types measured to cause a problem, plus the ones the
@@ -136,6 +141,91 @@ def run_netconvert(
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
+def generate_demand(
+    net: Path, out_dir: str | Path, stem: str, count: int, seed: int
+) -> Path | None:
+    """randomTrips -> duarouter -> .rou.xml. Returns the route file, or None.
+
+    Mirrors the hand-run recipe recorded in resources/sumo_inputs/readme.txt,
+    which was the only written record of how the shipped demand files were made.
+    """
+    out_dir = Path(out_dir)
+    trips = out_dir / f"{stem}.trips.xml"
+    routes = out_dir / f"{stem}.rou.xml"
+
+    env = {**os.environ, "PYTHONPATH": str(SUMO_TOOLS / "tools")}
+    rt = subprocess.run(
+        [
+            str(VENV_PY),
+            str(RANDOM_TRIPS),
+            "-n",
+            str(net),
+            "-e",
+            str(count),
+            "-o",
+            str(trips),
+            "--seed",
+            str(seed),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if not trips.is_file():
+        print(f"randomTrips failed: {(rt.stderr or rt.stdout)[:300]}", file=sys.stderr)
+        return None
+
+    dr = subprocess.run(
+        [
+            str(DUAROUTER),
+            "-n",
+            str(net),
+            "--route-files",
+            str(trips),
+            "-o",
+            str(routes),
+            "--ignore-errors",
+            # Same reason as netconvert: schema fetch would be attempted otherwise.
+            "--xml-validation",
+            "never",
+            "--seed",
+            str(seed),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if not routes.is_file():
+        print(f"duarouter failed: {(dr.stderr or dr.stdout)[:300]}", file=sys.stderr)
+        return None
+    return routes
+
+
+def write_sumocfg(
+    cfg: Path, net: Path, routes: Path, step_length: float = 0.05
+) -> None:
+    """Minimal .sumocfg referencing net+routes by RELATIVE name.
+
+    Relative on purpose: GT_esmini's scenario sanitizer copies the xosc to a temp
+    directory and absolutizes only the paths it knows about; a .sumocfg that names
+    its inputs relative to its own location keeps working wherever the trio is
+    copied, as long as they stay together.
+    """
+    cfg.write_text(
+        "<?xml version='1.0' encoding='UTF-8'?>\n"
+        "<configuration>\n"
+        "    <input>\n"
+        f'        <net-file value="{net.name}"/>\n'
+        f'        <route-files value="{routes.name}"/>\n'
+        "    </input>\n"
+        "    <time>\n"
+        '        <begin value="0"/>\n'
+        f'        <step-length value="{step_length}"/>\n'
+        "    </time>\n"
+        "</configuration>\n",
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--xodr", required=True, type=Path)
@@ -146,6 +236,18 @@ def main() -> int:
         action="store_true",
         help="rewrite non-driving lane types before converting. OFF by default: "
         "on the one road where it applies it measured WORSE (see module docstring)",
+    )
+    ap.add_argument(
+        "--demand",
+        type=int,
+        default=0,
+        help="also generate N random trips and a .sumocfg (0 = net only)",
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="randomTrips/duarouter seed; fixed so runs are reproducible",
     )
     args = ap.parse_args()
 
@@ -177,6 +279,15 @@ def main() -> int:
         return 1
 
     print(f"wrote {net_out}")
+
+    if args.demand > 0:
+        routes = generate_demand(net_out, args.out_dir, stem, args.demand, args.seed)
+        if routes is None:
+            return 1
+        print(f"wrote {routes}")
+        cfg = args.out_dir / f"{stem}.sumocfg"
+        write_sumocfg(cfg, net_out, routes)
+        print(f"wrote {cfg}")
     return 0
 
 
