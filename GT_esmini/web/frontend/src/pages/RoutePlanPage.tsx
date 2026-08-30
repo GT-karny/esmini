@@ -29,6 +29,7 @@ export function RoutePlanPage() {
   const [built, setBuilt] = useState<BuildFromRouteResult | null>(null);
   const [egoSpeed, setEgoSpeed] = useState(13.889);
   const [laneChangeEnabled, setLaneChangeEnabled] = useState(true);
+  const [backgroundTraffic, setBackgroundTraffic] = useState(false);
 
   useEffect(() => {
     api
@@ -53,6 +54,19 @@ export function RoutePlanPage() {
       .then((geo) => setBoundaries(geo.boundaries as RoadBoundary[]))
       .catch((e) => setError(String(e)));
   }, [roadId]);
+
+  const selectedRoad = useMemo(
+    () => roads.find((r) => r.road_id === roadId) ?? null,
+    [roads, roadId],
+  );
+
+  // A road without a SUMO network cannot host traffic; clear the request rather
+  // than carrying a tick over to a road where it would only produce an error.
+  // Kept as its own effect keyed on selectedRoad so the geometry fetch above does
+  // not have to depend on `roads` and re-run when the road list loads.
+  useEffect(() => {
+    if (!selectedRoad?.sumocfg) setBackgroundTraffic(false);
+  }, [selectedRoad]);
 
   // Re-plan whenever the point list changes and there are at least two points.
   useEffect(() => {
@@ -98,6 +112,7 @@ export function RoutePlanPage() {
         points,
         ego_speed: egoSpeed,
         policies: laneChangeEnabled ? ['lane_change_initiation'] : [],
+        background_traffic: backgroundTraffic,
       });
       setBuilt(result);
     } catch (e) {
@@ -149,6 +164,25 @@ export function RoutePlanPage() {
           {/* Default OFF in virtual_driver.json; without it the vehicle records the
               route deviation instead of driving into the lane the route needs. */}
           Self-initiated lane changes
+        </label>
+
+        <label
+          className={`flex items-center gap-2 pb-1.5 text-sm ${
+            selectedRoad?.sumocfg ? 'text-slate-300' : 'cursor-not-allowed text-slate-600'
+          }`}
+          title={
+            selectedRoad?.sumocfg
+              ? 'Spawn SUMO background traffic on this road'
+              : 'This road has no SUMO network. Generate one with scripts/xodr_to_sumo_net.py --demand N.'
+          }
+        >
+          <input
+            type="checkbox"
+            checked={backgroundTraffic}
+            disabled={!selectedRoad?.sumocfg}
+            onChange={(e) => setBackgroundTraffic(e.target.checked)}
+          />
+          Background traffic
         </label>
 
         <div className="ml-auto flex items-center gap-2">

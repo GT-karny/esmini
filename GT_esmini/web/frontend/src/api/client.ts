@@ -984,6 +984,8 @@ export interface RoadListItem {
   source: 'catalog' | 'upload';
   path: string;
   size: number;
+  /** Path to this road's SUMO config, or null when it cannot host traffic. */
+  sumocfg: string | null;
 }
 
 export interface RoutePoint {
@@ -1025,6 +1027,7 @@ export interface BuildFromRouteBody {
   strategy?: string;
   policies?: string[];
   description?: string;
+  background_traffic?: boolean;
 }
 
 export interface BuildFromRouteResult {

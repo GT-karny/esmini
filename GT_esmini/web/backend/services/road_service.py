@@ -17,6 +17,24 @@ from GT_esmini.web.backend.config import (
 # and are addressed by their "tmp_road_*" id; catalog roads use their file stem.
 CATALOG_ROADS_DIR = RESOURCES_DIR / "xodr"
 
+# Background traffic (feature:F9) needs a matching SUMO config. Committed ones
+# live here; generated ones land beside the road under TEMP_ROADS_DIR. A road
+# without one simply cannot host traffic -- the UI greys the option out rather
+# than failing at run time, because the reason ("this road has no SUMO network")
+# is actionable and a mid-run SUMO load failure is not.
+SUMO_INPUTS_DIR = RESOURCES_DIR / "sumo_inputs"
+
+
+def find_sumocfg(road_id: str) -> Path | None:
+    """The .sumocfg for a road, or None. Generated configs win over committed ones."""
+    for candidate in (
+        TEMP_ROADS_DIR / f"{road_id}.sumocfg",
+        SUMO_INPUTS_DIR / f"{road_id}.sumocfg",
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
 
 def list_roads() -> list[dict]:
     """All selectable OpenDRIVE files: catalog roads first, then temp uploads."""
@@ -36,6 +54,7 @@ def list_roads() -> list[dict]:
                     "source": source,
                     "path": str(path),
                     "size": stat.st_size,
+                    "sumocfg": (str(cfg) if (cfg := find_sumocfg(path.stem)) else None),
                 }
             )
     return roads

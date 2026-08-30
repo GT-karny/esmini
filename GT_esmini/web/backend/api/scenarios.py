@@ -46,6 +46,11 @@ class BuildFromRouteRequest(BaseModel):
     # works, it just records the deviation instead of correcting it.
     policies: list[str] = Field(default_factory=lambda: ["lane_change_initiation"])
     description: str = "GT_Sim route-plan scenario"
+    # Background traffic (feature:F9). Only honoured when the road actually has a
+    # SUMO config; requesting it on a road without one is an error rather than a
+    # silent no-op, because "I ticked traffic and saw none" is indistinguishable
+    # from a broken SUMO coupling.
+    background_traffic: bool = False
 
 
 @router.post("/build-from-route", status_code=201)
@@ -77,6 +82,20 @@ async def build_from_route(req: BuildFromRouteRequest):
             detail={"code": exc.code, "message": str(exc), **exc.detail},
         ) from exc
 
+    sumocfg = None
+    if req.background_traffic:
+        sumocfg = road_service.find_sumocfg(req.road_id)
+        if sumocfg is None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "no_sumocfg",
+                    "message": f"Road '{req.road_id}' has no SUMO network, so it "
+                    "cannot host background traffic. Generate one with "
+                    "scripts/xodr_to_sumo_net.py --demand N.",
+                },
+            )
+
     try:
         xml_str = build_route_scenario(
             xodr_path,
@@ -86,6 +105,7 @@ async def build_from_route(req: BuildFromRouteRequest):
             policies=req.policies,
             route_length=plan["length"],
             description=req.description,
+            sumocfg=sumocfg,
         )
     except ScenarioBuildError as exc:
         raise HTTPException(
