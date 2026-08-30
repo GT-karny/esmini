@@ -7,7 +7,53 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from GT_esmini.web.backend.config import TEMP_FILE_TTL_SECONDS, TEMP_ROADS_DIR
+from GT_esmini.web.backend.config import (
+    RESOURCES_DIR,
+    TEMP_FILE_TTL_SECONDS,
+    TEMP_ROADS_DIR,
+)
+
+# Catalog roads shipped with the repo/package. Temp uploads live in TEMP_ROADS_DIR
+# and are addressed by their "tmp_road_*" id; catalog roads use their file stem.
+CATALOG_ROADS_DIR = RESOURCES_DIR / "xodr"
+
+
+def list_roads() -> list[dict]:
+    """All selectable OpenDRIVE files: catalog roads first, then temp uploads."""
+    roads: list[dict] = []
+    for source, directory in (
+        ("catalog", CATALOG_ROADS_DIR),
+        ("upload", TEMP_ROADS_DIR),
+    ):
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.xodr")):
+            stat = path.stat()
+            roads.append(
+                {
+                    "road_id": path.stem,
+                    "name": path.name,
+                    "source": source,
+                    "path": str(path),
+                    "size": stat.st_size,
+                }
+            )
+    return roads
+
+
+def resolve_road_path(road_id: str) -> Path | None:
+    """Map a road_id back to its .xodr, or None when it does not exist.
+
+    Rejects anything with path separators so a road_id from a request body cannot
+    walk out of the two directories we serve.
+    """
+    if not road_id or "/" in road_id or "\\" in road_id or road_id.startswith("."):
+        return None
+    for directory in (CATALOG_ROADS_DIR, TEMP_ROADS_DIR):
+        candidate = directory / f"{road_id}.xodr"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def save_temp_road(xml_content: str) -> dict:

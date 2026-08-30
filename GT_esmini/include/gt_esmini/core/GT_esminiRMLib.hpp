@@ -227,6 +227,35 @@ extern "C"
                                       int routeStrategy);
 
     /**
+     * As GT_RM_CalcRoute, but with an explicit start heading.
+     *
+     * WHY THIS EXISTS: LaneIndependentRouter picks its search direction off the start
+     * road from the start Position's hRelative -- forward (< pi/2 or > 3pi/2) follows
+     * the road's SUCCESSOR link, otherwise the PREDECESSOR link. GT_RM_CalcRoute leaves
+     * hRelative at its 0.0 default, so it can ONLY find routes leaving via the start
+     * road's successor end; a route whose first hop leaves via the predecessor end
+     * returns -2 ("no route") even though one exists. Pass startHRelative = M_PI to
+     * search the other way.
+     *
+     * For "route in the direction this lane is legally driven", ask
+     * GT_RM_GetLaneDrivingDirection first and map +1 -> 0.0, -1 -> M_PI.
+     *
+     * @param startHRelative Start heading relative to the road's s-direction [rad]
+     * @return same as GT_RM_CalcRoute
+     */
+    GT_RM_DLL_API int GT_RM_CalcRouteH(uint32_t startRoadId, int startLaneId, double startS,
+                                       uint32_t targetRoadId, int targetLaneId, double targetS,
+                                       int routeStrategy, double startHRelative);
+
+    /**
+     * Legal driving direction of a lane, relative to the road's s-axis.
+     * Folds the road's RoadRule (left/right hand traffic) into the lane-sign
+     * convention, so callers must NOT re-derive it from the lane id alone.
+     * @return +1 (drives +s), -1 (drives -s), or 0 on error (no map / bad road/lane)
+     */
+    GT_RM_DLL_API int GT_RM_GetLaneDrivingDirection(uint32_t roadId, int laneId, double s);
+
+    /**
      * Number of waypoints in the last calculated route (0 if none).
      */
     GT_RM_DLL_API int GT_RM_GetRouteWaypointCount();
