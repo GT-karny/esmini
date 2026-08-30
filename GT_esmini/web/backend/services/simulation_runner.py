@@ -258,6 +258,15 @@ def _generate_virtual_driver_variant(
     tree.write(output_path, encoding="utf-8", xml_declaration=True)
 
 
+# Scenario "policies" name -> virtual_driver.json flag.
+#
+# THIS MUST STAY EQUAL to _POLICY_FLAG in GT_esmini/scripts/verification/gt_sim_test.py.
+# The two are separate copies because the web backend and the verification harness
+# share no importable module, and they DID drift: lane_change_initiation / overtake /
+# overtake_opposing_lane existed only on the harness side, so a scenario could opt
+# into a lane change from a batch file but not from the GUI -- the GUI silently ran
+# with the feature off and recorded the route deviation instead of correcting it.
+# test_policy_flag_parity.py compares them and fails on any divergence.
 _VD_POLICY_FLAG = {
     "lead": "policy_lead_enabled",
     "traffic_light": "policy_traffic_light_enabled",
@@ -266,6 +275,15 @@ _VD_POLICY_FLAG = {
     "crosswalk": "policy_crosswalk_enabled",
     "junction_priority": "policy_junction_priority_enabled",
     "aeb": "policy_aeb_enabled",
+    # vd-func:FUNC-055 -- AD-initiated lane change (req-vd-ad:REQ-AD-017 step c).
+    # Not an ITrafficPolicy, but it reuses the same opt-in list rather than adding
+    # a second config-injection path.
+    "lane_change_initiation": "lane_change_initiation_enabled",
+    # vd-func:FUNC-056 -- overtake manoeuvre. Same reasoning.
+    "overtake": "overtake_enabled",
+    # DOUBLE-gated: this alone does nothing, "overtake" must be present too
+    # (overtake_use_opposing_lane_enabled is only read inside the overtake branch).
+    "overtake_opposing_lane": "overtake_use_opposing_lane_enabled",
 }
 
 
