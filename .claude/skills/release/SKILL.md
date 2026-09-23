@@ -45,6 +45,27 @@ gh release view v3.4.1_GTv0.12.0 -R GT-karny/esmini
 
 ## 4. master反映
 
+### 4-0. ブランチ番号とリリース番号を先に揃える（v0.18.0 で確立）
+
+`dev_v0.<N>` の `<N>` は**予約であって確定値ではない**。フィックスだけのサイクルはパッチ止まりに
+なり、以後ブランチ番号が恒久的に先行する（`dev_v0.17` → v0.16.1 でずれ、v0.17.0 は
+`dev_v0.18` から出た）。**PR を作る前に揃える**。PR の head ブランチ名は PR に焼き付くので、
+後からでは直せない。
+
+**破壊的操作は要らない。** PR が必要とするのは*リモート側*のブランチ名だけで、ローカル名は
+無関係。目的のブランチ名が既存かつ HEAD の祖先なら、単純な早送り push で揃う。
+
+```powershell
+git merge-base --is-ancestor origin/dev_v0.<決定版> HEAD   # 早送り可か（--force を使わない確認）
+git push origin HEAD:dev_v0.<決定版>
+```
+
+締め後は次サイクルのブランチも master へ早送りしておく（`git push origin <マージコミット>:refs/heads/dev_v0.<次>`）。
+これで `dev_v0.<次>` → `v0.<次>.0` が揃う。
+
+> ブランチの `-d` / `-m` は auto mode のガード（Git Destructive）で拒否されうる。
+> 上の早送り push 経路なら踏まない。
+
 - PRタイトル慣例: 「Dev v0.<N>」（dev_v0.<N> → master、マージコミット方式）
 ```powershell
 gh pr create -R GT-karny/esmini --base master --head dev_v0.<N> --title "Dev v0.<N>" --body ...
