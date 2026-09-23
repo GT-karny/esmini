@@ -109,14 +109,42 @@ def _snap_one(rm, pos_handle, x: float, y: float) -> dict:
             "in_lane_type": int(in_lane_type),
         }
 
+    road_id = int(data.roadId)
+    lane_id = int(data.laneId)
+    s_val = float(data.s)
+
+    # Resolve the LANE-CENTRE world position by setting the lane position back.
+    #
+    # data.x/data.y must NOT be used here: GetPositionData echoes back the very
+    # coordinates SetWorldXYHPosition was given, so using them returns the click
+    # unchanged and the marker never visibly snaps. The road/lane/s it reports ARE
+    # resolved -- only the world position is the input verbatim.
+    #
+    # This is easy to "verify" wrongly: probing with a point that already sits on
+    # the lane centre makes the echo and a correct snap identical. Test off-centre.
+    rm.SetLanePosition(pos_handle, road_id, lane_id, 0.0, s_val, True)
+    lane_res, lane_data = rm.GetPositionData(pos_handle)
+    if lane_res != 0:
+        # Should not happen for a position we just resolved; fall back to the click
+        # rather than dropping the point.
+        return {
+            "on_road": True,
+            "road_id": road_id,
+            "lane_id": lane_id,
+            "s": s_val,
+            "x": x,
+            "y": y,
+            "h": float(data.h),
+        }
+
     return {
         "on_road": True,
-        "road_id": int(data.roadId),
-        "lane_id": int(data.laneId),
-        "s": float(data.s),
-        "x": float(data.x),
-        "y": float(data.y),
-        "h": float(data.h),
+        "road_id": road_id,
+        "lane_id": lane_id,
+        "s": s_val,
+        "x": float(lane_data.x),
+        "y": float(lane_data.y),
+        "h": float(lane_data.h),
     }
 
 

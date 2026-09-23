@@ -279,3 +279,72 @@ def test_unknown_strategy_is_rejected():
             strategy="scenic",
         )
     assert excinfo.value.code == "bad_strategy"
+
+
+# ---------------------------------------------------------------------------
+# Snapping (the map's per-point feedback, independent of routing)
+# ---------------------------------------------------------------------------
+
+
+@requires_libs
+def test_snap_moves_an_off_centre_point_to_the_lane_centre():
+    """The regression this exists for: snap must MOVE the point.
+
+    The first implementation returned GetPositionData's x/y as the snapped
+    position. Those are the coordinates handed to SetWorldXYHPosition, echoed
+    back verbatim, so every click came back unchanged and nothing ever visibly
+    snapped -- while road/lane/s looked perfectly correct.
+
+    It survived review because the probe used a point already ON the lane centre,
+    where an echo and a correct snap are identical. So this test deliberately
+    starts OFF centre, along the road normal, and asserts the distance moved.
+    """
+    import math
+    import sys
+
+    from GT_esmini.web.backend.config import ESMINI_RM_LIB, GT_SCRIPTS_DIR
+    from GT_esmini.web.backend.services.road_geometry_service import ESMINI_RM_LOCK
+    from GT_esmini.web.backend.services.route_planner_service import snap_points
+
+    if str(GT_SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(GT_SCRIPTS_DIR))
+    from rm_lib import EsminiRMLib  # type: ignore[attr-defined]
+
+    with ESMINI_RM_LOCK:
+        rm = EsminiRMLib(str(ESMINI_RM_LIB))
+        assert rm.Init(str(FABRIKSGATAN)) >= 0
+        handle = rm.CreatePosition()
+        try:
+            rm.SetLanePosition(handle, 0, 1, 0.0, 50.0, True)
+            _, centre = rm.GetPositionData(handle)
+            cx, cy, ch = float(centre.x), float(centre.y), float(centre.h)
+        finally:
+            rm.DeletePosition(handle)
+
+    nx, ny = -math.sin(ch), math.cos(ch)
+    offset = 1.0
+    probe = {"x": cx + nx * offset, "y": cy + ny * offset}
+    result = snap_points(FABRIKSGATAN, [probe])[0]
+
+    assert result["on_road"] is True
+    assert result["lane_id"] == 1, "should stay in the lane it was nudged inside"
+    moved = math.hypot(result["x"] - probe["x"], result["y"] - probe["y"])
+    assert moved == pytest.approx(offset, abs=0.1), (
+        f"snap moved the point {moved:.3f} m; expected ~{offset} m back to the "
+        "lane centre. A value of 0 means the input coordinates were echoed."
+    )
+    # And it landed on the centre, not merely somewhere else.
+    assert math.hypot(result["x"] - cx, result["y"] - cy) < 0.1
+
+
+@requires_libs
+def test_snap_reports_a_missed_point_instead_of_raising():
+    """One bad point must not fail the whole request -- the map marks that point
+    and keeps the others usable. plan_route is the strict one, not this."""
+    from GT_esmini.web.backend.services.route_planner_service import snap_points
+
+    good = _world_point(FABRIKSGATAN, 0, 1, 50.0)
+    results = snap_points(FABRIKSGATAN, [good, {"x": 99999.0, "y": 99999.0}])
+    assert results[0]["on_road"] is True
+    assert results[1]["on_road"] is False
+    assert results[1]["reason"] in {"off_road", "not_routable"}
