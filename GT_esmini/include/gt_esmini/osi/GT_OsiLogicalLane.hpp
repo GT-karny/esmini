@@ -97,8 +97,9 @@ bool GetUseOsiLogicalLane();
 // load instead would renumber every lane and break both the ODR conformance OSI
 // goldens and the lane_map join behind signal:ego_lane.
 //
-// Hard no-op when the flag is OFF. As of S1 it emits reference_line[] and
-// logical_lane[]; connectivity is S2 and logical_lane_boundary[] is S3.
+// Hard no-op when the flag is OFF. Emits reference_line[], logical_lane[] and
+// logical_lane_boundary[], with predecessor / successor / left / right adjacency
+// resolved in a final pass once every id exists (design 2-4).
 void BuildOsiLogicalLanes(roadmanager::OpenDrive* opendrive);
 
 // The pass itself, with both outputs passed in explicitly.

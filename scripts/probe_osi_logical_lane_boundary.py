@@ -493,7 +493,7 @@ def main():
 
     fixtures = [[label, xodr] for (label, xodr) in FIXTURES]
 
-    print("== GT_OSI_LOGICAL_LANE=1 ==")
+    print("== GT_OSI_LOGICAL_LANE unset (default ON) ==")
     on = _run_worker(args.dll, args.rm_dll, fixtures, True, args.samples)
     report["on"] = on
     if on.get("error"):
@@ -552,7 +552,7 @@ def main():
           "%d neighbour pairs share one boundary id, %d are split because the lanes sit at "
           "different heights (the proto's only exception)" % (totals["shared_identical"], totals["height_split"]))
 
-    print("== GT_OSI_LOGICAL_LANE unset (default OFF) ==")
+    print("== GT_OSI_LOGICAL_LANE=0 ==")
     off = _run_worker(args.dll, args.rm_dll, fixtures, False, 0)
     report["off"] = off
     if off.get("error"):

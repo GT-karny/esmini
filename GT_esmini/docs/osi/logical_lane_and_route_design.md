@@ -1,6 +1,6 @@
 # OSI 論理レーンと HostVehicleData.route — 実装設計
 
-> ステータス: **T / S0 / S1 / S4 / S2.5 / S2.5b / S3 完了（2026-09-24）。残り S2 / S5**。
+> ステータス: **T / S0 / S1 / S4 / S2.5 / S2.5b / S3 / S2 完了（2026-09-24）。残り S5**。
 > 現状と規格の突き合わせは
 > [`logical_lane_and_route.md`](logical_lane_and_route.md)。本書はそれを前提に、
 > 何をどこへどう書くかを決める。
@@ -248,13 +248,28 @@ RHT の正レーン（s 減少方向へ走る）では、OSI の `successor_lane
 | ケース | 解決 | `at_begin_of_other_lane` |
 | :-- | :-- | :-- |
 | 同一道路内のセクション間 | `lane->GetLink(SUCCESSOR)->GetId()` を次セクションで引く | 常に `true`（次セクションの始端） |
-| 道路間（junction 外） | 既存の `UpdateOSIRoadLane` 後半の前後セクション解決をそのまま流用 | 相手道路の contact point から決める |
+| 道路間（junction 外） | 同じ `lane->GetLink()` が相手道路のレーン id を指す。端は `RoadLink::GetContactPointType()` | `CONTACT_POINT_START` なら `true` |
 | junction 経由 | `Junction::GetConnectionByIdx()` → `Connection::GetLaneLink()` | `Connection::GetContactPoint()` が `CONTACT_POINT_START` なら `true` |
 
 3 番目が `osi_lane` では潰れている部分で、**論理レーン側では接続路レーンが個別に存在するので
-交差点の中を 1 レーンずつ繋げる**。既存の DIRECT / VIRTUAL ジャンクション処理
-（[`GT_OSIReporter_Geometry.cpp:73-220`](../../src/osi/GT_OSIReporter_Geometry.cpp#L73-L220)）が
-同じ材料を同じ分岐で扱っているので、判定ロジックは流用できる。
+交差点の中を 1 レーンずつ繋げる**。
+
+> **2026-09-24（S2 実装時に是正）**: 2 番目は当初「既存の `UpdateOSIRoadLane` 後半の前後セクション
+> 解決をそのまま流用」と書いていた。**流用しなかった。** あの既存コードは *相手道路が自分を指し返して
+> いるか* から接触端を推論しているが、`@contactPoint` はリンク自身が持っている情報で、
+> 直接読むほうが短く、相手道路が長くても端を取り違えない。
+>
+> **3 番目が「重い」という見積りも外れた。** multi_intersections の実測内訳は road-link 経由 326 件・
+> junction 経由 152 件で、多いのは 2 番目である。接続路自身の 2 つの端は road-link 経路で解けるので、
+> junction 経路が要るのは **incoming 道路から外を見るときだけ**。
+
+**OpenDRIVE は junction の出会いを片側からしか宣言しない。** `<connection>` は incomingRoad しか
+名指しせず、出口側の道路は接続路を指すリンクを持たない。各レーンが「自分のリンクが言うこと」だけを
+書くと、**交差点の出口で必ずグラフが途切れる**。1 つの出会いから常に両方向を書くこと。
+
+**ゼロ幅の端は繋がない。** 規格は `Both lanes have a non-zero width at the connection point` を
+要求する。合流・分流でテーパ 0 まで細った端にも `<link>` は残っているので、そのまま写すと
+「幅 0 のレーンを通り抜けられる」と言うことになる。
 
 #### 2-4-2. 横隣接
 
@@ -750,6 +765,13 @@ S5 は **ON 状態を常設ゲートで踏む**（§9）。
 > 条件の残り半分「OSI 記録が日常のワークフローか」は評価するまでもない: 仮に日常だとしても
 > 1 実行あたり 0.4 MB（multi_intersections）の**一度きり**の増分である。毎フレーム流れる
 > 動的側は論理レーン割り当ての 34 B/台だけで、10 台でも +3.8%（S2.5 実測）。
+>
+> **2026-09-24（S2 実測、既定 ON 維持）**: 連結性を足して **1.27x〜2.97x**。**3 倍に届く資産は無い**が、
+> **fabriksgatan が 2.97x** で余裕は 1% を切った。反転条件は「3 倍超 **かつ** OSI 記録が日常の
+> ワークフロー」の AND であり、後半が成立しないので既定 ON を変えない。分母が小さい
+> （静的 GT 26.5 KB）ための比で、絶対値は 1 回きりの +52 KB である。
+> **次に層へ何かを足すときは fabriksgatan を先に測ること** — 3x に最初に触るのはこの資産で、
+> 次点の multi_intersections（2.56x）とは 0.4 の開きがある。
 
 実装は既存 idiom をそのまま使う（`GT_ODR_OSI_AUTHORED_JUNCTION_BOUNDARY` と同型）。
 
@@ -772,19 +794,19 @@ bool GetUseOsiLogicalLane()
 | ~~**T**~~ **✅ 完了 2026-09-24** | HVD の UDP 分割送信（§6）。**何にも依存しない独立タスク** | 0.5 日 | 8192 B を超える HostVehicleData が落ちなくなる。論理レーンとは無関係に単体で価値がある |
 | ~~**S0**~~ **✅ 完了 2026-09-24** | サイズ・レーン数・境界点数の実測プローブ、env ゲート（既定 OFF）、空の後段パス、CMake の R1 承認 | 0.5 日 | **ON/OFF で 1 バイトも変わらないことが実証できる**。§7-3 の既定値判断に使う実測値が出る → §8-3 |
 | ~~**S1**~~ **✅ 完了 2026-09-24** | 参照線 + 論理レーン本体（境界・接続なし） | 2〜3 日 | `GroundTruth.logical_lane[]` が出る。xodr のレーンと 1:1 対応していることを OSI 直読で確認できる。**交差点内レーンが初めて個別に見える** |
-| **S2** | 連結性（pred / succ / adjacent） | 2〜3 日 | **論理レーンの列として経路をたどれる**。`route` の参照先が実在し連結していることが保証される |
+| ~~**S2**~~ **✅ 完了 2026-09-24** | 連結性（pred / succ / adjacent） | 2〜3 日 | **論理レーンの列として経路をたどれる**。`route` の参照先が実在し連結していることが保証される |
 | ~~**S2.5**~~ **✅ 完了 2026-09-24** | L1 `LogicalLaneAssignment`（§2-6-1）＋ **L1-b 車線跨ぎの複数割り当て**（§10-7） | 1 日 | **全オブジェクトの論理レーン相対 s / t / 向きが出る**。交差点内でも車線が個別に引ける（`signal:ego_lane` の join 欠けが論理レーン面で埋まる）。車線変更中は両方のレーンに割り当たる |
 | ~~**S3**~~ **✅ 完了 2026-09-24** | 論理境界（ST 化・合成・`passing_rule`）＋ 既定 ON へ反転 | 2〜3 日 | **規格の必須参照が全部埋まる**。外部の OSI 準拠チェッカを通せる。サイズはここで最大になる |
 | ~~**S4**~~ **✅ 完了 2026-09-24** | HVD `route` ＋ L2 経路進捗（§2-6-2）。**T が入っていること** | 2 日 | **目的達成**。`capability_model.md` W4 の `route` が閉じる。S2.5 と揃えば `route` × L1 の合成で経路相対位置が外から出せる |
 | **S5** | signal 登録 / matcher / ゲート常設化（§9） | 1.5〜2 日 | **回帰で守られる**。両極性を実証してから緑にする |
 
-**合計 11.5〜15.5 日**（`overlapping_lane` / L3 を除く）。**残り S3 / S2 / S5 = 5.5〜8 日。**
+**合計 11.5〜15.5 日**（`overlapping_lane` / L3 を除く）。**残り S5 = 1.5〜2 日。**
 
 段の ID は実行順ではない（§7.1 の「順序は ID でなく依存で表す」）。依存は §8-1、実行順は次節。
 
 ### 8-α. 実行順とリリース線（2026-09-24 決定）
 
-**S4 → S2.5 → S2.5b → S3 → S2 → S5 → リリース。** 残り **3.5〜5 日**（S4・S2.5・S2.5b・S3 完了、2026-09-24）。
+**S4 → S2.5 → S2.5b → S3 → S2 → S5 → リリース。** 残り **1.5〜2 日**（S4・S2.5・S2.5b・S3・S2 完了、2026-09-24）。
 
 一度は「S2 を後回しにして早期リリース」も検討したが、**論理レーン層を規格として完結させてから
 1 度で出す**ことにした。段ごとの根拠は次のとおり。
@@ -1217,6 +1239,110 @@ RoadManager インスタンス**を同一プロセスに載せ、`(roadId, s_pos
 > 2.3x 前後まで下がる。**取らなかった**: 偏差が規格値ちょうどに張り付く設計は、まだ測っていない
 > 資産や、サンプル運で規格を超える。§7-3 の閾値 3x に対して 2.85x はまだ余裕の側にあるので、
 > 精度をバイトと交換する理由がない。必要になったら `--osi_lateral_deviation` で両方が同時に動く。
+
+#### S2（2026-09-24）— 連結性
+
+`predecessor_lane` / `successor_lane` / `left_adjacent_lane` / `right_adjacent_lane`。置いたもの:
+
+| 追加/変更 | 何 |
+| :-- | :-- |
+| 変更 `GT_OSIReporter_LogicalLane.cpp` | pass 4（前後接続）と pass 4b（横隣接）。`LaneEnd` / `PathStats` / `connect()` / `lane_width_at()` |
+| 変更 `test_OsiLogicalLane.cpp` | S2 の 6 テスト。傘バイナリで **OsiLogicalLane 35/35 緑** |
+| 新規 `scripts/probe_osi_logical_lane_connectivity.py` | 実測プローブ。出力 `test_results/osi_logical_lane/connectivity_probe.json` |
+| 変更 `scripts/probe_osi_logical_lane_boundary.py` | 両極性の見出し文字列が S1 のまま（`=1` / `unset (default OFF)`）で**コードと逆のことを言っていた**ので是正。判定側は最初から正しい |
+
+**設計との差分（コードが正、本書をコードに合わせた）**:
+
+1. **道路間（junction 外）は `UpdateOSIRoadLane` の流用ではなく、リンク自身の `@contactPoint` で解く。**
+   §2-4-1 の表は「既存の前後セクション解決をそのまま流用」と書いていたが、あの既存コードは
+   *相手道路が自分を指し返しているか*から接触端を推論している。`RoadLink::GetContactPointType()` が
+   同じことを直接言っており、相手道路が長くても端を取り違えない。**流用しなかった**。
+   `@contactPoint` が欠けている（`CONTACT_POINT_UNDEFINED`）ときは推論せずに落とす — 実測 5 資産で 0 件。
+2. **重いのは junction 経由、という見積りは外れた。** multi_intersections の内訳は
+   road-link 経由 326 件・junction 経由 152 件で、**多いのは road-link 側**である。理由は接続路自身の
+   2 つの端が road-link 経路で解けるからで、junction 経路が要るのは
+   **incoming 道路から外を見るときだけ**。所要時間はどちらも計測できる量ではない（静的 1 回）。
+3. **OpenDRIVE は junction の接続を片側からしか宣言しないので、ミラーを自分で書く必要がある。**
+   `<connection>` は incomingRoad しか名指ししない。出口側の道路は接続路を指すリンクを持たない。
+   各レーンが「自分のリンクが言うこと」だけを emit すると、**交差点の出口で必ずグラフが途切れる**。
+   `connect()` は 1 つの出会いから常に両方向を書く。
+4. **`Connection` の逆向きは esmini が自分で合成している。** `GT_RoadManager.cpp:7066` 付近が
+   `Connection(connecting, incoming, new_contact_point)` を `from_`/`to_` ごと入れ替えて足す。
+   **つまり junction 経路と road-link 経路は同じ出会いを 2 度、別経路から導出する。**
+   これは偶然の冗長ではなく相互検証に使える（下の「両経路の一致」）。
+5. **ゼロ幅の端は繋がない。** 規格は `Both lanes have a non-zero width at the connection point` を
+   要求している。合流・分流でテーパ 0 まで細った端にも OpenDRIVE の `<link>` は残るので、
+   写すと「幅 0 のレーンを通り抜けられる」と言うことになる。実測 soderleden で 1 件落ちた。
+6. **`at_begin_of_other_lane` の両極性は、同一道路内では構造的に 50/50 で出るので証拠にならない。**
+   次のレーンセクションは必ずその始端から入るからである。**接触点由来なのは道路境界を跨ぐ接続だけ**なので、
+   プローブは cross-road とそれ以外を分けて数える。
+
+**実測（受入基準ごと）**:
+
+| 受入基準 | 実測 |
+| :-- | :-- |
+| 参照の閉包 | **1,268/1,268**（5 資産、pred+succ+left+right の全 `other_lane_id`）が `logical_lane[]` に実在。dangling 0 |
+| `at_begin` の両極性（接触点由来のものだけ） | 道路境界を跨ぐ接続 **332 true / 300 false**。うち接続路に触れるもの **292 true / 140 false**。経路別（C++ ログ）では road-link `[T=180 F=146]`（multi_intersections）、junction `[T=76 F=76]`。**両経路とも両極性が出る** |
+| 交差点の連結 | multi_intersections **接続路レーン 76/76 に pred と succ の両方**。fabriksgatan 20/20、highway_merge_split 12/12 |
+| 隣接と境界の整合（規格 5cm） | 隣接ペア **286 組**：166 組は境界 id を共有（構造上 0 m）、**120 組は高さで分割**され実測対象になる。**最大 0.0000 m** |
+| 上の測定が vacuous でないこと | 同じ関数を**意図的に誤ったペア**（自分の右境界 vs 左隣の左境界）に当てると **223 組で最大 21.516 m** を返す。5cm の閾値をはるかに超える＝計器は値を出せる |
+| 並び順 | 違反 0。ただし**各リストは最大 1 件**（セクション内で片側 1 本）なので順序は構成上自明。`end_s > start_s` 違反も 0 |
+| 両経路の一致 | 同じ相手を逆の `at_begin` で 2 度名指しした例 **0 件**（5 資産）。road-link 由来と junction 由来が食い違えばここに出る。multi_intersections は 240 出会いのうち **238 が両側から独立に宣言**された |
+| ミラーの正しさ | ユニット `EveryConnectionIsMirroredWithTheOppositeEnd` が 3 資産の全接続について「相手も自分を、逆の端で名指している」を検査 |
+| `GT_OSI_LOGICAL_LANE=0` で空 | 5 資産すべてで `logical_lane[] = 0`、接続 0。ON 側は非空 |
+| 毎フレーム側が増えていない | S2.5 が narrow した判定（ON から `logical_lane_assignment` だけ剥がして再直列化し OFF と SHA 一致）を**そのまま緑で通過**。S2 は静的側にしか触っていない |
+| 回帰ゲート | **PASS**（unit 35/35 緑 / ODR quick 緑 / behavioral 0 deviation） |
+
+**検知器が反転していないことの実証（意図的な欠陥を 2 つ注入）**:
+
+| 注入した欠陥 | 赤になったテスト |
+| :-- | :-- |
+| 出力時に `at_begin_of_other_lane` を反転 | `SuccessorIsTheHigherSNeighbourOnBothMoveDirections` / `EveryConnectionIsMirroredWithTheOppositeEnd` |
+| `right_adjacent` と `left_adjacent` を入れ替え | `AdjacencyIsInReferenceLineDirectionInBothTrafficHands` / `LaneMinusOneAndPlusOneAreNeighboursAcrossTheCentreLane` |
+
+残り 31 件は両方とも緑のままだった。**プローブ側はどちらの欠陥も捕まえない**（全体反転では両極性の
+集計が入れ替わるだけ、左右入替は対称性を保つ）。層の役割分担として記録しておく:
+**プローブは「接触点の分岐が生きているか」を、ユニットは「向きが正しいか」を見ている。**
+
+**サイズ実測（連結性込み、`scripts/probe_osi_logical_lane_size.py`）**:
+
+| 資産 | 論理レーン B（S3→S2） | 層の増分 B（S3→S2） | 連結性ぶん | static x |
+| :-- | --: | --: | --: | --: |
+| e6mini | 1,925 → 3,043 | 57,704 → 58,822 | +1,118 | 1.26x → **1.27x** |
+| fabriksgatan | 5,427 → 8,599 | 49,120 → 52,292 | +3,172 | 2.85x → **2.97x** |
+| multi_intersections | 30,992 → 50,898 | 388,741 → 408,647 | +19,906 | 2.48x → **2.56x** |
+| soderleden | 4,074 → 6,735 | 50,622 → 53,283 | +2,661 | 2.04x → **2.10x** |
+| highway_merge_split | 6,599 → 10,920 | 43,816 → 48,137 | +4,321 | 1.96x → **2.06x** |
+
+**予想は「連結性は id の列なので小さいはず」だった。小さいのは当たったが、理由は外れている。**
+層全体に対して 2〜5% で、境界（84〜93%）に比べれば確かに小さい。しかし**バイトの出どころは id ではない**:
+multi_intersections の内訳は接続 480 件（`LaneConnection` = id + bool、約 11 B）に対し隣接 358 件
+（`LaneRelation` = id + **double 4 本**、約 45 B）で、**隣接が連結性バイトの 8 割**を占める。
+`start_s` / `end_s` / `start_s_other` / `end_s_other` は同一セクション内では 4 つとも同じレーン範囲の
+繰り返しだが、規格が要求するフィールドなので削れない。
+
+> **fabriksgatan が 2.97x に達した（§7-3 の反転条件は 3x）。** 条件は「3 倍超 **かつ** OSI 記録が
+> 日常のワークフロー」の AND なので**既定 ON を変えない**が、余裕は 1% を切った。分母が小さい
+> （静的 GT 26.5 KB）ための比であって、絶対値は 1 回きりの +52 KB である。次に層へ何かを足すときは、
+> **fabriksgatan を先に測る**こと。3x に最初に触るのはこの資産で、次点の multi_intersections
+> （2.56x）とは 0.4 の開きがある。
+
+**S5 へ引き継ぐ発見**:
+
+1. **`signal:logical_lane_topology` の観測経路は静的 GT の第 1 レコードだけ。** 連結性は
+   `logical_lane[]` にしか載らず、毎フレームの GroundTruth には出ない（S0 以来の性質）。
+   matcher は `.osi` の第 1 レコードを読む形にしないと、常に空を見て緑になる。
+2. **「数が増えた」型の matcher にしないこと。** 連結性は 4 つの `repeated` で、どれも
+   欠けていても message は well-formed である。閾値を「> 0」に置くと、片側だけ壊れた実装が通る。
+   常設ゲートに載せるなら**閉包（dangling 0）と接続路レーンの被覆率**を見る形にする — この 2 つは
+   分母が真実源（xodr のレーン数）から出るので、実装が縮んだときに分子が減る。
+3. **両極性の実証は「ON=未設定 / OFF=`0`」で書く。** 既定 ON 反転以降、「ON=`1` / OFF=未設定」の
+   ままのプローブは両 run が ON になる。S3 で踏んだ罠で、本段でも boundary プローブの
+   **見出し文字列だけ**が S1 のまま残っていた（判定は正しかった）。文字列も証拠の一部である。
+4. **隣接は消費側から復元できるので、ゲートで守る価値が高いのは前後接続のほう。**
+   隣接する 2 レーンは 166/286 組で境界 id を共有しており、残り 120 組も XY が一致する。
+   つまり隣接は境界から再構成できる（§8-α で S2 を最後に置いた理由そのもの）。
+   OSI の中に代替の手がかりが無いのは前後接続だけである。
 
 ### 8-1. 依存関係 — 逐次なのは S0 → S1 までで、その先は扇形に開く
 

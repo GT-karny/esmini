@@ -1513,3 +1513,294 @@ TEST(OsiLogicalLane, AssignmentIsEmptyWithoutAnIndex)
     const gt_esmini::osi::LogicalLaneIndex empty;
     EXPECT_TRUE(Assign(pos, empty).empty());
 }
+
+// ---------------------------------------------------------------------------
+// S2 -- connectivity (design 2-4)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+std::map<std::uint64_t, const osi3::LogicalLane*> LaneById(const osi3::GroundTruth& gt)
+{
+    std::map<std::uint64_t, const osi3::LogicalLane*> out;
+    for (const auto& ll : gt.logical_lane())
+    {
+        out[ll.id().value()] = &ll;
+    }
+    return out;
+}
+
+// Does `list` name `other`, and with which flag? -1 absent, 0 present with
+// at_begin false, 1 present with at_begin true.
+int FindConnection(const google::protobuf::RepeatedPtrField<osi3::LogicalLane_LaneConnection>& list, std::uint64_t other)
+{
+    for (const auto& c : list)
+    {
+        if (c.other_lane_id().value() == other)
+        {
+            return c.at_begin_of_other_lane() ? 1 : 0;
+        }
+    }
+    return -1;
+}
+}  // namespace
+
+// THE TRAP THIS PINS. "'End' is relative to the reference line, so connections at
+// #end_s." Both fields are in reference-line direction, so on a lane driven towards
+// decreasing s the successor is the connection BEHIND the vehicle. A build that read
+// successor as "ahead" would swap the two fields on exactly half the lanes and still
+// produce a graph that walks, closes, and passes every count.
+//
+// The two populations are counted so the assertion cannot pass having only ever seen
+// the lanes whose driving direction agrees with the reference line -- the case the
+// wrong reading also gets right.
+TEST(OsiLogicalLane, SuccessorIsTheHigherSNeighbourOnBothMoveDirections)
+{
+    unsigned checked_increasing = 0, checked_decreasing = 0;
+
+    for (const char* fixture : {"soderleden.xodr", "highway_example_with_merge_and_split.xodr"})
+    {
+        osi3::GroundTruth                gt;
+        gt_esmini::osi::LogicalLaneIndex index;
+        ASSERT_TRUE(BuildFor(Xodr(fixture), &gt, &index)) << fixture;
+
+        const auto by_id = LaneById(gt);
+        for (const auto& ll : gt.logical_lane())
+        {
+            const LaneAddr addr = AddrOf(ll);
+            for (const auto& c : ll.successor_lane())
+            {
+                const auto it = by_id.find(c.other_lane_id().value());
+                ASSERT_NE(it, by_id.end()) << fixture;
+                if (AddrOf(*it->second).road_id != addr.road_id)
+                {
+                    continue;  // across a road boundary s restarts; only comparable inside one road
+                }
+                EXPECT_GE(it->second->start_s(), ll.end_s() - 1e-6)
+                    << fixture << " road " << addr.road_id << " lane " << addr.lane_id
+                    << ": successor sits at lower s than the lane's own end";
+                EXPECT_TRUE(c.at_begin_of_other_lane())
+                    << fixture << ": a successor inside a road is entered at the next section's beginning";
+                if (ll.move_direction() == osi3::LogicalLane_MoveDirection_MOVE_DIRECTION_INCREASING_S)
+                {
+                    checked_increasing++;
+                }
+                else if (ll.move_direction() == osi3::LogicalLane_MoveDirection_MOVE_DIRECTION_DECREASING_S)
+                {
+                    checked_decreasing++;
+                }
+            }
+        }
+    }
+    EXPECT_GT(checked_increasing, 0u);
+    EXPECT_GT(checked_decreasing, 0u) << "no lane driven towards decreasing s was covered -- the check is vacuous";
+}
+
+// Every meeting has to be walkable from both ends, and with the EXACT opposite flag:
+// an entry in A's successor_lane offered A's end, so the far lane must name A with
+// at_begin false; an entry in A's predecessor_lane offered A's beginning, so with
+// at_begin true.
+//
+// This is what says the mirror the post-pass emits is right rather than merely
+// present: OpenDRIVE declares a junction meeting from the incoming side only, so
+// half of these entries exist because the pass wrote them.
+TEST(OsiLogicalLane, EveryConnectionIsMirroredWithTheOppositeEnd)
+{
+    unsigned checked = 0;
+    for (const char* fixture : {"fabriksgatan.xodr", "multi_intersections.xodr", "soderleden.xodr"})
+    {
+        osi3::GroundTruth                gt;
+        gt_esmini::osi::LogicalLaneIndex index;
+        ASSERT_TRUE(BuildFor(Xodr(fixture), &gt, &index)) << fixture;
+
+        const auto by_id = LaneById(gt);
+        for (const auto& ll : gt.logical_lane())
+        {
+            for (int side = 0; side < 2; side++)
+            {
+                const auto& list = (side == 0) ? ll.predecessor_lane() : ll.successor_lane();
+                // Which of MY ends this list describes: predecessor_lane is my beginning.
+                const bool my_end_is_begin = (side == 0);
+                for (const auto& c : list)
+                {
+                    const auto it = by_id.find(c.other_lane_id().value());
+                    ASSERT_NE(it, by_id.end()) << fixture << ": dangling other_lane_id";
+                    const auto& back =
+                        c.at_begin_of_other_lane() ? it->second->predecessor_lane() : it->second->successor_lane();
+                    const int flag = FindConnection(back, ll.id().value());
+                    ASSERT_NE(flag, -1) << fixture << ": lane " << AddrOf(ll).road_id << "/" << AddrOf(ll).lane_id
+                                        << " is not named back by " << AddrOf(*it->second).road_id << "/"
+                                        << AddrOf(*it->second).lane_id;
+                    EXPECT_EQ(flag, my_end_is_begin ? 1 : 0) << fixture << ": the mirror names the wrong end";
+                    checked++;
+                }
+            }
+        }
+    }
+    EXPECT_GT(checked, 0u);
+}
+
+// "'Right' is in definition direction (not driving direction), so right lanes have
+// smaller T coordinates" -- and t grows with the OpenDRIVE lane id. The same proto
+// FILE also carries centerline_is_driving_direction, which DOES flip with the road
+// rule, so the two are easy to conflate. This runs one map in both hands: the
+// adjacency must be identical and the move directions must not be, or the fixture
+// pair proves nothing.
+TEST(OsiLogicalLane, AdjacencyIsInReferenceLineDirectionInBothTrafficHands)
+{
+    std::map<std::pair<int, int>, std::pair<int, int>> adjacency_by_hand[2];  // (road,lane) -> (right,left)
+    std::map<std::pair<int, int>, int>                 move_direction_by_hand[2];
+
+    const char* fixtures[2] = {"e6mini.xodr", "e6mini-lht.xodr"};
+    for (int h = 0; h < 2; h++)
+    {
+        osi3::GroundTruth                gt;
+        gt_esmini::osi::LogicalLaneIndex index;
+        ASSERT_TRUE(BuildFor(Xodr(fixtures[h]), &gt, &index)) << fixtures[h];
+
+        const auto by_id = LaneById(gt);
+        for (const auto& ll : gt.logical_lane())
+        {
+            const LaneAddr addr  = AddrOf(ll);
+            int            right = 0, left = 0;
+            for (const auto& rel : ll.right_adjacent_lane())
+            {
+                const auto it = by_id.find(rel.other_lane_id().value());
+                ASSERT_NE(it, by_id.end()) << fixtures[h];
+                right = AddrOf(*it->second).lane_id;
+                EXPECT_LT(right, addr.lane_id) << fixtures[h] << ": the right neighbour must have the smaller lane id";
+            }
+            for (const auto& rel : ll.left_adjacent_lane())
+            {
+                const auto it = by_id.find(rel.other_lane_id().value());
+                ASSERT_NE(it, by_id.end()) << fixtures[h];
+                left = AddrOf(*it->second).lane_id;
+                EXPECT_GT(left, addr.lane_id) << fixtures[h] << ": the left neighbour must have the larger lane id";
+            }
+            adjacency_by_hand[h][{addr.road_id, addr.lane_id}]      = {right, left};
+            move_direction_by_hand[h][{addr.road_id, addr.lane_id}] = static_cast<int>(ll.move_direction());
+        }
+    }
+
+    ASSERT_FALSE(adjacency_by_hand[0].empty());
+    EXPECT_EQ(adjacency_by_hand[0], adjacency_by_hand[1]) << "adjacency changed with the traffic hand";
+    // The negative control: the two fixtures really are the same road in opposite
+    // hands, so something that DOES depend on the hand has to differ.
+    EXPECT_NE(move_direction_by_hand[0], move_direction_by_hand[1])
+        << "move_direction is identical in both fixtures -- the LHT fixture is not what it claims to be";
+}
+
+// The centre lane carries no logical lane, so "the next lane id" is not always the
+// next integer: lane -1 and lane +1 are each other's neighbours across it.
+TEST(OsiLogicalLane, LaneMinusOneAndPlusOneAreNeighboursAcrossTheCentreLane)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("e6mini.xodr"), &gt, &index));
+
+    std::map<std::pair<int, int>, const osi3::LogicalLane*> by_lane;
+    for (const auto& ll : gt.logical_lane())
+    {
+        const LaneAddr a                = AddrOf(ll);
+        by_lane[{a.road_id, a.lane_id}] = &ll;
+    }
+
+    unsigned pairs = 0;
+    for (const auto& entry : by_lane)
+    {
+        if (entry.first.second != -1 || by_lane.find({entry.first.first, 1}) == by_lane.end())
+        {
+            continue;
+        }
+        const osi3::LogicalLane* minus_one = entry.second;
+        const osi3::LogicalLane* plus_one  = by_lane.at({entry.first.first, 1});
+        ASSERT_EQ(minus_one->left_adjacent_lane_size(), 1) << "lane -1 must have exactly one left neighbour";
+        EXPECT_EQ(minus_one->left_adjacent_lane(0).other_lane_id().value(), plus_one->id().value());
+        ASSERT_EQ(plus_one->right_adjacent_lane_size(), 1);
+        EXPECT_EQ(plus_one->right_adjacent_lane(0).other_lane_id().value(), minus_one->id().value());
+        pairs++;
+    }
+    EXPECT_GT(pairs, 0u);
+}
+
+// Lanes appear and disappear only at lane-section borders and a logical lane is cut
+// at exactly those borders, so a neighbour is a neighbour for the lane's whole
+// length. Also pins the ordering requirement, which is trivially met while each list
+// holds at most one entry -- and this is what would notice if that stopped holding.
+TEST(OsiLogicalLane, AdjacencySpansTheWholeLaneAndIsAtMostOnePerSide)
+{
+    for (const char* fixture : {"fabriksgatan.xodr", "highway_example_with_merge_and_split.xodr"})
+    {
+        osi3::GroundTruth                gt;
+        gt_esmini::osi::LogicalLaneIndex index;
+        ASSERT_TRUE(BuildFor(Xodr(fixture), &gt, &index)) << fixture;
+
+        const auto by_id = LaneById(gt);
+        for (const auto& ll : gt.logical_lane())
+        {
+            EXPECT_LE(ll.right_adjacent_lane_size(), 1) << fixture;
+            EXPECT_LE(ll.left_adjacent_lane_size(), 1) << fixture;
+            for (int side = 0; side < 2; side++)
+            {
+                for (const auto& rel : (side == 0) ? ll.right_adjacent_lane() : ll.left_adjacent_lane())
+                {
+                    const auto it = by_id.find(rel.other_lane_id().value());
+                    ASSERT_NE(it, by_id.end()) << fixture;
+                    EXPECT_DOUBLE_EQ(rel.start_s(), ll.start_s()) << fixture;
+                    EXPECT_DOUBLE_EQ(rel.end_s(), ll.end_s()) << fixture;
+                    EXPECT_DOUBLE_EQ(rel.start_s_other(), it->second->start_s()) << fixture;
+                    EXPECT_DOUBLE_EQ(rel.end_s_other(), it->second->end_s()) << fixture;
+                    EXPECT_GT(rel.end_s(), rel.start_s()) << fixture << ": LaneRelation requires end_s > start_s";
+                }
+            }
+        }
+    }
+}
+
+// "Both lanes have a non-zero width at the connection point." A lane that has
+// tapered to nothing at a merge or a split still carries an OpenDRIVE <link>, and
+// connecting it would tell a planner it can drive through a lane of zero width.
+TEST(OsiLogicalLane, ALaneEndOfZeroWidthCarriesNoConnection)
+{
+    unsigned zero_width_ends = 0;
+    for (const char* fixture : {"highway_example_with_merge_and_split.xodr", "soderleden.xodr", "multi_intersections.xodr"})
+    {
+        osi3::GroundTruth                gt;
+        gt_esmini::osi::LogicalLaneIndex index;
+        ASSERT_TRUE(BuildFor(Xodr(fixture), &gt, &index)) << fixture;
+        roadmanager::OpenDrive* od = roadmanager::Position::GetOpenDrive();
+
+        for (const auto& ll : gt.logical_lane())
+        {
+            const LaneAddr     addr = AddrOf(ll);
+            roadmanager::Road* road = od->GetRoadById(static_cast<id_t>(addr.road_id));
+            ASSERT_NE(road, nullptr) << fixture;
+            roadmanager::LaneSection* lsec = nullptr;
+            for (unsigned j = 0; j < road->GetNumberOfLaneSections(); j++)
+            {
+                if (std::fabs(road->GetLaneSectionByIdx(j)->GetS() - ll.start_s()) < 1e-6)
+                {
+                    lsec = road->GetLaneSectionByIdx(j);
+                    break;
+                }
+            }
+            ASSERT_NE(lsec, nullptr) << fixture << " road " << addr.road_id << " s " << ll.start_s();
+
+            if (lsec->GetWidth(ll.start_s(), addr.lane_id) <= SMALL_NUMBER)
+            {
+                zero_width_ends++;
+                EXPECT_EQ(ll.predecessor_lane_size(), 0)
+                    << fixture << " road " << addr.road_id << " lane " << addr.lane_id
+                    << ": zero width at start_s but a predecessor is attached";
+            }
+            if (lsec->GetWidth(ll.end_s(), addr.lane_id) <= SMALL_NUMBER)
+            {
+                zero_width_ends++;
+                EXPECT_EQ(ll.successor_lane_size(), 0)
+                    << fixture << " road " << addr.road_id << " lane " << addr.lane_id
+                    << ": zero width at end_s but a successor is attached";
+            }
+        }
+    }
+    EXPECT_GT(zero_width_ends, 0u) << "no lane end of zero width in any fixture -- the rule was never exercised";
+}

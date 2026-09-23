@@ -5,17 +5,17 @@
  * the ScenarioEngine swap zone rather than in GT_esminiLib, and why the pass runs
  * last in the static ground-truth build.
  *
- * STAGE: S3 -- LogicalLaneBoundary (design 2-3) on top of S1 + S2.5b.
+ * STAGE: S2 -- connectivity (design 2-4) on top of S3 + S1 + S2.5b.
+ *
+ * S3 -- LogicalLaneBoundary (design 2-3).
  *
  * S2.5b -- LogicalLaneAssignment (design 2-6-1), reported at the OSI reference
  * point (bounding-box centre) rather than the entity origin.
  *
  * S1 -- reference lines (design 2-1), logical lane bodies (2-2) and the
- * (road, lane section, lane) -> logical lane id index (3). Connectivity
- * (predecessor / successor / adjacent) is S2, and is `repeated`, so the message
- * stays well-formed without it.
+ * (road, lane section, lane) -> logical lane id index (3).
  *
- * Design: GT_esmini/docs/osi/logical_lane_and_route_design.md 2-1 / 2-2 / 2-3 / 3 / 4 / 7
+ * Design: GT_esmini/docs/osi/logical_lane_and_route_design.md 2-1 / 2-2 / 2-3 / 2-4 / 3 / 4 / 7
  * Knowledge graph: spine-work:osi-logical-lane
  */
 #include "gt_esmini/osi/GT_OsiLogicalLane.hpp"
@@ -803,7 +803,14 @@ void BuildOsiLogicalLanesInto(roadmanager::OpenDrive* opendrive, osi3::GroundTru
     }
 
 
-    // ---- pass 3: LogicalLane bodies (design 2-2). No connectivity.
+    // ---- pass 3: LogicalLane bodies (design 2-2). Connectivity is pass 4.
+    //
+    // Pass 4 has to reach back into the messages emitted here, so this pass also
+    // records the REPEATED-FIELD POSITION of each lane. The index kept for callers
+    // maps to the global id, which is what consumers resolve, but is useless for
+    // mutating the message again.
+    std::map<LogicalLaneKey, int> proto_idx;
+
     unsigned n_lanes = 0, n_junction_lanes = 0;
     for (unsigned i = 0; i < n_roads; i++)
     {
@@ -961,13 +968,388 @@ void BuildOsiLogicalLanesInto(roadmanager::OpenDrive* opendrive, osi3::GroundTru
                 }
 
                 (*index)[LogicalLaneKey{road->GetId(), j, lane_id}] = ll->id().value();
+                proto_idx[LogicalLaneKey{road->GetId(), j, lane_id}] = gt->logical_lane_size() - 1;
                 n_lanes++;
             }
         }
     }
 
+    // ---- pass 4: connectivity (design 2-4) ------------------------------------
+    //
+    // Last, because every connection is a forward reference: the id of the lane on
+    // the far side of a road boundary only exists once pass 3 has run everywhere.
+    // Same reason and same shape as UpdateOSIRoadLane's second sweep.
+    //
+    // EVERYTHING HERE IS IN REFERENCE-LINE DIRECTION, NEVER DRIVING DIRECTION.
+    // "'End' is relative to the reference line, so connections at #end_s." On a
+    // right-hand-traffic lane with a negative id -- driven towards DECREASING s --
+    // successor_lane is therefore the connection BEHIND the vehicle. That is what
+    // the spec asks for, and re-reading it as "ahead" would put the connections of
+    // every RHT lane in the wrong field. OpenDRIVE's own predecessor/successor are
+    // defined the same way, so the two never need flipping against each other.
+
+    // One physical meeting is two lane ENDS touching. Which OSI list it lands in is
+    // decided independently on each side -- the end at end_s is a successor, the end
+    // at start_s a predecessor -- so one meeting writes two entries whose at_begin
+    // flags are generally different.
+    using LaneEnd = std::pair<LogicalLaneKey, bool>;  // .second: true = this lane's start_s end
+
+    struct PathStats
+    {
+        unsigned meetings = 0;
+        // Polarity of the flag that came from a contact point (the far side's).
+        // Counted per discovery path on purpose: the lane-section seam path derives
+        // it structurally and is 50/50 whatever the code does, so only the road-link
+        // and junction numbers say whether the contact-point branch is alive.
+        unsigned far_at_begin_true  = 0;
+        unsigned far_at_begin_false = 0;
+    };
+    PathStats st_seam, st_roadlink, st_junction;
+
+    std::map<LogicalLaneKey, std::set<std::pair<std::uint64_t, bool>>> succ_of, pred_of;
+    // Canonically ordered meeting -> the lanes whose own OpenDRIVE links named it.
+    // size() == 2 means both sides declared it independently; 1 means only one did
+    // and the other direction exists because this pass mirrors it (below).
+    std::map<std::pair<LaneEnd, LaneEnd>, std::set<LogicalLaneKey>> declared_by;
+
+    unsigned n_conn_unresolved = 0, n_conn_zero_width = 0, n_conn_contact_unknown = 0;
+
+    auto lane_width_at = [&](const LogicalLaneKey& k, bool at_begin) -> double
+    {
+        roadmanager::Road* r = opendrive->GetRoadById(std::get<0>(k));
+        if (r == nullptr)
+        {
+            return 0.0;
+        }
+        roadmanager::LaneSection* ls = r->GetLaneSectionByIdx(std::get<1>(k));
+        if (ls == nullptr)
+        {
+            return 0.0;
+        }
+        // GetWidth takes an absolute road s and clamps it into the section.
+        return ls->GetWidth(at_begin ? ls->GetS() : ls->GetS() + ls->GetLength(), std::get<2>(k));
+    };
+
+    auto connect = [&](const LaneEnd& a, const LaneEnd& b, PathStats* st)
+    {
+        const auto ia = proto_idx.find(a.first);
+        const auto ib = proto_idx.find(b.first);
+        if (ia == proto_idx.end() || ib == proto_idx.end())
+        {
+            // The link names a lane that has no logical lane: the centre lane, a
+            // lane of a section this pass skipped, or a dangling id. Normal enough
+            // to count rather than warn per occurrence.
+            n_conn_unresolved++;
+            return;
+        }
+        if (!(lane_width_at(a.first, a.second) > SMALL_NUMBER) || !(lane_width_at(b.first, b.second) > SMALL_NUMBER))
+        {
+            // "Both lanes have a non-zero width at the connection point." A lane
+            // that has tapered to nothing at a merge or a split is not physically
+            // connected to whatever continues past it, even though OpenDRIVE still
+            // carries the <link>.
+            n_conn_zero_width++;
+            return;
+        }
+        const std::uint64_t id_a = index->find(a.first)->second;
+        const std::uint64_t id_b = index->find(b.first)->second;
+
+        (a.second ? pred_of : succ_of)[a.first].insert({id_b, b.second});
+        // THE MIRROR IS NOT REDUNDANT. Inside a junction OpenDRIVE declares the
+        // meeting from one side only -- <connection> names the incoming road, and
+        // the outgoing road has no link naming the connecting road at all -- so a
+        // consumer walking the graph backwards would hit a dead end at every
+        // junction exit if each lane only emitted what its own links say.
+        (b.second ? pred_of : succ_of)[b.first].insert({id_a, a.second});
+
+        declared_by[(a < b) ? std::make_pair(a, b) : std::make_pair(b, a)].insert(a.first);
+        if (st != nullptr)
+        {
+            st->meetings++;
+            (b.second ? st->far_at_begin_true : st->far_at_begin_false)++;
+        }
+    };
+
+    for (unsigned i = 0; i < n_roads; i++)
+    {
+        roadmanager::Road* road = opendrive->GetRoadByIdx(i);
+        if (road == nullptr)
+        {
+            continue;
+        }
+        const unsigned n_sections = road->GetNumberOfLaneSections();
+
+        for (unsigned j = 0; j < n_sections; j++)
+        {
+            roadmanager::LaneSection* lsec = road->GetLaneSectionByIdx(j);
+            if (lsec == nullptr)
+            {
+                continue;
+            }
+            for (unsigned k = 0; k < lsec->GetNumberOfLanes(); k++)
+            {
+                roadmanager::Lane* lane = lsec->GetLaneByIdx(k);
+                if (lane == nullptr || lane->IsCenter())
+                {
+                    continue;
+                }
+                const LogicalLaneKey self{road->GetId(), j, lane->GetId()};
+                if (proto_idx.find(self) == proto_idx.end())
+                {
+                    continue;
+                }
+
+                for (int side = 0; side < 2; side++)
+                {
+                    const roadmanager::LinkType lt =
+                        (side == 0) ? roadmanager::LinkType::PREDECESSOR : roadmanager::LinkType::SUCCESSOR;
+                    const bool             self_at_begin = (lt == roadmanager::LinkType::PREDECESSOR);
+                    roadmanager::LaneLink* ll            = lane->GetLink(lt);
+
+                    // (1) Inside the road. A lane <link> means the neighbouring lane
+                    //     SECTION here, and the meeting is always at that section's
+                    //     near end, so at_begin follows from the direction we are
+                    //     looking and never from a contact point.
+                    if (self_at_begin ? (j > 0) : (j + 1 < n_sections))
+                    {
+                        if (ll != nullptr)
+                        {
+                            connect({self, self_at_begin},
+                                    {LogicalLaneKey{road->GetId(), self_at_begin ? j - 1 : j + 1, ll->GetId()}, !self_at_begin},
+                                    &st_seam);
+                        }
+                        continue;
+                    }
+
+                    roadmanager::RoadLink* rl = road->GetLink(lt);
+                    if (rl == nullptr)
+                    {
+                        continue;
+                    }
+
+                    // (2) Road to road. The SAME lane <link> now names a lane on the
+                    //     other road, and @contactPoint says which of that road's
+                    //     ends we meet. This is also the path that resolves a
+                    //     connecting road's own two ends, which is why the junction
+                    //     path below only has to look outwards from incoming roads.
+                    if (rl->GetElementType() == roadmanager::RoadLink::ElementType::ELEMENT_TYPE_ROAD)
+                    {
+                        roadmanager::Road* other = (ll == nullptr) ? nullptr : opendrive->GetRoadById(rl->GetElementId());
+                        if (other == nullptr || other->GetNumberOfLaneSections() == 0)
+                        {
+                            continue;
+                        }
+                        bool far_at_begin = false;
+                        if (rl->GetContactPointType() == roadmanager::ContactPointType::CONTACT_POINT_START)
+                        {
+                            far_at_begin = true;
+                        }
+                        else if (rl->GetContactPointType() != roadmanager::ContactPointType::CONTACT_POINT_END)
+                        {
+                            // @contactPoint is mandatory on a road-to-road <link>.
+                            // Without it there is nothing to decide which end of the
+                            // other road we meet, and guessing would silently attach
+                            // to the wrong end of a long road.
+                            n_conn_contact_unknown++;
+                            continue;
+                        }
+                        connect({self, self_at_begin},
+                                {LogicalLaneKey{other->GetId(), far_at_begin ? 0u : other->GetNumberOfLaneSections() - 1, ll->GetId()},
+                                 far_at_begin},
+                                &st_roadlink);
+                        continue;
+                    }
+
+                    // (3) Through a junction. The lane has no <link> of its own here
+                    //     (OpenDRIVE cannot name a lane on a junction), so the lane
+                    //     mapping comes from <connection><laneLink from to>. This is
+                    //     the path that makes the inside of an intersection walkable
+                    //     one lane at a time -- the physical osi_lane fuses it into a
+                    //     single TYPE_INTERSECTION lane and loses it.
+                    if (rl->GetElementType() != roadmanager::RoadLink::ElementType::ELEMENT_TYPE_JUNCTION)
+                    {
+                        continue;
+                    }
+                    roadmanager::Junction* junction = opendrive->GetJunctionById(rl->GetElementId());
+                    if (junction == nullptr)
+                    {
+                        continue;
+                    }
+                    // A road whose two ends name the SAME junction cannot say from
+                    // its road link which end a given connection belongs to. The
+                    // connecting road can: its own link back to us carries our
+                    // contact point.
+                    roadmanager::RoadLink* far_link =
+                        road->GetLink((lt == roadmanager::LinkType::PREDECESSOR) ? roadmanager::LinkType::SUCCESSOR
+                                                                                 : roadmanager::LinkType::PREDECESSOR);
+                    const bool ambiguous_end = far_link != nullptr &&
+                                               far_link->GetElementType() == roadmanager::RoadLink::ElementType::ELEMENT_TYPE_JUNCTION &&
+                                               far_link->GetElementId() == rl->GetElementId();
+
+                    for (unsigned c = 0; c < junction->GetNumberOfConnections(); c++)
+                    {
+                        roadmanager::Connection* conn = junction->GetConnectionByIdx(c);
+                        if (conn == nullptr || conn->GetIncomingRoad() != road)
+                        {
+                            continue;
+                        }
+                        roadmanager::Road* other = conn->GetConnectingRoad();
+                        if (other == nullptr || other->GetNumberOfLaneSections() == 0)
+                        {
+                            continue;
+                        }
+                        if (ambiguous_end)
+                        {
+                            bool resolved = false, our_end_at_begin = false;
+                            for (int b = 0; b < 2 && !resolved; b++)
+                            {
+                                roadmanager::RoadLink* back =
+                                    other->GetLink((b == 0) ? roadmanager::LinkType::PREDECESSOR : roadmanager::LinkType::SUCCESSOR);
+                                if (back != nullptr && back->GetElementType() == roadmanager::RoadLink::ElementType::ELEMENT_TYPE_ROAD &&
+                                    back->GetElementId() == road->GetId())
+                                {
+                                    if (back->GetContactPointType() == roadmanager::ContactPointType::CONTACT_POINT_START)
+                                    {
+                                        our_end_at_begin = true;
+                                        resolved         = true;
+                                    }
+                                    else if (back->GetContactPointType() == roadmanager::ContactPointType::CONTACT_POINT_END)
+                                    {
+                                        our_end_at_begin = false;
+                                        resolved         = true;
+                                    }
+                                }
+                            }
+                            if (!resolved || our_end_at_begin != self_at_begin)
+                            {
+                                continue;
+                            }
+                        }
+                        const bool far_at_begin = (conn->GetContactPoint() == roadmanager::ContactPointType::CONTACT_POINT_START);
+                        const unsigned far_sec  = far_at_begin ? 0u : other->GetNumberOfLaneSections() - 1;
+                        for (unsigned l = 0; l < conn->GetNumberOfLaneLinks(); l++)
+                        {
+                            roadmanager::JunctionLaneLink* jll = conn->GetLaneLink(l);
+                            if (jll == nullptr || jll->from_ != lane->GetId())
+                            {
+                                continue;
+                            }
+                            connect({self, self_at_begin}, {LogicalLaneKey{other->GetId(), far_sec, jll->to_}, far_at_begin}, &st_junction);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- pass 4b: lateral adjacency (design 2-4-2) ----------------------------
+    //
+    // "Right" is in DEFINITION direction, so right lanes have smaller T. t grows
+    // with the OpenDRIVE lane id, so right is the smaller id -- and this does NOT
+    // flip for left-hand traffic, unlike the physical lane's
+    // centerline_is_driving_direction, which lives in the same proto file and does.
+    //
+    // Adjacency is always the lane's full length: lanes appear and disappear only at
+    // lane-section borders, and a logical lane is cut at exactly those borders, so
+    // "the neighbour starts halfway along" cannot arise. The centre lane carries no
+    // logical lane, so lane -1 and lane +1 are each other's neighbours across it.
+    unsigned n_adj_left = 0, n_adj_right = 0;
+    for (const auto& kv : proto_idx)
+    {
+        const LogicalLaneKey& self    = kv.first;
+        const int             lane_id = std::get<2>(self);
+        osi3::LogicalLane*    ll      = gt->mutable_logical_lane(kv.second);
+
+        // side 0 = right (smaller t), side 1 = left (larger t)
+        for (int side = 0; side < 2; side++)
+        {
+            const int step     = (side == 0) ? -1 : 1;
+            const int other_id = (lane_id + step == 0) ? lane_id + 2 * step : lane_id + step;
+            const auto it      = proto_idx.find(LogicalLaneKey{std::get<0>(self), std::get<1>(self), other_id});
+            if (it == proto_idx.end())
+            {
+                continue;
+            }
+            const osi3::LogicalLane&         other = gt->logical_lane(it->second);
+            osi3::LogicalLane_LaneRelation*  rel   = (side == 0) ? ll->add_right_adjacent_lane() : ll->add_left_adjacent_lane();
+            rel->mutable_other_lane_id()->set_value(other.id().value());
+            rel->set_start_s(ll->start_s());
+            rel->set_end_s(ll->end_s());
+            // Read from the other lane's own record rather than assuming they are
+            // equal. They are, here -- both lanes share the road's single reference
+            // line (design 2-1) -- but the field is defined as "the same place ...
+            // measured along the reference line of the OTHER lane", and writing it
+            // as an assumption is what would break the day a lane gets its own line.
+            rel->set_start_s_other(other.start_s());
+            rel->set_end_s_other(other.end_s());
+            ((side == 0) ? n_adj_right : n_adj_left)++;
+        }
+        // "Entries must be ordered: first by #start_s, then by #end_s." Each list
+        // holds at most one entry (a lane has one neighbour per side within its
+        // section), so the order is settled by construction.
+    }
+
+    // ---- emit the collected connections ---------------------------------------
+    unsigned n_succ = 0, n_pred = 0;
+    for (const auto& kv : proto_idx)
+    {
+        osi3::LogicalLane* ll = gt->mutable_logical_lane(kv.second);
+        const auto         pit = pred_of.find(kv.first);
+        if (pit != pred_of.end())
+        {
+            for (const auto& e : pit->second)
+            {
+                osi3::LogicalLane_LaneConnection* lc = ll->add_predecessor_lane();
+                lc->mutable_other_lane_id()->set_value(e.first);
+                lc->set_at_begin_of_other_lane(e.second);
+                n_pred++;
+            }
+        }
+        const auto sit = succ_of.find(kv.first);
+        if (sit != succ_of.end())
+        {
+            for (const auto& e : sit->second)
+            {
+                osi3::LogicalLane_LaneConnection* lc = ll->add_successor_lane();
+                lc->mutable_other_lane_id()->set_value(e.first);
+                lc->set_at_begin_of_other_lane(e.second);
+                n_succ++;
+            }
+        }
+    }
+
+    unsigned n_meet_both_sides = 0;
+    for (const auto& kv : declared_by)
+    {
+        if (kv.second.size() > 1)
+        {
+            n_meet_both_sides++;
+        }
+    }
+
     LOG_INFO(
-        "[GT_OSI:logical-lane] post-pass enabled (S3) -- roads={} reference_line={} (points={} degenerate={}) logical_lane={} "
+        "[GT_OSI:logical-lane] connectivity (S2) -- meetings={} (seam={} road-link={} junction={}) declared-by-both-sides={} "
+        "predecessor={} successor={} adjacent(left={} right={}) dropped(unresolved={} zero-width={} contact-unknown={}) "
+        "far-at-begin road-link[T={} F={}] junction[T={} F={}]",
+        declared_by.size(),
+        st_seam.meetings,
+        st_roadlink.meetings,
+        st_junction.meetings,
+        n_meet_both_sides,
+        n_pred,
+        n_succ,
+        n_adj_left,
+        n_adj_right,
+        n_conn_unresolved,
+        n_conn_zero_width,
+        n_conn_contact_unknown,
+        st_roadlink.far_at_begin_true,
+        st_roadlink.far_at_begin_false,
+        st_junction.far_at_begin_true,
+        st_junction.far_at_begin_false);
+
+    LOG_INFO(
+        "[GT_OSI:logical-lane] post-pass enabled (S2) -- roads={} reference_line={} (points={} degenerate={}) logical_lane={} "
         "(connecting-road lanes={}) logical_lane_boundary={} (points={} split-by-roadmark={} split-by-height={} "
         "physical-linked={} physical-dropped={} without-physical={}) index={}",
         n_roads,
