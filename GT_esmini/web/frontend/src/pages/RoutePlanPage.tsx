@@ -273,6 +273,12 @@ export function RoutePlanPage() {
     : [];
 
   const laneChanges = plan?.lane_changes ?? [];
+  // A connector may not feed the lane that was clicked, in which case the route
+  // arrives on a neighbour. The point row still shows the clicked lane, so
+  // without this the list quietly disagrees with the route it drew.
+  const laneAdjustments = new Map(
+    (plan?.lane_adjustments ?? []).map((a) => [a.index, a] as const),
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 px-6 py-6">
@@ -381,6 +387,7 @@ export function RoutePlanPage() {
                 {points.map((p, i) => {
                   const role = i === 0 ? 'Start' : i === points.length - 1 ? 'Goal' : 'Via';
                   const missed = p.snap && !p.snap.on_road;
+                  const adjusted = laneAdjustments.get(i);
                   return (
                     <li
                       key={p.id}
@@ -411,6 +418,14 @@ export function RoutePlanPage() {
                         >
                           {describeSnap(p.snap)}
                         </span>
+                        {adjusted && (
+                          <span className="block truncate font-mono text-xs text-amber-400">
+                            arrives on lane{' '}
+                            {adjusted.arrived_lane > 0
+                              ? `+${adjusted.arrived_lane}`
+                              : adjusted.arrived_lane}
+                          </span>
+                        )}
                       </span>
                       <Button
                         size="sm"

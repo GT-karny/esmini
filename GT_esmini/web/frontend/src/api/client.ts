@@ -1028,10 +1028,21 @@ export interface RoutePlan {
    *  which case callers fall back to joining waypoints directly. */
   path?: Array<{ x: number; y: number }>;
   lane_changes: RouteLaneChange[];
+  /** Points whose lane the route could not actually arrive on, and the lane it
+   *  took instead. `index` indexes the clicked points. Absent on a backend that
+   *  predates it. */
+  lane_adjustments?: RouteLaneAdjustment[];
   length: number;
   diagnostic: string;
   /** Where each clicked point landed after snapping to a lane. */
   snapped: Array<{ road_id: number; lane_id: number; s: number; x: number; y: number; h: number }>;
+}
+
+export interface RouteLaneAdjustment {
+  index: number;
+  road_id: number;
+  clicked_lane: number;
+  arrived_lane: number;
 }
 
 export interface BuildFromRouteBody {
