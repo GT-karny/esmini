@@ -38,6 +38,37 @@ must:
     reason: >
       The ego crosses off road 0 into road 3 (the through connector reachable from
       lane -1) without ever reaching lane -4, so the deviation gate must fire.
+  - event: route_matches_plan
+    expect_route_present: true
+    reason: >
+      spine-work:osi-logical-lane S5. The route this scenario drives is also published
+      on HostVehicleData as a list of logical-lane segments. Asserted as PRESENT rather
+      than left to the checks below, so that a run where the layer stopped publishing
+      comes back FAIL and not the softer skip -> needs-review.
+  - event: route_matches_plan
+    expect_closure: true
+    reason: >
+      Every logical_lane_id the published route names must exist in
+      GroundTruth.logical_lane[]. A route whose ids point nowhere is a perfectly
+      well-formed message, so nothing else in this file would notice.
+  - event: route_matches_plan
+    expect_segments_connected: true
+    reason: >
+      THIS is the assertion that reads the logical-lane connectivity (design 2-4):
+      consecutive route segments must be joined by a predecessor/successor edge,
+      INCLUDING the two seams either side of the junction-1 connecting road, which the
+      physical osi_lane layer cannot express at all (it fuses the junction into one
+      TYPE_INTERSECTION lane). Counting segments would not: all four connectivity
+      fields are `repeated`, so an implementation that emitted none of them still
+      produces a route of the right length.
+  - event: route_matches_plan
+    expect_lanes_match_plan: true
+    reason: >
+      The published route and telemetry.route_lane both derive from one RouteLanePlan
+      through different code paths, so on the ego's current road they must name the
+      same lanes. A disagreement means one of the two faces drifted -- which is the
+      event this pairing exists to catch, and the reason the two are kept as separate
+      signals rather than merged.
 notes: >
   Measured (600 frames, dt=0.05, GT_esminiLib.dll with route_lane telemetry):
 

@@ -1011,13 +1011,41 @@ export interface RouteLaneChange {
   to_lane_id: number;
 }
 
+export interface SnapResultDto {
+  on_road: boolean;
+  reason?: 'off_road' | 'not_routable';
+  road_id?: number;
+  lane_id?: number;
+  s?: number;
+  x?: number;
+  y?: number;
+  h?: number;
+}
+
 export interface RoutePlan {
   waypoints: RouteWaypoint[];
+  /** Route sampled along lane centres. Absent on a backend that predates it, in
+   *  which case callers fall back to joining waypoints directly. */
+  path?: Array<{ x: number; y: number }>;
   lane_changes: RouteLaneChange[];
+  /** Points whose lane the route could not actually arrive on, and the lane it
+   *  took instead. `index` indexes the clicked points. Absent on a backend that
+   *  predates it. */
+  lane_adjustments?: RouteLaneAdjustment[];
   length: number;
   diagnostic: string;
   /** Where each clicked point landed after snapping to a lane. */
   snapped: Array<{ road_id: number; lane_id: number; s: number; x: number; y: number; h: number }>;
+}
+
+export interface RouteLaneAdjustment {
+  index: number;
+  road_id: number;
+  clicked_lane: number;
+  arrived_lane: number;
+  /** The route ended on the other carriageway -- a different destination, not a
+   *  neighbouring lane. Both look like 3.75 m on the map. */
+  opposite_direction?: boolean;
 }
 
 export interface BuildFromRouteBody {
@@ -1031,10 +1059,15 @@ export interface BuildFromRouteBody {
 }
 
 export interface BuildFromRouteResult {
+  /** The project the scenario was written into, and where it can be run. */
+  project_id: string;
+  project_name: string;
+  /** Project-relative path, which is what POST /api/simulations expects here. */
   scenario_id: string;
+  /** Bare filename, for `?scenario=` on the project page. */
+  scenario_file: string;
   entities: unknown;
   road_file: string;
-  expires_at: string;
   route: RoutePlan;
 }
 
@@ -1121,6 +1154,12 @@ export const api = {
     request<{
       boundaries: Array<{ road_id: number; type: string; points: [number, number][] }>;
     }>(`/api/roads/${encodeURIComponent(roadId)}/geometry`),
+
+  snapPoints: (roadId: string, points: RoutePoint[]) =>
+    request<{ snapped: SnapResultDto[] }>(`/api/roads/snap`, {
+      method: 'POST',
+      body: JSON.stringify({ road_id: roadId, points }),
+    }),
 
   planRoute: (roadId: string, points: RoutePoint[], strategy = 'shortest') =>
     request<RoutePlan>(`/api/roads/route-plan`, {

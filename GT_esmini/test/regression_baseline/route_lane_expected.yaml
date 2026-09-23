@@ -14,6 +14,8 @@ scenarios:
     matchers:
     - event: route_lane_plan_holds
       status: pass
+    - event: route_matches_plan
+      status: pass
   route_valid_off_target_lane_for_exit_ramp:
     status: pass
     matchers:
@@ -22,6 +24,14 @@ scenarios:
     - event: route_lane_plan_holds
       status: pass
     - event: route_lane_plan_holds
+      status: pass
+    - event: route_matches_plan
+      status: pass
+    - event: route_matches_plan
+      status: pass
+    - event: route_matches_plan
+      status: pass
+    - event: route_matches_plan
       status: pass
   lane_change_to_exit_ramp:
     status: pass
@@ -32,6 +42,14 @@ scenarios:
       status: pass
     - event: indicator_leads_lane_change
       status: pass
+    - event: route_matches_plan
+      status: pass
+    - event: route_matches_plan
+      status: pass
+    - event: route_matches_plan
+      status: pass
+    - event: route_matches_plan
+      status: pass
   lane_change_to_exit_ramp_with_traffic:
     status: pass
     matchers:
@@ -40,6 +58,10 @@ scenarios:
     - event: route_lane_plan_holds
       status: pass
     - event: indicator_leads_lane_change
+      status: pass
+    - event: route_matches_plan
+      status: pass
+    - event: route_matches_plan
       status: pass
   lane_change_to_exit_ramp_at_constant_speed:
     status: pass
@@ -50,6 +72,10 @@ scenarios:
       status: pass
     - event: indicator_leads_lane_change
       status: pass
+    - event: route_matches_plan
+      status: pass
+    - event: route_matches_plan
+      status: pass
   lane_change_to_exit_ramp_during_gradual_acceleration:
     status: pass
     matchers:
@@ -58,4 +84,8 @@ scenarios:
     - event: route_lane_plan_holds
       status: pass
     - event: indicator_leads_lane_change
+      status: pass
+    - event: route_matches_plan
+      status: pass
+    - event: route_matches_plan
       status: pass

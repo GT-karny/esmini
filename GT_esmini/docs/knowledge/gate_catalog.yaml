@@ -182,7 +182,7 @@ gates:
       scripts/check_regression_baseline.py --baseline GT_esmini/test/regression_baseline/route_lane_expected.yaml
     context: local  # regression-gate Step 2.11。CI 未結線（まずローカルで安定を見る）
     blocking: false  # 既定 WARN。-FailOnBehavioral でハード化
-    requires: [release-build, venv]  # GT_esminiLib.dll を in-process ロード。osi 不要（telemetry.jsonl のみで判定）
+    requires: [release-build, venv, osi-capture]  # GT_esminiLib.dll を in-process ロード。osi は matcher:route_matches_plan が要求（2026-09-24〜）
     covers: >-
       vd-func:FUNC-050（RouteLanePlan）と vd-func:FUNC-055（自発車線変更の発起）＝
       req-vd-ad:REQ-AD-017 段 a/b/c を6シナリオで常設判定。**主張の両向きが1ファイルに入っている**のが要点:
@@ -193,12 +193,31 @@ gates:
       max_deviations:0 で「接続点を目標レーン帯に乗ったまま通過した」を判定）。
       発起を黙って殺す変更は後者4本が落ちるので、全部通ってすり抜けることがない。
       matcher:route_lane_plan_holds と matcher:indicator_leads_lane_change が発火する。
+      **2026-09-24 追加（spine-work:osi-logical-lane S5）**: 同じ6本に matcher:route_matches_plan を
+      相乗りさせ、OSI 論理レーン層（signal:logical_lane_topology）と HostVehicleData の経路
+      （signal:ego_route_lane_segments）を常設で踏むようにした。新規バッチは作っていない。
+      判定は4種: 経路が出ていること・全 logical_lane_id が logical_lane[] に実在すること
+      （閉包）・連続するセグメントが前後接続で繋がっていること（**交差点の継ぎ目を含む**。
+      物理 osi_lane はここを1本の TYPE_INTERSECTION レーンへ融合するので表現できない）・
+      公開した経路と telemetry.route_lane が自車の現在道路で同じレーン集合を指すこと。
+      **件数の閾値は持たない** — 連結性は4つの repeated なので「> 0」は片側だけ壊れた実装を通す。
+      負の対照は merge_required_for_exit_ramp（esmini が粗い2 WP 経路を無効と判定するので
+      経路が publish されない＝expect_route_present: false）で、これが無いと
+      route_matches_plan の判定は「存在する経路」しか見たことがないことになる。
     not_covers: >-
       req-vd-ad:REQ-AD-017 の**段 d/e（逸脱後の経路復帰・終点での停車）は未実装で対象外**。
       req-vd-ad:REQ-AD-016 は段 b（解決失敗を沈黙させない）のみで、段 a/c（経路の補完・
       起終点のみからの探索）は本バッチの守備範囲ではない — 段 c のバックエンド実装
       （route_planner_service）は web backend の pytest 側が受け持つ。
       vd-func:FUNC-056（追い越し）は別動機の発起なので本バッチには入らない。
+      **論理レーン層のうち本ゲートが踏まないもの**: 境界（logical_lane_boundary[] の被覆・共有・
+      5cm 整合）と at_begin_of_other_lane の両極性と横隣接は、ここでは一切判定していない。
+      前者2つは scripts/probe_osi_logical_lane_{boundary,connectivity}.py が5資産で実測する
+      **手動プローブ**で、常設ゲートではない。横隣接と向きの正しさはユニット
+      （test_OsiLogicalLane.cpp、傘バイナリ＝Step 1 で常設）が持つ。
+      本ゲートが踏むのは highway_example_with_merge_and_split.xodr **1資産だけ**なので、
+      multi_intersections 規模の交差点連結はここでは守られていない。
+      signal:logical_lane_assignment（L1）も本ゲートの対象外。
     note: >-
       06_route_lane の6資産は**どの常設ゲートにも乗っていなかった**（存在し、通り、手動でだけ
       回されていた＝手入れされているように見えたまま腐る典型）。2026-08-30 に Step 2.11 として結線。
@@ -207,6 +226,11 @@ gates:
       status を1つ反転させて実証**（deviations=1）してから緑を受け入れている — 赤にできないゲートはゲートではない。
       **昇格手順**: ローカルで数回安定を確認後、CI の vd-behavioral-regression job へ相乗りさせ
       （別 artifact で切り分け）、その後 -FailOnBehavioral 相当を既定にする。
+      2026-09-24 の route_matches_plan 追加でも同じ手順を踏んだ: 3回連続実行で6本の verdict が
+      （detail 文字列のフレーム数まで）一致することを確認 → 別 run のベースラインへ凍結 →
+      記録済み route_matches_plan の status を1つ反転させて deviations=1 / exit 1 を実証。
+      バッチは osi capture が必須になったので、`osi: false` に戻すと matcher は pass ではなく
+      skip（＝needs-review）を返す。**緑のまま静かに無効化されることはない。**
 
   # ---- ODR 適合（面1を測る系＝§0.3 の「手本」） ----
   - id: manualdrive-adas-regression
@@ -284,6 +308,29 @@ gates:
       揃って誤っている場合を検出できない。LHT正しさ・lane-id符号・road間 reciprocity の
       意味論オラクルは不在（Annex F 275ルール中 gap 259）。
     note: OSI層は含まない（gate:odr-conformance-full 参照）。
+
+  - id: osi-logical-lane-probes
+    title: OSI論理レーン層プローブ5本（接続性・境界・割当・route・ペイロード）
+    command: scripts/probe_osi_logical_lane_{connectivity,boundary,assignment,size}.py + scripts/probe_hvd_route.py --skip-udp
+    context: local  # regression-gate Step 1.6
+    blocking: true
+    requires: [release-build, venv]  # GT_esminiLib.dll をプロセス内ロード
+    covers: >-
+      論理レーン層の前後・左右接続（multi_intersections 接続路76本に pred/succ）／
+      境界の横5cm・縦2cm 偏差／logical_lane_assignment の s,t と車線跨ぎ2本割当／
+      HostVehicleData.route の参照閉包と向きの符号／毎フレーム側ペイロードの不変量。
+      **各プローブが ON/OFF 両極性を自分の子プロセスで作る**（env.pop で ON、"0" で OFF）ため
+      外側の環境変数に免疫がある。
+    not_covers: >-
+      **踏む道路は固定5資産**（e6mini / fabriksgatan / multi_intersections / soderleden /
+      highway_merge_split）。新しい道路形状は自動では入らない。
+      overlapping_lane は未実装なので対象外。probe_hvd_route の UDP分割送信は --skip-udp で
+      除外（ソケットが環境flaky。分割の正しさは S4 の手動実測 40/40 が一次証拠）。
+    note: >-
+      2026-09-24 新設（spine-work:osi-logical-lane S5b）。**動機は被覆の穴ではなく腐敗**:
+      gate:route-lane-regression が踏む道路は1資産で、交差点規模の連結と境界5cmはそこから
+      到達できない。手動プローブのまま置くと gate:odr-conformance-full の OSIゴールデンと
+      同じ経路で腐る（起動点が無く3ヶ月 stale だったことを同日に検出）。実行時間 約13秒。
 
   - id: odr-conformance-schema-ci
     title: ODR適合 schema層のみ（CI）

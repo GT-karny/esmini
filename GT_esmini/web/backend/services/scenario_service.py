@@ -87,6 +87,12 @@ def get_scenario_path(scenario_id: str) -> Path | None:
     return xosc_path if xosc_path.exists() else None
 
 
+def describe_entities(xml_content: str) -> list[dict]:
+    """[{name, model}] for each entity in an XOSC string."""
+    result = parse_xosc_from_element(ET.fromstring(xml_content))
+    return [{"name": e.name, "model": e.vehicle_or_model} for e in result.entities]
+
+
 def save_temp_scenario(xml_content: str) -> dict:
     """Save uploaded XOSC XML as a temporary scenario.
 

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type ScenarioInfo, type SimulationRequest, type SimulationStatus } from '../../api/client';
@@ -31,6 +31,26 @@ export function ExecutionPanel({
   const requestBuilderRef = useRef<(() => SimulationRequest) | null>(null);
 
   const scenarioFile = scenario?.file ?? '';
+
+  // Start on the controller the scenario declares. Running a scenario that
+  // names a VirtualDriverController as "default" drops its `policies` property
+  // -- those become a per-run virtual_driver.json only on the virtual_driver
+  // path -- so a generated route scenario would quietly run without the lane
+  // changes the route needs. Fed through rerunFrom, which is already the form's
+  // "start from these options" input, and memoised: a fresh object every render
+  // would reset a controller the user had just picked by hand. Identity changes
+  // only when the answer changes, so moving between two VirtualDriver scenarios
+  // leaves the current selection alone.
+  const declaresVirtualDriver = !!scenario?.entities?.some(
+    (e) => e.controller === 'VirtualDriverController',
+  );
+  const declaredController = useMemo(
+    () =>
+      declaresVirtualDriver
+        ? { controller: { controller_type: 'virtual_driver' } }
+        : undefined,
+    [declaresVirtualDriver],
+  );
 
   const cancelMut = useMutation({
     mutationFn: () => api.cancelSimulation(activeJobId!),
@@ -76,6 +96,7 @@ export function ExecutionPanel({
         projectId={projectId}
         scenarioFile={scenarioFile}
         scenarioParams={scenario.params ?? []}
+        rerunFrom={declaredController}
         presets={[]}
         compact
         hideParams

@@ -18,6 +18,7 @@ from GT_esmini.web.backend.models.scenario import (
 from GT_esmini.web.backend.config import SCENARIOS_DIR
 from GT_esmini.web.backend.services import scenario_service
 from GT_esmini.web.backend.services import road_geometry_service
+from GT_esmini.web.backend.services import project_service
 from GT_esmini.web.backend.services import road_service
 from GT_esmini.web.backend.services.route_planner_service import (
     RoutePlanError,
@@ -55,11 +56,16 @@ class BuildFromRouteRequest(BaseModel):
 
 @router.post("/build-from-route", status_code=201)
 async def build_from_route(req: BuildFromRouteRequest):
-    """Plan a route through clicked points and save it as a temporary scenario.
+    """Plan a route through clicked points and save it into the Route plans project.
 
-    The result is an ordinary temp scenario id, so everything downstream (the
-    VirtualDriver variant path, the run launcher, the viewer) treats it exactly
-    like an uploaded file -- no second execution path.
+    NOT a temp scenario, which is where this used to go: a temp id cannot be run
+    from the GUI at all. The only place the app can launch a scenario is a
+    project page, so that is where a generated one has to land -- together with
+    its road, referenced relatively, so the project describes itself.
+
+    One project for all of them, created on first use. A project per generated
+    scenario would grow without bound, and iterating on a route means pressing
+    this button repeatedly.
     """
     xodr_path = road_service.resolve_road_path(req.road_id)
     if xodr_path is None:
@@ -96,6 +102,12 @@ async def build_from_route(req: BuildFromRouteRequest):
                 },
             )
 
+    project = await project_service.ensure_route_project()
+    road_name = Path(xodr_path).name
+    scenario_file = project_service.next_scenario_filename(
+        project.root_path, Path(xodr_path).stem
+    )
+
     try:
         xml_str = build_route_scenario(
             xodr_path,
@@ -106,14 +118,35 @@ async def build_from_route(req: BuildFromRouteRequest):
             route_length=plan["length"],
             description=req.description,
             sumocfg=sumocfg,
+            road_reference=f"../xodr/{road_name}",
         )
     except ScenarioBuildError as exc:
         raise HTTPException(
             status_code=422, detail={"code": exc.code, "message": str(exc)}
         ) from exc
 
-    saved = scenario_service.save_temp_scenario(xml_str)
-    return {**saved, "route": plan}
+    # The road goes in alongside, so the project is a thing you can open, move or
+    # hand over rather than a scenario pointing at wherever the road happened to
+    # be. Rewritten every time: a road edited between two builds must not leave
+    # the project describing the old one.
+    await project_service.upload_file(
+        project.project_id, f"xodr/{road_name}", Path(xodr_path).read_bytes()
+    )
+    scenario_rel = f"xosc/{scenario_file}"
+    await project_service.upload_file(
+        project.project_id, scenario_rel, xml_str.encode("utf-8")
+    )
+
+    return {
+        "project_id": project.project_id,
+        "project_name": project.name,
+        # What POST /api/simulations wants alongside project_id.
+        "scenario_id": scenario_rel,
+        "scenario_file": scenario_file,
+        "entities": scenario_service.describe_entities(xml_str),
+        "road_file": str(xodr_path),
+        "route": plan,
+    }
 
 
 @router.get("", response_model=list[ScenarioListItem])

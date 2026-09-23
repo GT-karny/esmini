@@ -275,10 +275,10 @@ namespaces:
     title: 検証matcher（vd_metrics event語彙）
     entity_type: matcher
     face: "3"
-    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn|overtake_decision_holds|manual_aeb_fires|no_intervention_in_window|brake_not_stacked|fcw_leads_intervention|adas_state_matches|driver_override_reported|adas_state_sequence|setting_reflected|speed_capped_at|no_brake_output|stop_hold_stationary|restart_after_trigger|lane_kept_within|steer_output_absent|domain_split_holds|vd_control_relinquished)"
+    id_pattern: "(speed_above|speed_below|min_speed_above|no_constraint_kind|lane_keep|lane_change_count|deceleration_profile_smooth|speed_reduction_before_landmark|steer_not_saturated|stopped_at_stop_sign|stopped_at_signal|maintained_following_distance|min_obb_separation_above|impact_speed_below|no_emergency_without_conflict|route_lane_plan_holds|indicator_leads_lane_change|indicator_leads_junction_turn|overtake_decision_holds|manual_aeb_fires|no_intervention_in_window|brake_not_stacked|fcw_leads_intervention|adas_state_matches|driver_override_reported|adas_state_sequence|setting_reflected|speed_capped_at|no_brake_output|stop_hold_stationary|restart_after_trigger|lane_kept_within|steer_output_absent|domain_split_holds|vd_control_relinquished|route_matches_plan)"
     source_of_truth: GT_esmini/web/backend/services/vd_metrics.py
     status: active
-    count: 35
+    count: 36
     notes: >-
       min_separation_above（中心間距離）は 2026-07-24 に実装ごと削除（DEPRECATED 確定
       2026-07-21、min_obb_separation_above の厳密な劣位版・参照資産0件。根拠は graph.yaml の
@@ -308,6 +308,13 @@ namespaces:
       同一 run のレーンID不変を併せて要求することでこの穴を塞いでおり、これが
       expect_kept: false（両極性ペアの逸脱側）に観測できる中身を与えている。
 
+      route_matches_plan は spine-work:osi-logical-lane S5 で新設（2026-09-24）。
+      HostVehicleData.route（signal:ego_route_lane_segments）/ GroundTruth.logical_lane[]
+      （signal:logical_lane_topology）/ telemetry.route_lane（signal:route_lane_conformance）の
+      3面を突き合わせる。**件数の閾値を持たない**: 連結性は 4 つの repeated なので
+      「> 0」で通る実装が作れてしまう。分母は必ず被検査フィールドの外
+      （閉包はトポロジ表・連結は前セグメント・レーン集合は VD テレメトリ）から取る。
+      赤実証は GT_esmini/scripts/verification/test_route_matches_plan.py の単体両極性テスト。
   - slug: openx
     title: ASAM OpenX Ontology 概念（コミット済みスナップショット）
     entity_type: concept
@@ -364,11 +371,16 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/capability_model.md
     status: active
-    count: 5
+    count: 10  # 2026-09-24: 宣言値 5 は陳腐化していた（実体は §7 に 9 件）。実数に合わせ直したうえで osi-logical-lane を足した
     notes: >-
-      capability_model.md §7（spine-definition / signal-gate-registration / vertical-wiring /
-      derived-report-lint / empty-spine-stitching）。**順序は ID でなく §7 の並びと
-      depends-on 辺で表す**。
+      capability_model.md §7（spine-definition / signal-gate-registration / aeb-gate-wiring /
+      ego-anchor-face1-migration / anticipation-gate-wiring / vertical-wiring /
+      derived-report-lint / empty-spine-stitching / osi-assigned-lane-driving /
+      osi-logical-lane）。**順序は ID でなく §7 の並びと depends-on 辺で表す**。
+      **face タグは "3" だが face-1 の作業も収容している**（ego-anchor-face1-migration /
+      osi-assigned-lane-driving / osi-logical-lane はいずれも OSI emit 側）。face 別に
+      名前空間を割らないのは、work-item を分ける軸が「どの面を触るか」ではなく
+      「スパインのどの列を縫うか」だからで、面は作業ではなくノード側が持つ。
       **2026-07-20 に2度直した**: 当初は所属の無い裸の序数「フェーズ0-4」で
       `vd-phase:Phase0-4` / `odr-plan:P0-P10` と衝突 → 一次対応で `spine-phase:Phase<n>` に
       修飾したが、**それは序数を延命しただけ**という指摘を受け内容 slug へ作り直した。
@@ -428,7 +440,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/gate_catalog.yaml
     status: active
-    count: 17  # 2026-08-06: 実体は 16 だったが count は 14 のまま（scenario-handoff / stop-line-pairing 追加時に未更新）。実数に合わせ直したうえで manualdrive-adas-regression を足した
+    count: 19  # 2026-09-24: 実数と照合し直した（`grep -c "^  - id:" gate_catalog.yaml`）。直前は 17 と書かれていたが実体は 18 で、telemetry-golden 追加時に未更新だった。osi-logical-lane-probes を足して 19。過去2回とも「足したのに count を直さない」で漏れているので、**カタログに行を足したら必ずここも数え直すこと**
     notes: >-
       検証スパイン⑥常設（capability_model.md §4）。カタログの真実源は実行系
       （root CLAUDE.md §5 ＋ scripts/ ＋ .github/workflows/ci.yml）で、本ノードは

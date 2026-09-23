@@ -599,3 +599,60 @@ async def test_read_presets_file_raises_on_invalid_yaml(tmp_db, projects_dir):
 
     with pytest.raises(project_service.PresetFileCorruptedError):
         await project_service.list_presets(detail.project_id, "s.xosc")
+
+
+# ---------------------------------------------------------------------------
+# Route plans project: one home for everything the route screen generates
+# ---------------------------------------------------------------------------
+
+
+async def test_ensure_route_project_is_created_once_and_reused(tmp_db, projects_dir):
+    """Pressing "Create scenario" repeatedly must not breed projects.
+
+    That is the whole reason this project has a fixed id instead of the uuid
+    create_project() hands out.
+    """
+    await _init(tmp_db)
+    first = await project_service.ensure_route_project()
+    second = await project_service.ensure_route_project()
+
+    assert first.project_id == second.project_id == project_service.ROUTE_PROJECT_ID
+    assert first.is_builtin is False
+    assert (projects_dir / project_service.ROUTE_PROJECT_ID).is_dir()
+
+    projects = await project_service.list_projects()
+    matching = [p for p in projects if p.project_id == project_service.ROUTE_PROJECT_ID]
+    assert len(matching) == 1, f"duplicated: {[p.project_id for p in projects]}"
+
+
+async def test_renaming_the_route_project_does_not_spawn_a_second_one(
+    tmp_db, projects_dir
+):
+    """Only the id is load-bearing. A user who renames it keeps one project."""
+    await _init(tmp_db)
+    await project_service.ensure_route_project()
+    await project_service.update_project(
+        project_service.ROUTE_PROJECT_ID, "My routes", "renamed by the user"
+    )
+
+    again = await project_service.ensure_route_project()
+    assert again.name == "My routes"
+    assert again.project_id == project_service.ROUTE_PROJECT_ID
+
+
+def test_next_scenario_filename_never_overwrites(tmp_path):
+    root = tmp_path / "proj"
+    (root / "xosc").mkdir(parents=True)
+    assert project_service.next_scenario_filename(str(root), "town") == "town_01.xosc"
+
+    (root / "xosc" / "town_01.xosc").write_text("<x/>", encoding="utf-8")
+    (root / "xosc" / "town_02.xosc").write_text("<x/>", encoding="utf-8")
+    assert project_service.next_scenario_filename(str(root), "town") == "town_03.xosc"
+    # A different road numbers independently.
+    assert project_service.next_scenario_filename(str(root), "ramp") == "ramp_01.xosc"
+
+
+def test_next_scenario_filename_before_the_project_has_any_scenarios(tmp_path):
+    root = tmp_path / "empty"
+    root.mkdir()
+    assert project_service.next_scenario_filename(str(root), "town") == "town_01.xosc"

@@ -98,6 +98,18 @@ must:
       isolates exactly that floor), so 3.0 is a meaningful lower bound here
       regardless of how AdjacentTraffic is tuned in the future, not an
       arbitrary margin below 7.00.
+  - event: route_matches_plan
+    expect_closure: true
+    reason: >
+      spine-work:osi-logical-lane S5. Every logical_lane_id in the published
+      HostVehicleData.route must exist in GroundTruth.logical_lane[].
+  - event: route_matches_plan
+    expect_segments_connected: true
+    reason: >
+      Consecutive route segments must be joined by a predecessor/successor edge in the
+      logical-lane graph, junction seams included (design 2-4). Kept on this variant
+      too because it drives the same junction at a different speed profile, and the
+      seam the route crosses is resolved per frame from the ego's current s.
 notes: >
   MEASURED 2026-08-02 (this 2-hop version), parent session, real Release build
   with lane_change_initiation enabled via the batch's policies: list

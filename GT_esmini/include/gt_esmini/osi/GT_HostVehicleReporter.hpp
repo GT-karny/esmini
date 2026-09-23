@@ -14,6 +14,7 @@
 #include "UDP.hpp"
 // #include "ScenarioGateway.hpp" // removed in v3.0.0
 #include "gt_esmini/osi/IHostVehicleDataProvider.hpp"
+#include <memory>
 #include <string>
 #include <vector>
 #include <map>
@@ -21,6 +22,41 @@
 
 namespace gt_esmini
 {
+
+/**
+ * @brief One UDP packet of a (possibly split) HostVehicleData transmission.
+ *
+ * Wire layout is the one esmini's GroundTruth stream already uses and that both
+ * GT receivers already parse: [int32 counter][uint32 datasize][datasize bytes],
+ * so the datagram is always 8 + datasize long.
+ *
+ * `counter` semantics, which the receivers depend on:
+ *   0            the whole message is in this one packet (today's HVD behaviour)
+ *   1, 2, ... N  split transmission, in order
+ *   -N           the last packet of a split transmission (negated index)
+ *
+ * A single-packet message keeps counter == 0 rather than becoming a one-packet
+ * split with counter == -1. That is deliberate: it is what every existing
+ * consumer sees today, and changing it would make this transport fix a
+ * behaviour change for every HVD reader.
+ */
+struct UdpChunk
+{
+    int          counter  = 0;
+    unsigned int offset   = 0;  // byte offset into the serialized message
+    unsigned int datasize = 0;  // payload bytes carried by this packet
+};
+
+/**
+ * @brief Split a serialized message into UDP packets. Pure -- no sockets, no state.
+ *
+ * Factored out of GT_HostVehicleReporter::Send() so the split can be tested at
+ * both polarities without needing a HostVehicleData large enough to trigger it.
+ * Returns an empty plan for an empty message or a zero payload budget.
+ *
+ * Design: GT_esmini/docs/osi/logical_lane_and_route_design.md section 6.
+ */
+std::vector<UdpChunk> PlanHostVehicleUdpChunks(unsigned int total_size, unsigned int max_payload);
 
 /**
  * @brief One ADAS row's DriverOverride submessage + custom_state
@@ -227,6 +263,28 @@ private:
     GT_HostVehicleReporter();
     ~GT_HostVehicleReporter();
 
+    /**
+     * @brief Fill HostVehicleData.route from the ego's assigned route
+     *        (spine-work:osi-logical-lane S4, design section 5).
+     *
+     * Reads egoObj->pos_.GetRoute() directly rather than going through any
+     * controller, so a manually driven or DefaultController ego publishes its
+     * route just as a VirtualDriver one does. Always clears the field first:
+     * base_data supplied by a controller may carry a stale route.
+     *
+     * Gated on gt_esmini::osi::GetUseOsiLogicalLane(): every logical_lane_id in
+     * the message is a reference INTO GroundTruth.logical_lane[], which does not
+     * exist while the logical-lane layer is off, so publishing a route there
+     * would emit nothing but dangling ids.
+     *
+     * Three distinguishable outcomes, on purpose -- an absent field and an empty
+     * one are different statements:
+     *   no route field          the layer is off, or the ego carries no route
+     *   route, 0 segments       the ego has a route but has passed its end
+     *   route, N segments       the remaining route, ego s to destination s
+     */
+    void FillRoute(osi3::HostVehicleData& hv_data, const scenarioengine::Object* egoObj);
+
     // Prevent copying
     GT_HostVehicleReporter(const GT_HostVehicleReporter&) = delete;
     GT_HostVehicleReporter& operator=(const GT_HostVehicleReporter&) = delete;
@@ -285,6 +343,13 @@ private:
         std::string data;
         unsigned int size = 0;
     } serialized_data_;
+
+    // HostVehicleData.route cache (design section 5). Pimpl: the cache holds a
+    // RouteLanePlan and a route signature, and defining those here would put a
+    // control-module header in front of every consumer of this one. Allocated once
+    // in the constructor; Close() only invalidates its contents.
+    struct RouteCacheImpl;
+    std::unique_ptr<RouteCacheImpl> route_cache_;
 
     // UDP buffer for transmission
     static constexpr int MAX_UDP_DATA_SIZE = 8192;

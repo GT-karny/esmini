@@ -16,6 +16,7 @@
 #endif
 #include "gt_esmini/control/virtualdriver/PlannedPathBuilder.hpp"
 #include "gt_esmini/osi/GT_PlannedPathRegistry.hpp"
+#include "gt_esmini/osi/RouteToOsiRoute.hpp"
 #include "gt_esmini/control/virtualdriver/TrajectoryShortPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/ManeuverAwareSpeedPlanner.hpp"
 #include "gt_esmini/control/virtualdriver/PIDPurePursuitDriver.hpp"
@@ -702,6 +703,9 @@ void ControllerVirtualDriver::Step(double timeStep)
     // domain(s) this controller owns this frame; only the TELEMETRY write (11c.,
     // further down) is gated on being the integrator.
     RouteLaneStatus route_lane_status;  // stays default (valid=false) when there is no route -- case (b) below
+    // L2 route progress (osi/RouteToOsiRoute.hpp, logical_lane_and_route_design.md 2-6-2).
+    // Stays default (on_route=false, s_along_route=-1) whenever there is no usable plan.
+    gt_esmini::osi::RouteProgress route_progress;
     {
         // (a) Cache identity comes from the SHARED route, never from a clone:
         // Position::CopyRoute does `route_ = new Route` every call, so a clone's
@@ -765,6 +769,41 @@ void ControllerVirtualDriver::Step(double timeStep)
             // pos_'s already-resolved road frame is the right (and only cheap)
             // source.
             route_lane_status = EvaluateRouteLaneStatus(route_lane_plan_, object_->pos_);
+
+            // (e) L2. The expansion is clipped to the ego's current s, so unlike the
+            // plan itself it is NOT constant while the route is -- it is rebuilt every
+            // frame from the cached plan, which is the part that is expensive.
+            //
+            // Position::GetRouteS() is deliberately not read here: it is only written
+            // by SetRoute()/TeleportTo(), so for a physically driven vehicle it stays
+            // at its route-assignment value forever, and the call that would refresh it
+            // (CalcRoutePosition) rewrites the route's own path_s_/waypoint_idx_ --
+            // an observer must not move what it observes (logical_lane_and_route.md 4-3).
+            // RouteStart, not EgoPosition: L2 measures progress from the route's own
+            // beginning. An ego-anchored expansion would put the ego on the first
+            // segment's start every frame, i.e. s_along_route == 0 forever.
+            //
+            // Matched at the OSI REFERENCE POINT (bounding-box centre), the same point
+            // base.position and LogicalLaneAssignment.s_position report. L2 and L1 are
+            // meant to compose into "where on the route is the vehicle"; measuring one
+            // at the rear axle and the other at the box centre would put a constant
+            // 1.4 m (shipped catalogue car) between them. ResolveOsiReferencePoint
+            // leaves ref_pos a copy of pos_ when it cannot resolve, so the fallback is
+            // the previous behaviour rather than a hole.
+            roadmanager::Position ref_pos;
+            gt_esmini::osi::ResolveOsiReferencePoint(object_->pos_,
+                                                     {object_->boundingbox_.dimensions_.length_,
+                                                      object_->boundingbox_.dimensions_.width_,
+                                                      object_->boundingbox_.center_.x_,
+                                                      object_->boundingbox_.center_.y_,
+                                                      object_->boundingbox_.center_.z_},
+                                                     &ref_pos);
+            route_progress = gt_esmini::osi::ComputeRouteProgress(
+                gt_esmini::osi::ExpandRouteLanePlan(*shared_route,
+                                                    ref_pos,
+                                                    route_lane_plan_,
+                                                    gt_esmini::osi::RouteExpansionStart::RouteStart),
+                ref_pos);
         }
     }
 
@@ -2475,6 +2514,10 @@ void ControllerVirtualDriver::Step(double timeStep)
     telemetry_.route_lane.rerouted               = route_lane_plan_.rerouted;
     telemetry_.route_lane.diagnostic             = route_lane_plan_.diagnostic;
     telemetry_.route_lane.reason                 = route_lane_status.reason;
+    telemetry_.route_lane.on_route               = route_progress.on_route;
+    telemetry_.route_lane.s_along_route          = route_progress.s_along_route;
+    telemetry_.route_lane.route_length           = route_progress.route_length;
+    telemetry_.route_lane.segment_index          = route_progress.on_route ? static_cast<int>(route_progress.segment_index) : -1;
 
     // 11d. vd-func:FUNC-055 AD lane-change initiation telemetry (LaneChangeInitiation.hpp).
     // Computed above (before the is_integrator gate, into the lc_diag_*/lc_now_* locals) but

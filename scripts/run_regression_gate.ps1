@@ -18,6 +18,21 @@
                layer needs the built esminiRMLib.dll. A nonzero exit fails the
                gate. Skip with -SkipOdr.
 
+      Step 1.6 - OSI logical lane probes (HARD gate)
+               Runs the five in-process probes that cover the OSI logical lane
+               layer (spine-work:osi-logical-lane): connectivity, boundary
+               deviation, lane assignment, HostVehicleData.route and the payload
+               size invariant. They exist because the behavioural batch (Step 2)
+               only exercises ONE road asset -- the junction connectivity
+               (multi_intersections, 76 connecting lanes) and the 5cm boundary
+               conformance are not reachable from it. Left as manual probes they
+               would rot exactly like the --profile full OSI goldens did (stale
+               for three months, found 2026-09-24). Each probe exits nonzero on
+               failure; total runtime ~13 s. probe_hvd_route runs with
+               --skip-udp: the socket path is environment-flaky and its
+               in-process checks already cover the payload. Skip with
+               -SkipOsiProbes.
+
       Step 2 - VirtualDriver behavioral batch (reported gate, skippable)
                Runs the gt_sim_test phase-3 traffic-policy batch in-process via
                the GT C-API (GT_esminiLib.dll) and reports the verdict:
@@ -114,6 +129,9 @@
 
 .PARAMETER SkipOdr
     Skip Step 1.5 (OpenDRIVE conformance, quick profile) entirely.
+
+.PARAMETER SkipOsiProbes
+    Skip Step 1.6 (OSI logical lane probes) entirely.
 
 .PARAMETER SkipBehavioral
     Skip Step 2 entirely (e.g. when no Release build / venv is available).
@@ -227,6 +245,7 @@ param(
     [string]$Config = "Release",
     [string]$BuildDir = "build",
     [switch]$SkipOdr,
+    [switch]$SkipOsiProbes,
     [switch]$SkipBehavioral,
     [switch]$FailOnBehavioral,
     [switch]$TelemetryGolden,
@@ -666,6 +685,67 @@ if ($SkipOdr) {
             $overallOk = $false
         } else {
             Write-Host "Step 1.5: PASS" -ForegroundColor Green
+        }
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Step 1.6 - OSI logical lane probes (HARD gate)
+# ----------------------------------------------------------------------------
+# Covers what Step 2 structurally cannot: the behavioural batch runs one road
+# asset, so junction connectivity and boundary deviation are never exercised
+# there. See the .SYNOPSIS block for why these are a gate step rather than
+# manual probes.
+if ($SkipOsiProbes) {
+    Write-Host "==== Step 1.6: OSI logical lane probes - SKIPPED (-SkipOsiProbes) ====" -ForegroundColor Yellow
+} else {
+    Write-Host "==== Step 1.6: OSI logical lane probes ====" -ForegroundColor Cyan
+
+    $osiPy = $Python
+    if ([string]::IsNullOrWhiteSpace($osiPy)) {
+        foreach ($cand in @("DriverScript/.venv/Scripts/python.exe",
+                            "GT_esmini/web/.venv/Scripts/python.exe")) {
+            $full = Resolve-RepoPath $cand
+            if (Test-Path $full) { $osiPy = $full; break }
+        }
+    }
+
+    $osiDll = Resolve-RepoPath "build/GT_esmini/$Config/GT_esminiLib.dll"
+    if (-not [string]::IsNullOrWhiteSpace($Dll)) { $osiDll = Resolve-RepoPath $Dll }
+
+    # name -> extra args. probe_hvd_route skips the UDP leg (environment-flaky).
+    $osiProbes = @(
+        @{ Name = "probe_osi_logical_lane_connectivity"; Args = @() },
+        @{ Name = "probe_osi_logical_lane_boundary";     Args = @() },
+        @{ Name = "probe_osi_logical_lane_assignment";   Args = @() },
+        @{ Name = "probe_hvd_route";                     Args = @("--skip-udp") },
+        @{ Name = "probe_osi_logical_lane_size";         Args = @() }
+    )
+
+    if ([string]::IsNullOrWhiteSpace($osiPy) -or -not (Test-Path $osiPy)) {
+        Write-Host "Step 1.6: FAIL - verification venv python not found (DriverScript/.venv or GT_esmini/web/.venv)" -ForegroundColor Red
+        Write-Host "    (create the venv, pass -Python, or skip with -SkipOsiProbes)" -ForegroundColor Yellow
+        $overallOk = $false
+    } elseif (-not (Test-Path $osiDll)) {
+        Write-Host "Step 1.6: FAIL - GT_esminiLib.dll not found at $osiDll" -ForegroundColor Red
+        Write-Host "    (build Release first, pass -Dll, or skip with -SkipOsiProbes)" -ForegroundColor Yellow
+        $overallOk = $false
+    } else {
+        $osiFailed = @()
+        foreach ($probe in $osiProbes) {
+            $probePath = Resolve-RepoPath "scripts/$($probe.Name).py"
+            Write-Host "Step 1.6: $($probe.Name)" -ForegroundColor Cyan
+            & $osiPy $probePath --dll $osiDll @($probe.Args)
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Step 1.6: $($probe.Name) FAIL (exit $LASTEXITCODE)" -ForegroundColor Red
+                $osiFailed += $probe.Name
+            }
+        }
+        if ($osiFailed.Count -gt 0) {
+            Write-Host "Step 1.6: FAIL -- $($osiFailed -join ', ')" -ForegroundColor Red
+            $overallOk = $false
+        } else {
+            Write-Host "Step 1.6: PASS (5 probes)" -ForegroundColor Green
         }
     }
 }

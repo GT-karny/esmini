@@ -2976,6 +2976,240 @@ def eval_must(must: dict, frames: list[dict]) -> dict:
         )
         return res("pass", detail)
 
+    if kind == "route_matches_plan":
+        # spine-work:osi-logical-lane S5. Reads the two OSI-side faces of the ego's
+        # planned route and checks they agree with each other and with the VD's own
+        # telemetry:
+        #
+        #   frame["hvd"]["route"]         HostVehicleData.route -- the route published
+        #                                 to the outside, as logical-lane segments
+        #                                 (signal:ego_route_lane_segments)
+        #   frame["scene"]["logical_lanes"]  GroundTruth.logical_lane[] -- the lane
+        #                                 graph the route's ids point into
+        #                                 (signal:logical_lane_topology)
+        #   frame["route_lane"]           the VD's own view of the same plan
+        #                                 (signal:route_lane_conformance)
+        #
+        # WHY NOT A COUNT. All four connectivity fields are `repeated`, so a route
+        # missing every predecessor/successor is still a well-formed message, and a
+        # "> 0 segments" threshold passes on an implementation that emits ids
+        # pointing nowhere. Each check below therefore has a denominator that comes
+        # from somewhere other than the field under test: the topology table for
+        # closure, the previous segment for connectivity, the VD telemetry for the
+        # lane set.
+        #
+        #   expect_route_present   bool : >=1 gated frame carries a route with >=1
+        #                                 segment (False asserts the opposite -- the
+        #                                 route must stay absent/empty throughout)
+        #   expect_closure         bool : every logical_lane_id in the route resolves
+        #                                 in scene.logical_lanes
+        #   expect_segments_connected bool : consecutive route segments are joined in
+        #                                 the logical-lane graph -- some lane of
+        #                                 segment k names some lane of segment k+1 as
+        #                                 a predecessor or a successor. THIS is what
+        #                                 reads S2's connectivity.
+        #   expect_lanes_match_plan bool: on the ego's current road, the lanes the
+        #                                 published route names equal route_lane's
+        #                                 target_lanes. The two derive from one
+        #                                 RouteLanePlan through different code, so a
+        #                                 mismatch means one face drifted.
+        #   window: [t0, t1]            : optional sim_time gate (default: all frames)
+        window = must.get("window")
+        if window is not None:
+            t0, t1 = float(window[0]), float(window[1])
+            gated = [i for i in range(len(frames)) if t0 <= frames[i]["sim_time"] <= t1]
+        else:
+            gated = list(range(len(frames)))
+        if not gated:
+            return res("skip", "no frames in time window")
+
+        checks = [
+            k
+            for k in (
+                "expect_route_present",
+                "expect_closure",
+                "expect_segments_connected",
+                "expect_lanes_match_plan",
+            )
+            if k in must
+        ]
+        if not checks:
+            return res(
+                "skip",
+                "must entry names none of expect_route_present/expect_closure/"
+                "expect_segments_connected/expect_lanes_match_plan -- a matcher "
+                "that checks nothing must not report pass",
+            )
+
+        # Absence is never a pass. A run captured without --osi carries no scene,
+        # and one whose HostVehicleData reporter is switched off carries no hvd; in
+        # both cases there is nothing to judge, which is needs-review, not success.
+        with_hvd = [
+            i
+            for i in gated
+            if isinstance(frames[i].get("hvd"), dict)
+            and isinstance(frames[i]["hvd"].get("route"), dict)
+        ]
+        topo = None
+        for i in gated:
+            scene = frames[i].get("scene")
+            if isinstance(scene, dict) and isinstance(scene.get("logical_lanes"), dict):
+                topo = scene["logical_lanes"]
+                break
+        if topo is None:
+            return res(
+                "skip",
+                "no frame in the gated window carries scene.logical_lanes -- the "
+                "batch entry needs osi: true, or the DLL predates the logical-lane "
+                "layer / has GT_OSI_LOGICAL_LANE=0",
+            )
+        if not with_hvd and "expect_route_present" not in must:
+            return res(
+                "skip",
+                "no frame in the gated window carries hvd.route -- "
+                "HostVehicleData was not captured or carries no route",
+            )
+
+        detail_bits = [f"{len(topo)} logical lane(s) in the topology"]
+
+        # 1. PRESENCE. Kept separate from the checks below so "the route never
+        # appeared" cannot be mistaken for "every route that appeared was fine".
+        frames_with_segments = [
+            i for i in with_hvd if frames[i]["hvd"]["route"].get("segments")
+        ]
+        if "expect_route_present" in must:
+            want = bool(must["expect_route_present"])
+            got = bool(frames_with_segments)
+            if got != want:
+                return res(
+                    "fail",
+                    f"hvd.route carries segments on {len(frames_with_segments)}/"
+                    f"{len(gated)} gated frame(s) (want {'some' if want else 'none'})",
+                    gated[0],
+                )
+            detail_bits.append(
+                f"route present on {len(frames_with_segments)}/{len(gated)} frame(s)"
+            )
+            if not want:
+                return res("pass", "route_matches_plan: " + "; ".join(detail_bits))
+        if not frames_with_segments:
+            return res(
+                "skip",
+                "hvd.route carries no segment on any gated frame -- nothing to "
+                "check against the topology",
+            )
+
+        # 2. CLOSURE. Every id the route names must exist in logical_lane[].
+        if must.get("expect_closure"):
+            total = dangling = 0
+            first_bad = None
+            for i in frames_with_segments:
+                for seg in frames[i]["hvd"]["route"]["segments"]:
+                    for ls in seg:
+                        total += 1
+                        if str(ls["logical_lane_id"]) not in topo:
+                            dangling += 1
+                            if first_bad is None:
+                                first_bad = (i, ls["logical_lane_id"])
+            if dangling:
+                return res(
+                    "fail",
+                    f"{dangling}/{total} route lane_segment id(s) do not exist in "
+                    f"GroundTruth.logical_lane[] (first: id {first_bad[1]})",
+                    first_bad[0],
+                )
+            detail_bits.append(f"{total} lane_segment id(s) all resolve")
+
+        # 3. CONNECTIVITY. Consecutive route segments must be joined in the graph.
+        # A route is a list of parallel lane sets per section, so the join is "some
+        # lane over there is named by some lane over here".
+        if must.get("expect_segments_connected"):
+            checked = broken = 0
+            first_bad = None
+            for i in frames_with_segments:
+                segments = frames[i]["hvd"]["route"]["segments"]
+                for k in range(1, len(segments)):
+                    prev_ids = {ls["logical_lane_id"] for ls in segments[k - 1]}
+                    here_ids = {ls["logical_lane_id"] for ls in segments[k]}
+                    if not prev_ids or not here_ids:
+                        continue
+                    checked += 1
+                    linked = False
+                    for pid in prev_ids:
+                        entry = topo.get(str(pid))
+                        if entry is None:
+                            continue
+                        neighbours = set(entry.get("succ", [])) | set(
+                            entry.get("pred", [])
+                        )
+                        if neighbours & here_ids:
+                            linked = True
+                            break
+                    if not linked:
+                        broken += 1
+                        if first_bad is None:
+                            first_bad = (i, sorted(prev_ids), sorted(here_ids))
+            if checked == 0:
+                return res(
+                    "skip",
+                    "every gated route has a single segment -- consecutive-segment "
+                    "connectivity was never exercised",
+                )
+            if broken:
+                return res(
+                    "fail",
+                    f"{broken}/{checked} consecutive route segment pair(s) are not "
+                    f"joined by any predecessor/successor in logical_lane[] "
+                    f"(first: {first_bad[1]} -> {first_bad[2]})",
+                    first_bad[0],
+                )
+            detail_bits.append(f"{checked} segment seam(s) joined in the lane graph")
+
+        # 4. AGREEMENT with the VD's own plan, on the ego's current road only: the
+        # published route runs ahead of the ego, and route_lane only ever describes
+        # where the ego is now.
+        if must.get("expect_lanes_match_plan"):
+            compared = 0
+            first_bad = None
+            for i in frames_with_segments:
+                rl = frames[i].get("route_lane")
+                if not isinstance(rl, dict) or not rl.get("valid"):
+                    continue
+                want_lanes = rl.get("target_lanes")
+                road_id = rl.get("road_id")
+                if not isinstance(want_lanes, list) or road_id is None:
+                    continue
+                got_lanes = set()
+                for seg in frames[i]["hvd"]["route"]["segments"]:
+                    for ls in seg:
+                        entry = topo.get(str(ls["logical_lane_id"]))
+                        if entry is not None and entry.get("road_id") == road_id:
+                            got_lanes.add(entry.get("lane_id"))
+                if not got_lanes:
+                    continue  # the ego's road has already dropped out of the route
+                compared += 1
+                if got_lanes != set(want_lanes):
+                    first_bad = (i, road_id, sorted(got_lanes), sorted(want_lanes))
+                    break
+            if compared == 0:
+                return res(
+                    "skip",
+                    "no gated frame has both a valid route_lane block and a route "
+                    "segment on the ego's current road -- nothing was compared",
+                )
+            if first_bad is not None:
+                return res(
+                    "fail",
+                    f"on road {first_bad[1]} the published route names lanes "
+                    f"{first_bad[2]} but route_lane's target_lanes is {first_bad[3]}",
+                    first_bad[0],
+                )
+            detail_bits.append(
+                f"published lanes matched target_lanes on {compared} frame(s)"
+            )
+
+        return res("pass", "route_matches_plan: " + "; ".join(detail_bits))
+
     if kind == "indicator_leads_lane_change":
         # vd-func:FUNC-055 pre-signal timing (docs/virtualdriver/design/lane_change_initiation.md
         # section 11-9). Unlike route_lane_plan_holds just above -- which section 7 deliberately

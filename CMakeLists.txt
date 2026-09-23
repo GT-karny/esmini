@@ -182,12 +182,20 @@ if(DOWNLOAD_EXTERNALS)
         "*"
         "${OSG_PACKAGE_URL}")
 
-    download(
-        osi
-        ${EXTERNALS_OSI_PATH}
-        ${EXTERNALS_OSI_OS_SPECIFIC_PATH}
-        "*"
-        "${OSI_PACKAGE_URL}")
+    # [GT_ODR:osi-path] no osi download on MSVC: there the GT package is vendored (externals/osi/v11, OSI 3.7.0) while OSI_PACKAGE_URL resolves via
+    # OSI_VERSION to the upstream esmini-dependencies OSI 3.5.0 archive -- a different OSI than the one this build links. That was harmless only by
+    # accident (download() skips when the target dir exists); with an unhydrated LFS checkout it fetched 3.5.0, reported "Download OK", unpacked it
+    # where nothing reads it, and left the build to fail later on a missing include dir. A missing vendored package is now reported as such, under
+    # USE_OSI below. Linux/macOS have no vendored GT package, so upstream's download still applies there (nightly sanitize/memoryleak workflows).
+    if(NOT
+       MSVC)
+        download(
+            osi
+            ${EXTERNALS_OSI_PATH}
+            ${EXTERNALS_OSI_OS_SPECIFIC_PATH}
+            "*"
+            "${OSI_PACKAGE_URL}")
+    endif()
 
     download(
         sumo
@@ -221,6 +229,10 @@ if(DOWNLOAD_EXTERNALS)
             "${GTEST_PACKAGE_URL}")
     endif()
 endif()
+
+# [GT_ODR:osi-path] derive the OSI version from the package on disk -- after any download above, which is what materializes it on Linux/macOS.
+set_osi_resolved_version()
+
 # ############################### Loading external packages ##########################################################
 
 if(USE_GTEST)
@@ -234,6 +246,21 @@ if(USE_OSG)
 endif()
 
 if(USE_OSI)
+    # [GT_ODR:osi-path] on MSVC the vendored package is the only OSI this build accepts (no download, see above), so its absence is an error rather
+    # than something a download can still repair.
+    if(MSVC
+       AND OSI_RESOLVED_VERSION
+           STREQUAL
+           "not-found")
+        message(
+            FATAL_ERROR
+                "No vendored OSI package at ${EXTERNALS_OSI_OS_SPECIFIC_PATH}. GT vendors OSI 3.7.0 for MSVC "
+                "(externals/osi/v11, git LFS) -- run `git lfs pull`, or configure with -DUSE_OSI=OFF. It is NOT "
+                "downloaded: OSI_VERSION only selects upstream's esmini-dependencies 3.5.0 archive, which this build "
+                "does not link.")
+    endif()
+    message(STATUS "OSI ${OSI_RESOLVED_VERSION} (package: ${EXTERNALS_OSI_OS_SPECIFIC_PATH})")
+
     include(${CMAKE_CURRENT_SOURCE_DIR}/support/cmake/external/osi.cmake)
     set_osi_libs()
 endif()

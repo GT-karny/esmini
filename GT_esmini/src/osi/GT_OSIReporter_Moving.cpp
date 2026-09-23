@@ -15,6 +15,7 @@
 #include "GT_OSIReporter_Internals.hpp"
 #include "gt_esmini/control/common/TransitionDynamics.hpp"
 #include "gt_esmini/osi/GT_PlannedPathRegistry.hpp"
+#include "gt_esmini/osi/GT_OsiLogicalLane.hpp"
 #include <array>
 #include <cctype>
 #include <cstdlib>
@@ -977,6 +978,17 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
     const id_t assigned_lane_gid = ResolveMovingObjectAssignedLaneGlobalId(objectState.pos_);
     obj_osi_internal.mobj->add_assigned_lane_id()->set_value(assigned_lane_gid);
     obj_osi_internal.mobj->mutable_moving_object_classification()->add_assigned_lane_id()->set_value(assigned_lane_gid);
+
+    // [GT_MOD] S2.5 logical-lane assignment (design 2-6-1). Body lives in
+    // GT_OSIReporter_LogicalLane.cpp -- this file is lineage:gt_osireporter, so it carries
+    // the call and nothing else. No-op unless GT_OSI_LOGICAL_LANE is on.
+    gt_esmini::osi::EmitLogicalLaneAssignment(obj_osi_internal.mobj->mutable_moving_object_classification(),
+                                              objectState.pos_,
+                                              {objectState.boundingbox_.dimensions_.length_,
+                                               objectState.boundingbox_.dimensions_.width_,
+                                               objectState.boundingbox_.center_.x_,
+                                               objectState.boundingbox_.center_.y_,
+                                               objectState.boundingbox_.center_.z_});
 
     // simplified wheel info, set nr wheels based on object type
     // can be improved by considering axels and actual wheel configuration

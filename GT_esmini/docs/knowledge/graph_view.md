@@ -3,9 +3,9 @@
 > **GENERATED — do not edit.** Source of truth: `graph.yaml` / `namespaces.yaml`.
 > Regenerate: `DriverScript/.venv/Scripts/python.exe scripts/check_knowledge_graph.py --render`
 
-<!-- generated-from: sha256:13aa784d2e9f0d78 -->
+<!-- generated-from: sha256:a538e13b1435c8c3 -->
 
-ノード 241・辺 299（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
+ノード 244・辺 304（curatedのみ。commit由来の辺は `--extract-commits` で別途抽出）
 
 ```mermaid
 flowchart LR
@@ -231,6 +231,7 @@ flowchart LR
     n_matcher_steer_not_saturated["steer_not_saturated"]
     n_matcher_no_constraint_kind["no_constraint_kind"]
     n_matcher_overtake_decision_holds["overtake_decision_holds"]
+    n_matcher_route_matches_plan["route_matches_plan"]
   end
   subgraph sg_vd_component["vd-component｜VirtualDriver 実装ユニット（ITrafficPolicy 以外の層）"]
     n_vd_component_route_lane_plan["route-lane-plan"]
@@ -264,6 +265,8 @@ flowchart LR
     n_signal_manualdrive_acc_settings["manualdrive_acc_settings"]
     n_signal_manualdrive_msl_cap["manualdrive_msl_cap"]
     n_signal_manualdrive_lka_lateral["manualdrive_lka_lateral"]
+    n_signal_ego_route_lane_segments["ego_route_lane_segments"]
+    n_signal_logical_lane_topology["logical_lane_topology"]
   end
   subgraph sg_gate["gate｜常設検証ゲート（回帰で恒久的に走る単位）"]
     n_gate_vd_behavior_regression["vd-behavior-regression"]
@@ -581,6 +584,11 @@ flowchart LR
   n_vd_component_intent_layer -->|depends-on| n_vd_component_lane_change_initiation
   n_vd_component_intent_layer -->|depends-on| n_vd_component_overtake_maneuver
   n_vd_component_intent_layer -->|depends-on| n_vd_component_route_lane_plan
+  n_matcher_route_matches_plan -->|observes| n_signal_ego_route_lane_segments
+  n_matcher_route_matches_plan -->|observes| n_signal_logical_lane_topology
+  n_matcher_route_matches_plan -->|observes| n_signal_route_lane_conformance
+  n_matcher_route_matches_plan -->|sustained-by| n_gate_route_lane_regression
+  n_matcher_route_matches_plan -->|verifies| n_req_vd_ad_REQ_AD_017
 ```
 
 ## 辺の一覧（type別）
@@ -715,7 +723,7 @@ flowchart LR
 | `proposal:P39` | `proposal:P13` | ODDカバレッジ台帳部分はP13と統合が前提（log2xosc由来meta拡張は残件） |
 | `proposal:P8` | `proposal:P2` | 配信部が同一のためP2に吸収 |
 
-### observes (37)
+### observes (40)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -756,6 +764,9 @@ flowchart LR
 | `matcher:stop_hold_stationary` | `signal:manualdrive_acc_settings` | gt.acc.stop_hold が真の**連続区間ごとに**変位を測る。区間で分けるのは、1回の run で 停止→再発進→再停止が起きうるため（区間をまたいで測ると再発進の移動をクリープとして 数える）。速度だけを見ないのは「動かなかった」が「誰も保持していない車」にも当てはまる ため——保持中であることを機能自身のフラグで固定して初めて保持の主張になる。 |
 | `matcher:lane_kept_within` | `signal:manualdrive_lka_lateral` | `gt.lka.offset_m` と `gt.lka.lane_id` を**対で**読む。偏差だけを読まないのが設計の肝で、 この偏差はレーン相対であり roadmanager の Position::GetOffset() はレーン境界で参照を 張り替える（本プロジェクト実測 -1.7482 → +1.9425 が1フレーム）。つまり逸脱した run ほど |offset| は小さく戻り、偏差だけの matcher は**車線を出た run にこそ最もきれいな pass を 返す**。レーンID不変を併せて要求することでこの穴を塞ぎ、同時に `expect_kept: false` （両極性ペアの逸脱側）に観測できる中身を与えている。 |
 | `matcher:steer_output_absent` | `signal:manualdrive_lka_lateral` | `gt.lka.correction`（**機能自身の寄与**）を読み、窓内で恒等的に 0 であることを見る。 車両の実効操舵ではないのが肝で、この matcher が使われる場面——明確な操舵入力・指示器つき 車線変更・速度域外——はいずれも**人間が意図的にハンドルを切っている**。実効操舵を見る matcher は、それを証明したい当の run で必ず赤くなる（no_brake_output が実効ブレーキでなく gt.msl.brake_out を読むのと同型）。チャネルが一度も書かれていなければ skip。 |
+| `matcher:route_matches_plan` | `signal:ego_route_lane_segments` | vd_metrics.py の route_matches_plan 分岐が frames[i]["hvd"]["route"] （HostVehicleData.route = 論理レーン区間の列）を読む。ハーネス側の配線は gt_sim_test.py:_hvd_to_dict で、**osi capture が有効なときだけ**取る — route は静的 GT の後段パスが走った後でないと空になるため（GT_HostVehicleReporter::FillRoute）。 キーが無いフレームは「未報告」であって「経路が空」ではない。両者を混ぜると 機能 OFF の run が緑になる。 |
+| `matcher:route_matches_plan` | `signal:logical_lane_topology` | frames[i]["scene"]["logical_lanes"]（GroundTruth.logical_lane[] の id → road/lane と pred/succ/left/right）を読む。**観測できる口は .osi の第1レコードだけ**なので、 gt_sim_test.py の静的 scene キーに入れて前方充填している（lane_map と同じ扱い）。 これが無いと matcher は常に空のトポロジを見て vacuous に緑になる。 判定は閉包（全 logical_lane_id が実在）と連続セグメントの連結（前後接続の辺が存在）で、 **件数の閾値は持たない** — 連結性は4つの repeated なので「> 0」は片側だけ壊れた 実装を通してしまう。 |
+| `matcher:route_matches_plan` | `signal:route_lane_conformance` | frames[i]["route_lane"] の road_id / target_lanes を読み、自車の現在道路について 公開経路が名指すレーン集合と一致することを判定する（expect_lanes_match_plan）。 matcher:route_lane_plan_holds が同じブロックを読むのとは**目的が違う**: あちらは VD が内部でどう見ているかを判定し、こちらは**外へ宣言した経路と内部の見方が 食い違っていないか**を判定する。2つの signal を分けたまま持っている理由そのもの。 |
 
 ### realizes (48)
 
@@ -843,7 +854,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | `gate:odr-conformance-full` | `gate:odr-conformance-quick` | full は quick の上位集合（+OSI層）だが**手動実行のみ**でどのラダーにも配線されていない。 capability_model.md §2.3 D9 が OSI層を (b) と採点している当の理由。 |
 
-### sustained-by (50)
+### sustained-by (51)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -897,6 +908,7 @@ flowchart LR
 | `vd-func:FUNC-081` | `gate:unit-ctest` | MSL（SpeedLimiter）の単体は test_ManualAdasPhaseC.cpp に同居する（ACC と段の順序を 共有し、順序こそが「リミッターが安全段を拒否できない」を決めるため、別ファイルに 分けると順序のテストが宙に浮く）。 |
 | `vd-func:FUNC-075` | `gate:unit-ctest` | test_ManualAdasFunctionReport.cpp / test_KickdownDetector.cpp / test_PedalArbitrator.cpp / test_ManualDriveAdasConfig.cpp / test_AdasCoexistenceStack.cpp / test_ScriptedInputSource.cpp が傘バイナリ常設（ManualDrive ADAS 関連 81ケース、**673/673緑**の内数、2026-08-05 フェーズB実測。フェーズA時点は69ケース/661件で、フェーズBが上書きチャネル5件・ accel producer 5件・FCWゲート config 2件を追加した）。 matcher実装自体の赤実証（Python側）は GT_esmini/scripts/verification/test_manualdrive_matchers.py（50テスト）が別途担うが、 これは gt_sim_test 検証ハーネス側であり ctest 傘バイナリの外＝この辺には含めない。 |
 | `vd-func:FUNC-080` | `gate:unit-ctest` | test_LaneKeepAssist.cpp が傘バイナリ常設（**771/771緑**、2026-08-05 フェーズD実測。 フェーズC時点は731件）。matcher 側の赤実証は GT_esmini/scripts/verification/test_manualdrive_matchers.py（フェーズDで lane_kept_within / steer_output_absent の13テストを追加、計90緑）。 ユニットが実装欠陥を2件捕まえている: envelope の振幅上限が rate 段で押し戻される （AdSteeringEnvelope のジャーク段が shipped-disabled のままである当の非対称）と、 抑制時のランプダウンが要求の「即時中断」に反していたこと。 |
+| `matcher:route_matches_plan` | `gate:route-lane-regression` | OSI 論理レーン層と HostVehicleData.route を常設で踏む唯一の経路。6本のうち5本が 経路の存在・閉包・連結・レーン集合一致を判定し、残る1本 （merge_required_for_exit_ramp）が **expect_route_present: false** の負の対照になる （esmini が粗い2 WP 経路を無効と判定するので経路が publish されない）。 これが無いと本 matcher は「存在する経路」しか見たことがないことになる。 踏むのは highway_example_with_merge_and_split.xodr **1資産だけ**で、 multi_intersections 規模の交差点連結・境界の 5cm 整合・横隣接は本ゲートの対象外 （それぞれ手動プローブと傘バイナリのユニットが持つ）。 |
 
 ### upstream-candidate (6)
 
@@ -909,7 +921,7 @@ flowchart LR
 | `fork-patch:10` | `odr-upstream-pr:PR-4` |  |
 | `fork-patch:17` | `odr-upstream-pr:PR-5` |  |
 
-### verifies (35)
+### verifies (36)
 
 | from | to | note |
 | :--- | :--- | :--- |
@@ -974,6 +986,7 @@ min_distance_m の 29.5 は法定 30.0 に対する**フレーム量子化の余
 | `matcher:driver_override_reported` | `req-vd-ad:REQ-AD-026` | 段b（ブレーキ踏下で解除、アクセル踏下は一時上書き）の上書きチャネル側の判定。 フェーズBで作った matcher が、フェーズCで初めて **REASON_BRAKE_PEDAL を実際に生む producer** を得た（ACC の解除）。同一 run でアクセル起因の一時上書きも custom_state=DRIVER_OVERRIDE_ACCEL として出るため、規格の2値制約とその補完が 1本の刺激の中で並んで観測できる。 |
 | `matcher:lane_kept_within` | `req-vd-ad:REQ-AD-027` | 段a（弱ドリフトで補正が入り車線内に留まる）の主判定。**左右対で回すことが判定の一部** ——補正則の符号誤りは機能を弱めるのではなく車を車線の外へ押すので、片側だけでは 「弱すぎる実装」と区別できない。実測は完全な鏡像（t=5.0 で offset +0.317/補正 +0.004 対 -0.317/-0.004、両極ともピーク |offset| 0.363m でレーン-1不変）。 `expect_kept: false` 方向は同一 xosc の warning_only / below_band 構成で使い、同じ刺激が 補正なしでは |offset| 4.330m・レーン-1→-2 の逸脱になることを示す——これが無いと正例の 「留まった」は刺激が弱かっただけの可能性を排除できない。 |
 | `matcher:steer_output_absent` | `req-vd-ad:REQ-AD-027` | 段b（人間の明確な操舵入力・指示器作動中は介入しない/即時中断）と段f（警報のみモードで cmd.steering 不変）と段e（速度域外で介入しない）の負系判定。3段が同一 matcher なのは、 いずれも「機能自身の操舵寄与がゼロ」という同じ観測だからで、違うのは**理由**の方 （gt.lka.suppressed_* / in_speed_band に別々に出る）。 |
+| `matcher:route_matches_plan` | `req-vd-ad:REQ-AD-017` | **段 a のみ、かつ「第2の面」としてのみ。** 段 a（経路が各 road で要求する目標レーン集合を 算出できる）は matcher:route_lane_plan_holds が VD テレメトリ面で既に判定している。 本 matcher が足すのは *独立した導出* ではなく *独立した面* である: 同じ RouteLanePlan から 出た値が OSI/HVD 面へも同じ形で出ていること、そしてその参照先の論理レーンが実在し 前後に繋がっていることまでを見る。両者は同じ計画に由来するので、**これは正しさの 二重確認ではなく、公開面と内部面が食い違っていないことの確認**である。 段 b/c/d/e はこの辺の主張の外。どの段を検証済みかは要求側の acceptance_ladder[].verified_by が持つ。 |
 
 ## OpenX概念 逆引き
 

@@ -22,7 +22,6 @@ landed wrapper cannot crash the server at import time; callers get a structured
 from __future__ import annotations
 
 import logging
-import threading
 from pathlib import Path
 
 from GT_esmini.web.backend.config import GT_ESMINI_LIB
@@ -30,7 +29,19 @@ from GT_esmini.web.backend.config import GT_ESMINI_LIB
 logger = logging.getLogger(__name__)
 
 # GT_esminiLib holds one Init'd OpenDRIVE at a time — serialize access.
-_lock = threading.Lock()
+# The SAME lock and load cache road_geometry_service owns.
+#
+# This module drives GT_esminiLib's process-global OpenDrive, which is also what
+# route_planner_service routes on. It used to hold a lock of its OWN -- two locks
+# over one singleton, so a metadata request could swap the map out from under an
+# in-flight route plan. Taking the shared lock closes that, and going through
+# init_odr_cached keeps the recorded load and the DLL's actual load in step.
+from GT_esmini.web.backend.services.road_geometry_service import (  # noqa: E402
+    ESMINI_RM_LOCK,
+    init_odr_cached,
+)
+
+_lock = ESMINI_RM_LOCK
 
 # Cache: xodr absolute path → (mtime, metadata dict)
 _cache: dict[str, tuple[float, dict]] = {}
@@ -131,7 +142,7 @@ def extract_odr_metadata(xodr_path: str | Path) -> dict:
         lib = None
         try:
             lib = GtOdrMetadataLib(lib_path)
-            rc = lib.Init(str(xodr_path))
+            rc = init_odr_cached(lib, xodr_path, "gt", ok=lambda code: code == 0)
             if rc != 0:
                 logger.error(
                     "GtOdrMetadataLib.Init failed for %s (rc=%s)", xodr_path, rc
@@ -175,11 +186,12 @@ def extract_odr_metadata(xodr_path: str | Path) -> dict:
             logger.exception("Failed to extract ODR metadata from %s", xodr_path)
             raise MetadataUnavailable(f"ODR metadata extraction failed: {exc}") from exc
         finally:
-            if lib is not None:
-                try:
-                    lib.Close()
-                except Exception:
-                    pass
+            # Deliberately NOT Close()d. Close tears the parsed map down, and the
+            # route screen loads metadata and then plans routes over that same
+            # map; re-parsing multi_intersections.xodr costs ~100 ms each way.
+            # The load now belongs to the cache, which replaces it when the file
+            # or the requested map changes.
+            pass
 
     _cache[cache_key] = (mtime, result)
     logger.info(

@@ -17,6 +17,7 @@
 #include "OSCPrivateAction.hpp"
 #include "RoadManager.hpp"
 #include "gt_esmini/road/OdrSideModel.hpp"  // WP4: authored junction boundary -> OSI intersection contour
+#include "gt_esmini/osi/GT_OsiLogicalLane.hpp"  // S0: flagged logical-lane post-pass (default OFF)
 // #include "gt_esmini/scenario/ExtraEntities.hpp"
 #include <cctype>
 #include <cmath>
@@ -551,6 +552,11 @@ int OSIReporter::CreateOSIStaticGroundTruthFromODR()
     // [GT_ODR:junc-boundary] WP4 flagged post-pass: swap heuristic free lane boundary for the authored
     // junction <boundary> contour (default OFF -> hard no-op, all OSI goldens byte-identical).
     ApplyAuthoredJunctionBoundaries(opendrive);
+    // OSI logical lanes (reference_line / logical_lane_boundary / logical_lane). Flagged post-pass,
+    // default OFF. Runs LAST so every RM/OSI global id is already assigned and the ids it draws from
+    // GetNewGlobalId() cannot move an existing one (logical_lane_and_route_design.md section 3).
+    // S1: reference lines + logical lane bodies + the lane index. Boundaries arrive in S3.
+    gt_esmini::osi::BuildOsiLogicalLanes(opendrive);
     UpdateStaticTrafficSignals();
 
     // Set the original geo reference string as is

@@ -55,6 +55,14 @@ if(USE_OSI)
         APPEND
         SRC_SOURCEFILES
         "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_Traffic.cpp")
+    # R1 exception extended (approved 2026-09-24; design GT_esmini/docs/osi/logical_lane_and_route_design.md section 8 file layout; knowledge graph
+    # spine-work:osi-logical-lane). GT-ORIGINAL translation unit with no upstream counterpart, so it is NOT in lineage:gt_osireporter and never widens
+    # the inbound fork-sync diff. It is compiled HERE rather than into GT_esminiLib because the logical-lane post-pass writes obj_osi_internal, which
+    # is defined in this target (GT_esminiLib links ScenarioEngine, one way only).
+    list(
+        APPEND
+        SRC_SOURCEFILES
+        "${CMAKE_SOURCE_DIR}/GT_esmini/src/osi/GT_OSIReporter_LogicalLane.cpp")
 endif()
 
 if(NOT

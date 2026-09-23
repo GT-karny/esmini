@@ -27,6 +27,18 @@ must:
       [] guards against the invalid-route branch leaking a phantom band; rerouted
       must stay false because the LaneIndependentRouter pass is only attempted
       after a "lane_discontinuity", never for an already-invalid route.
+  - event: route_matches_plan
+    expect_route_present: false
+    reason: >
+      spine-work:osi-logical-lane S5, and the negative control for the
+      route_matches_plan assertions on the five sibling scenarios. esmini rejects this
+      scenario's coarse 2-waypoint route outright (diagnostic=="invalid_route" above),
+      so GT_HostVehicleReporter::FillRoute clears the field and nothing is published.
+      Measured 2026-09-24: 0/840 frames carry a route segment, while all five siblings
+      carry one on 533..840 frames. Without this entry every route_matches_plan check
+      in this batch would only ever have seen routes that exist.
+      If esmini's route validation ever starts accepting this route, this goes red --
+      which is the correct outcome: it is a real behaviour change, not a test defect.
 notes: >
   Measured (560 frames, dt=0.05, GT_esminiLib.dll with route_lane telemetry): every
   frame reads diagnostic="invalid_route", reason="no_plan", target_lanes=[],

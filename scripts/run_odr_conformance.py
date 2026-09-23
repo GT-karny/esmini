@@ -476,6 +476,7 @@ dll = DLL_LIT
 xosc = XOSC_LIT
 out = OUT_LIT
 DUMP_POLYGONS = DUMP_POLYGONS_LIT  # harness extension B: per-stationary-object base_polygon dump
+DUMP_LOGICAL_LANES = DUMP_LOGICAL_LANES_LIT  # harness extension C: OSI logical-lane layer sizes
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))  # esmini's own osi3 bindings
 
 def r(v):
@@ -556,6 +557,17 @@ try:
                           "base_polygon_points": n, "winding": winding})
         polys.sort(key=lambda x: x["id"])
         res["stationary_polygons"] = polys
+    # Harness extension C: the OSI logical-lane layer (spine-work:osi-logical-lane).
+    # Opt-in for the same reason as B -- a non-flagged fixture's OSI extract stays
+    # byte-identical, so adding this cannot silently move any committed golden.
+    # Counts only: the layer's per-point geometry belongs to
+    # scripts/probe_osi_logical_lane_*.py, which measure it against the spec on five
+    # road networks. What THIS is for is the ODR axis -- "does this OpenDRIVE
+    # construct produce logical lanes at all", per version and per feature.
+    if DUMP_LOGICAL_LANES:
+        res["logical_lane_count"] = len(g.logical_lane)
+        res["reference_line_count"] = len(g.reference_line)
+        res["logical_lane_boundary_count"] = len(g.logical_lane_boundary)
 except Exception as e:
     res = {"init_ok": False, "error": "%s: %s" % (type(e).__name__, e)}
 json.dump(res, open(out, "w"))
@@ -971,7 +983,8 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
         os.close(fd)
         with open(xoscf, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(xosc)
-        res = _run_worker_osi(xoscf, dll, osi_py, dump_polygons=e.get("osi_dump_stationary_polygons"))
+        res = _run_worker_osi(xoscf, dll, osi_py, dump_polygons=e.get("osi_dump_stationary_polygons"),
+                              dump_logical_lanes=e.get("osi_dump_logical_lanes"))
         try:
             os.remove(xoscf)
         except OSError:
@@ -1038,7 +1051,8 @@ def layer_osi(entries: list, dll: str, update: bool, osi_py: str, rmdll: str) ->
     return rows
 
 
-def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str, dump_polygons: bool = False) -> dict:
+def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str, dump_polygons: bool = False,
+                    dump_logical_lanes: bool = False) -> dict:
     fd, script = tempfile.mkstemp(suffix="_osi.py", prefix="odrconf_", dir=WORK_DIR)
     os.close(fd)
     out = script + ".json"
@@ -1047,6 +1061,7 @@ def _run_worker_osi(abs_xosc: str, dll: str, osi_py: str, dump_polygons: bool = 
             .replace("DLL_LIT", repr(dll))
             .replace("XOSC_LIT", repr(abs_xosc))
             .replace("DUMP_POLYGONS_LIT", repr(bool(dump_polygons)))
+            .replace("DUMP_LOGICAL_LANES_LIT", repr(bool(dump_logical_lanes)))
             .replace("OUT_LIT", repr(out)))
     return _run_worker_script(body, out, script, interp=osi_py)
 

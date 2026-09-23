@@ -20,7 +20,7 @@
 7. [ ] upstream が当該関数を改変していた場合は 3-way レビュー: (a) upstream 変更を採用しつつ GT ハンクを意味論的に再配置、(b) 判断に迷う場合は take-theirs + INTERPRETIVE ゴールデン再基準化(§4)。**コードは無条件 take-theirs が原則**(P6設計書§5 Convergence)。
 8. [ ] `RoadManager.hpp` は **additive-only** 制約を維持(manifest `additive_only: true`)。
 9. [ ] フォーク(第1種): upstream の新 `RoadManager.cpp` を `GT_RoadManager.cpp` へ全量コピーし直し、リハーサル台帳のフォーク60ハンク(マーカー21種+ヘッダコメント)を関数アンカーで再適用。[GT_LHT] は vj-lanes ブロック内在(census 上 vj-lanes 帰属)に注意。
-10. [ ] R1 CMake 例外の生存確認: `EnvironmentSimulator/Modules/RoadManager/CMakeLists.txt` の `[GT_ODR:cmake]`×2(odr_side APPEND + include dir)、`support/cmake/common/locations.cmake` の `[GT_ODR:osi-path]`(OSI 3.7.0 フラットパス固定 — upstream 収束不能の恒久例外、詳細は台帳 §0b)。upstream が osi.cmake / locations.cmake を書き換えた場合は zlib 4点セット(台帳 §0b)の要否も再確認。
+10. [ ] R1 CMake 例外の生存確認: `EnvironmentSimulator/Modules/RoadManager/CMakeLists.txt` の `[GT_ODR:cmake]`×2(odr_side APPEND + include dir)、`support/cmake/common/locations.cmake` の `[GT_ODR:osi-path]`×3(フラットパス固定 + MSVC の v11 ピン + `set_osi_resolved_version()` — upstream 収束不能の恒久例外、詳細は台帳 §0b / §0b-2)とルート `CMakeLists.txt` の `[GT_ODR:osi-path]`×3(`download(osi ...)` の MSVC 除外 + マクロ呼出 + `if(USE_OSI)` の MSVC 限定 FATAL)。upstream が osi.cmake / locations.cmake を書き換えた場合は zlib 4点セット(台帳 §0b)の要否も再確認。`osi.cmake` / `version_mapping.cmake` は**無改変が正**(§0b-2) — upstream が OSI_VERSION の写像表や `set_osi_libs` の lib 名を変えたら、vendored パッケージのファイル集合と突き合わせること。
 
 ## 2. handled-by-upstream ホワイトリスト再基準化
 

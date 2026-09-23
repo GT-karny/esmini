@@ -56,6 +56,18 @@ must:
       dt=0.05 frame quantization (the same arithmetic that lands on 12.85
       instead of exactly 12.90 could as easily land one frame the other way
       on a future run).
+  - event: route_matches_plan
+    expect_closure: true
+    reason: >
+      spine-work:osi-logical-lane S5. Every logical_lane_id in the published
+      HostVehicleData.route must exist in GroundTruth.logical_lane[].
+  - event: route_matches_plan
+    expect_segments_connected: true
+    reason: >
+      Consecutive route segments must be joined by a predecessor/successor edge in the
+      logical-lane graph, junction seams included (design 2-4). Kept on this variant
+      too because it drives the same junction at a different speed profile, and the
+      seam the route crosses is resolved per frame from the ego's current s.
 notes: >
   MEASURED 2026-08-03 (parent session, real Release build with the
   section-11-11 forward-projection rule wired in, test_results/web/

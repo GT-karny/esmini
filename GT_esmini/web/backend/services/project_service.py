@@ -28,6 +28,15 @@ _logger = logging.getLogger(__name__)
 
 BUILTIN_PROJECT_ID = "builtin"
 
+# One home for everything the route screen generates.
+#
+# A fixed id, not a uuid: the route screen has to FIND this project again on
+# every build, and a project per generated scenario would grow without bound.
+# The id doubles as the folder name, and sync_projects() matches existing rows
+# by root_path, so re-registration is a no-op.
+ROUTE_PROJECT_ID = "route-plans"
+ROUTE_PROJECT_NAME = "Route plans"
+
 
 # ---------------------------------------------------------------------------
 # Built-in project initialization
@@ -227,6 +236,55 @@ async def get_project(project_id: str) -> ProjectDetail | None:
         )
     finally:
         await db.close()
+
+
+async def ensure_route_project() -> ProjectDetail:
+    """The project route-plan scenarios are written into, created on first use.
+
+    Returns it whether it already existed or not, so callers need no "does it
+    exist" dance. A user is free to rename or describe it -- only the id is
+    load-bearing, and renaming must not cause a second one to appear.
+    """
+    existing = await get_project(ROUTE_PROJECT_ID)
+    project_dir = get_projects_dir() / ROUTE_PROJECT_ID
+    project_dir.mkdir(parents=True, exist_ok=True)
+    if existing is not None:
+        return existing
+
+    now = datetime.now(timezone.utc).isoformat()
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT OR IGNORE INTO projects
+               (project_id, name, description, is_builtin, root_path, created_at, updated_at)
+               VALUES (?, ?, ?, 0, ?, ?, ?)""",
+            (
+                ROUTE_PROJECT_ID,
+                ROUTE_PROJECT_NAME,
+                "Scenarios generated from the route screen.",
+                str(project_dir),
+                now,
+                now,
+            ),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+    created = await get_project(ROUTE_PROJECT_ID)
+    if created is None:  # pragma: no cover - only if the INSERT was ignored
+        raise RuntimeError("route project could not be registered")
+    return created
+
+
+def next_scenario_filename(root_path: str, stem: str) -> str:
+    """`<stem>_01.xosc`, or the next free number. Never overwrites."""
+    scan = Path(root_path) / "xosc"
+    taken = {p.name for p in scan.glob(f"{stem}_*.xosc")} if scan.is_dir() else set()
+    index = 1
+    while f"{stem}_{index:02d}.xosc" in taken:
+        index += 1
+    return f"{stem}_{index:02d}.xosc"
 
 
 async def create_project(req: ProjectCreateRequest) -> ProjectDetail:

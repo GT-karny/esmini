@@ -68,6 +68,9 @@ macro(set_project_external_paths)
     # Upstream v3.4.0 appends ${OSI_RELEASE_TAG}, which composes externals/osi/<tag>/v11 = nonexistent
     # and re-downloads the upstream OSI 3.5.0 archive, silently downgrading the GT OSI 3.7.0 upgrade
     # (ego Identifier wire emission). Recorded in gt_roadmanager_patches.md section 0.
+    #
+    # On MSVC the GT OSI package is VENDORED, never downloaded, so OSI_VERSION does not select it: see
+    # set_osi_resolved_version() below for why the version is derived from the package instead.
     set(EXTERNALS_OSI_PATH
         ${EXTERNALS_PATH}/osi)
     set(EXTERNALS_PUGIXML_PATH
@@ -128,6 +131,9 @@ macro(set_project_os_specific_paths)
         else()
             set(EXTERNALS_OSG_OS_SPECIFIC_PATH
                 ${EXTERNALS_OSG_PATH}/v10)
+            # [GT_ODR:osi-path] v10 (OSI 3.5.0) -> v11 (OSI 3.7.0), commit 9fffa06e. This line IS the
+            # OSI selection for the GT build -- the single place that decides which package is compiled
+            # and linked against. MSVC only; Linux/macOS have no vendored GT package (see ci.yml `test`).
             set(EXTERNALS_OSI_OS_SPECIFIC_PATH
                 ${EXTERNALS_OSI_PATH}/v11)
             set(EXTERNALS_SUMO_OS_SPECIFIC_PATH
@@ -150,6 +156,92 @@ macro(set_project_os_specific_paths)
         set(EXTERNALS_DIRENT_INCLUDES
             "")
     endif()
+
+endmacro()
+
+# ############################### Resolving the OSI package version ################################################
+
+# [GT_ODR:osi-path] GT_esmini: the OSI version is DERIVED from the package on disk, never declared.
+#
+# Upstream's OSI_VERSION is not "the OSI version we build against". It is the esmini-dependencies
+# release-tag selector -- version_mapping.cmake maps it to OSI_RELEASE_TAG / OSI_TAG_URL (the download
+# URL in cloud/set_cloud_links.cmake), and external/osi.cmake additionally gates its library-name list
+# on it. On MSVC that selector is inert: GT vendors its OSI in-repo (externals/osi/v11, .gitignore
+# negation + LFS, produced by scripts/generate_osi_libs.sh at OSI 3.7.0) and no esmini-dependencies
+# release corresponds to it, so there is no tag OSI_VERSION could truthfully name. On Linux/macOS there
+# is no vendored GT package and upstream's download still applies -- which is why a full USE_OSI build
+# only succeeds on Windows (see the `test` job matrix comment in .github/workflows/ci.yml).
+#
+# That leaves one honest source for "which OSI did we actually resolve": the package's own VERSION file.
+# It ships with the binaries and therefore cannot drift from them. Recomputed on every configure (FORCE)
+# -- a cached copy could go stale, which is the failure mode this replaces. Must be called AFTER any
+# download that could materialize the package.
+macro(set_osi_resolved_version)
+
+    # Named for the RESOLVED package, not upstream's OSI_PACKAGE_URL -- those can be two different OSIs.
+    set(_osi_version_file
+        "${EXTERNALS_OSI_OS_SPECIFIC_PATH}/VERSION")
+
+    if(NOT
+       EXTERNALS_OSI_OS_SPECIFIC_PATH
+       OR NOT
+          IS_DIRECTORY
+          "${EXTERNALS_OSI_OS_SPECIFIC_PATH}")
+        set(_osi_resolved_version
+            "not-found")
+    elseif(NOT
+           EXISTS
+           "${_osi_version_file}")
+        # Only GT's own generate_osi_libs.sh packages carry a VERSION file; the upstream
+        # esmini-dependencies archives do not, so the version is genuinely unknown there.
+        set(_osi_resolved_version
+            "unknown")
+    else()
+        # OSI ships its version as a `VERSION_MAJOR = 3` / `_MINOR` / `_PATCH` triplet.
+        file(READ
+             "${_osi_version_file}"
+             _osi_version_text)
+        set(_osi_version_fields
+            "")
+        foreach(
+            _osi_field
+            IN
+            ITEMS VERSION_MAJOR
+                  VERSION_MINOR
+                  VERSION_PATCH)
+            if("${_osi_version_text}" MATCHES "${_osi_field}[ \t]*=[ \t]*([0-9]+)")
+                list(APPEND _osi_version_fields ${CMAKE_MATCH_1})
+            endif()
+        endforeach()
+
+        list(LENGTH _osi_version_fields _osi_version_field_count)
+        if(_osi_version_field_count EQUAL 3)
+            # A list stringifies with ";" separators -- REPLACE joins it (string(JOIN) needs CMake 3.12,
+            # this project's floor is 3.10).
+            string(REPLACE ";"
+                           "."
+                           _osi_resolved_version
+                           "${_osi_version_fields}")
+        else()
+            set(_osi_resolved_version
+                "unparsable")
+        endif()
+    endif()
+
+    set(OSI_RESOLVED_VERSION
+        "${_osi_resolved_version}"
+        CACHE STRING
+              "OSI version of the package in EXTERNALS_OSI_OS_SPECIFIC_PATH (derived from its VERSION file; read-only)"
+              FORCE)
+
+    # Re-document upstream's OSI_VERSION in place so CMakeCache.txt cannot be read as a version claim.
+    # The VALUE is deliberately left untouched: version_mapping.cmake maps no other value, and
+    # external/osi.cmake FATALs on anything but "3.5.0" -- both upstream files stay pristine.
+    set(OSI_VERSION
+        "${OSI_VERSION}"
+        CACHE STRING
+              "esmini-dependencies OSI download-tag selector -- NOT the OSI version in use; see OSI_RESOLVED_VERSION"
+              FORCE)
 
 endmacro()
 
