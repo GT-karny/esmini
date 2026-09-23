@@ -27,8 +27,10 @@
 #include <map>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
+#include "CommonMini.hpp"
 #include "RoadManager.hpp"
 #include "gt_esmini/osi/GT_OsiLogicalLane.hpp"
 #include "osi_groundtruth.pb.h"
@@ -247,8 +249,24 @@ TEST(OsiLogicalLane, OneLogicalLanePerOpenDriveLaneIncludingConnectingRoads)
     EXPECT_EQ(static_cast<unsigned>(gt.logical_lane_size()), expected);
     EXPECT_EQ(index.size(), expected) << "the index must cover every emitted lane -- it is S2.5/S4's only entry point";
     EXPECT_EQ(static_cast<unsigned>(gt.reference_line_size()), od->GetNumOfRoads()) << "one reference line per road (design 2-1)";
-    // S1 emits no boundaries; S3 does.
-    EXPECT_EQ(gt.logical_lane_boundary_size(), 0);
+    // S3 emits boundaries, and no orphans: every one of them is named by at least one
+    // logical lane. An orphan is not a protocol error -- it just sits there costing
+    // bytes -- so nothing else would ever notice it.
+    EXPECT_GT(gt.logical_lane_boundary_size(), 0);
+    std::set<std::uint64_t> referenced;
+    for (const auto& ll : gt.logical_lane())
+    {
+        for (const auto& b : ll.left_boundary_id())
+        {
+            referenced.insert(b.value());
+        }
+        for (const auto& b : ll.right_boundary_id())
+        {
+            referenced.insert(b.value());
+        }
+    }
+    EXPECT_EQ(referenced.size(), static_cast<std::size_t>(gt.logical_lane_boundary_size()))
+        << "every emitted boundary must be referenced by some lane";
 
     // Every id unique, and every reference_line_id resolvable.
     std::set<std::uint64_t> ll_ids, rl_ids;
@@ -754,6 +772,279 @@ TEST(OsiLogicalLane, LaneSectionSeamsCollapseToASinglePoint)
             ASSERT_GT(rl.poly_line(i).s_position(), rl.poly_line(i - 1).s_position()) << "reference line " << rl.id().value() << " point " << i;
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// S3 -- LogicalLaneBoundary (design 2-3)
+//
+// The heavy measurement -- deviation from the ideal edge, sampled through a second
+// DLL at s values the construction never used -- lives in
+// scripts/probe_osi_logical_lane_boundary.py. What is pinned here is the structure a
+// consumer joins on, which is cheap to check and expensive to notice when it breaks:
+// a boundary list that does not cover its lane, or two lanes that describe one edge
+// with two ids, both produce perfectly plausible geometry.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+std::map<std::uint64_t, const osi3::LogicalLaneBoundary*> BoundaryById(const osi3::GroundTruth& gt)
+{
+    std::map<std::uint64_t, const osi3::LogicalLaneBoundary*> out;
+    for (const auto& b : gt.logical_lane_boundary())
+    {
+        out[b.id().value()] = &b;
+    }
+    return out;
+}
+
+// (road, road_s, lane) of a logical lane, read back out of its source_reference --
+// the same join the lane_map parser and the probe use.
+struct LaneAddr
+{
+    int         road_id = -1;
+    std::string road_s;
+    int         lane_id = 0;
+
+    bool operator<(const LaneAddr& o) const
+    {
+        return std::tie(road_id, road_s, lane_id) < std::tie(o.road_id, o.road_s, o.lane_id);
+    }
+};
+
+LaneAddr AddrOf(const osi3::LogicalLane& ll)
+{
+    LaneAddr a;
+    for (const auto& sr : ll.source_reference())
+    {
+        for (const auto& ident : sr.identifier())
+        {
+            if (ident.rfind("road_id:", 0) == 0)
+            {
+                a.road_id = std::stoi(ident.substr(8));
+            }
+            else if (ident.rfind("road_s:", 0) == 0)
+            {
+                a.road_s = ident.substr(7);
+            }
+            else if (ident.rfind("lane_id:", 0) == 0)
+            {
+                a.lane_id = std::stoi(ident.substr(8));
+            }
+        }
+    }
+    return a;
+}
+}  // namespace
+
+// "The boundaries together must cover the whole length of the lane (the range
+// [start_s, end_s]) without gap or overlap. The boundaries must be stored in
+// ascending order." A build that emitted one boundary per lane side and stopped
+// passes every other structural check here and leaves a hole wherever the road
+// marking changes inside a lane section.
+TEST(OsiLogicalLane, BoundariesCoverEveryLaneWithoutGap)
+{
+    for (const char* fixture : {"e6mini.xodr", "multi_intersections.xodr", "fabriksgatan.xodr"})
+    {
+        osi3::GroundTruth                gt;
+        gt_esmini::osi::LogicalLaneIndex index;
+        ASSERT_TRUE(BuildFor(Xodr(fixture), &gt, &index)) << fixture;
+        ASSERT_GT(gt.logical_lane_boundary_size(), 0) << fixture;
+
+        const auto by_id = BoundaryById(gt);
+        unsigned   sides_checked = 0;
+        for (const auto& ll : gt.logical_lane())
+        {
+            for (int side = 0; side < 2; side++)
+            {
+                const auto& ids = (side == 0) ? ll.left_boundary_id() : ll.right_boundary_id();
+                ASSERT_GT(ids.size(), 0) << fixture << " lane " << ll.id().value() << " side " << side;
+                double reached = ll.start_s();
+                for (const auto& bid : ids)
+                {
+                    const auto it = by_id.find(bid.value());
+                    ASSERT_NE(it, by_id.end()) << fixture << " dangling boundary id " << bid.value();
+                    ASSERT_GE(it->second->boundary_line_size(), 2) << fixture;
+                    EXPECT_NEAR(it->second->boundary_line(0).s_position(), reached, 1e-6) << fixture;
+                    reached = it->second->boundary_line(it->second->boundary_line_size() - 1).s_position();
+                }
+                EXPECT_NEAR(reached, ll.end_s(), 1e-6) << fixture << " lane " << ll.id().value() << " side " << side;
+                sides_checked++;
+            }
+        }
+        EXPECT_GT(sides_checked, 20u) << fixture;
+    }
+}
+
+// Two lanes either side of an edge must name the SAME boundary, because that
+// identity is what lets a consumer recover lateral adjacency from boundaries alone
+// (design 8-alpha) -- and it is the property a per-lane construction would fail
+// while producing byte-identical geometry.
+//
+// The proto carves out exactly one exception: "if two lanes have different Z heights
+// (e.g. a driving lane is beside a sidewalk ...) then these lanes cannot share a
+// boundary". BOTH outcomes are asserted, on fixtures chosen for it -- e6mini has no
+// <height> anywhere, fabriksgatan's sidewalks sit 0.12 m up -- because a build that
+// never split and one that always split each satisfy one half.
+TEST(OsiLogicalLane, AdjacentLanesShareOneBoundaryUnlessTheySitAtDifferentHeights)
+{
+    for (const char* fixture : {"e6mini.xodr", "fabriksgatan.xodr"})
+    {
+        osi3::GroundTruth                gt;
+        gt_esmini::osi::LogicalLaneIndex index;
+        ASSERT_TRUE(BuildFor(Xodr(fixture), &gt, &index)) << fixture;
+
+        const auto                                       by_id = BoundaryById(gt);
+        std::map<LaneAddr, const osi3::LogicalLane*>      by_addr;
+        for (const auto& ll : gt.logical_lane())
+        {
+            by_addr[AddrOf(ll)] = &ll;
+        }
+
+        unsigned shared = 0, split = 0;
+        for (const auto& [addr, ll] : by_addr)
+        {
+            const int inner = addr.lane_id - ((addr.lane_id < 0) ? -1 : 1);
+            if (inner == 0)
+            {
+                continue;  // the centre edge has no "inner neighbour" to compare with
+            }
+            LaneAddr nb_addr = addr;
+            nb_addr.lane_id  = inner;
+            const auto nb_it = by_addr.find(nb_addr);
+            if (nb_it == by_addr.end())
+            {
+                continue;
+            }
+            // My side facing the centre vs the neighbour's side facing outwards.
+            const auto& mine   = (addr.lane_id > 0) ? ll->right_boundary_id() : ll->left_boundary_id();
+            const auto& theirs = (addr.lane_id > 0) ? nb_it->second->left_boundary_id() : nb_it->second->right_boundary_id();
+            ASSERT_EQ(mine.size(), theirs.size()) << fixture;
+
+            bool identical = true;
+            for (int i = 0; i < mine.size(); i++)
+            {
+                identical = identical && (mine[i].value() == theirs[i].value());
+            }
+            if (identical)
+            {
+                shared++;
+                continue;
+            }
+            // Not shared: then it must be the height exception -- same line in XY,
+            // apart in Z, point for point.
+            split++;
+            for (int i = 0; i < mine.size(); i++)
+            {
+                const auto a = by_id.at(mine[i].value());
+                const auto b = by_id.at(theirs[i].value());
+                ASSERT_EQ(a->boundary_line_size(), b->boundary_line_size()) << fixture;
+                double max_dz = 0.0;
+                for (int k = 0; k < a->boundary_line_size(); k++)
+                {
+                    const auto& pa = a->boundary_line(k).position();
+                    const auto& pb = b->boundary_line(k).position();
+                    EXPECT_NEAR(pa.x(), pb.x(), 1e-9) << fixture;
+                    EXPECT_NEAR(pa.y(), pb.y(), 1e-9) << fixture;
+                    max_dz = std::max(max_dz, std::fabs(pa.z() - pb.z()));
+                }
+                EXPECT_GT(max_dz, 0.0) << fixture << ": two boundaries on one edge that do not differ in z";
+            }
+        }
+        if (std::string(fixture) == "e6mini.xodr")
+        {
+            EXPECT_GT(shared, 5u) << "e6mini has no <height> -- every edge must be shared";
+            EXPECT_EQ(split, 0u);
+        }
+        else
+        {
+            EXPECT_GT(shared, 0u) << fixture;
+            EXPECT_GT(split, 0u) << fixture << ": the 0.12 m sidewalks must force the split";
+        }
+    }
+}
+
+// PASSING_RULE_UNKNOWN "must not be used in ground truth", and an unmarked edge
+// falls to PASSING_RULE_OTHER, which is the value the proto itself names for the
+// boundary "between LogicalLanes of TYPE_NORMAL and TYPE_CURB". Also asserts that
+// more than one rule actually occurs: a build that answered OTHER for everything
+// would pass a "never UNKNOWN" check on its own.
+TEST(OsiLogicalLane, PassingRuleIsNeverUnknownAndNotAlwaysTheSame)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("e6mini.xodr"), &gt, &index));
+    ASSERT_GT(gt.logical_lane_boundary_size(), 0);
+
+    std::map<int, unsigned> seen;
+    for (const auto& b : gt.logical_lane_boundary())
+    {
+        EXPECT_NE(b.passing_rule(), osi3::LogicalLaneBoundary_PassingRule_PASSING_RULE_UNKNOWN);
+        seen[static_cast<int>(b.passing_rule())]++;
+    }
+    EXPECT_GE(seen.size(), 2u) << "every boundary reported the same passing rule -- the road mark is not being read";
+}
+
+// The emitted polyline must stay within 5 cm of the ideal lane edge, measured at s
+// values the construction never used. The probe does this through a second DLL over
+// five networks; this is the cheap version that stays in the gate, on the fixture
+// whose arc makes a coarse polyline show up immediately.
+TEST(OsiLogicalLane, BoundaryStaysWithinFiveCentimetresOfTheLaneEdge)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("curve_r100.xodr"), &gt, &index));
+
+    roadmanager::OpenDrive* odr  = roadmanager::Position::GetOpenDrive();
+    roadmanager::Road*      road = odr->GetRoadByIdx(0);
+    ASSERT_NE(road, nullptr);
+
+    const auto by_id = BoundaryById(gt);
+    unsigned   samples = 0;
+    double     worst   = 0.0;
+    for (const auto& ll : gt.logical_lane())
+    {
+        const LaneAddr addr = AddrOf(ll);
+        // The lane's OUTER edge, which is the one its own width polynomial moves.
+        const auto& outer = (addr.lane_id > 0) ? ll.left_boundary_id() : ll.right_boundary_id();
+        for (const auto& bid : outer)
+        {
+            const osi3::LogicalLaneBoundary* b = by_id.at(bid.value());
+            const double                     s0 = b->boundary_line(0).s_position();
+            const double                     s1 = b->boundary_line(b->boundary_line_size() - 1).s_position();
+            roadmanager::LaneSection*        lsec = road->GetLaneSectionByIdx(road->GetLaneSectionIdxByS(0.5 * (s0 + s1)));
+            ASSERT_NE(lsec, nullptr);
+
+            roadmanager::Position probe;
+            for (int i = 1; i < 40; i++)
+            {
+                // Golden-ratio spacing: a sample lands on a construction point only by
+                // accident, never by construction.
+                const double frac = std::fmod(i * 0.6180339887498949, 1.0);
+                const double sv   = s0 + frac * (s1 - s0);
+                const double w    = lsec->GetWidth(sv, addr.lane_id);
+                const double sign = (addr.lane_id < 0) ? -1.0 : 1.0;
+                if (probe.SetLanePos(road->GetId(), addr.lane_id, sv, sign * 0.5 * w) != roadmanager::Position::ReturnCode::OK)
+                {
+                    continue;
+                }
+                double best = 1e9;
+                for (int k = 1; k < b->boundary_line_size(); k++)
+                {
+                    const auto&  a  = b->boundary_line(k - 1).position();
+                    const auto&  c  = b->boundary_line(k).position();
+                    const double dx = c.x() - a.x(), dy = c.y() - a.y();
+                    const double den = dx * dx + dy * dy;
+                    double       u   = (den <= 0.0) ? 0.0 : ((probe.GetX() - a.x()) * dx + (probe.GetY() - a.y()) * dy) / den;
+                    u                = std::max(0.0, std::min(1.0, u));
+                    best = std::min(best, PointDistance2D(probe.GetX(), probe.GetY(), a.x() + u * dx, a.y() + u * dy));
+                }
+                worst = std::max(worst, best);
+                samples++;
+            }
+        }
+    }
+    EXPECT_GT(samples, 100u);
+    EXPECT_LE(worst, 0.05) << "max lateral deviation " << worst << " m exceeds the proto's 5 cm";
 }
 
 // ---------------------------------------------------------------------------

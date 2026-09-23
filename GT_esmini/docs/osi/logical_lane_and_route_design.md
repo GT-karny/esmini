@@ -1,6 +1,6 @@
 # OSI 論理レーンと HostVehicleData.route — 実装設計
 
-> ステータス: **T / S0 / S1 / S4 / S2.5 / S2.5b 完了（2026-09-24）。残り S3 / S2 / S5**。
+> ステータス: **T / S0 / S1 / S4 / S2.5 / S2.5b / S3 完了（2026-09-24）。残り S2 / S5**。
 > 現状と規格の突き合わせは
 > [`logical_lane_and_route.md`](logical_lane_and_route.md)。本書はそれを前提に、
 > 何をどこへどう書くかを決める。
@@ -192,15 +192,28 @@ t が大きい側                                          t が小さい側
 | :-- | :-- |
 | `id` | 後段パスで `GetNewGlobalId()` |
 | `reference_line_id` | その道路の参照線（規格要件: レーンと同一であること） |
-| `boundary_line[].s_position` | 参照線の s グリッドをそのまま使う |
-| `boundary_line[].t_position` | `LaneSection::GetOuterOffset(s, lane_id)` に側の符号を付けたもの。中央は `GetCenterOffset(s, 0)` |
-| `boundary_line[].position` | `Position::SetLanePos(road, lane, s, offset)` で解決した世界座標 |
+| `boundary_line[].s_position` | 参照線の s グリッドを**種**にして、偏差で再帰分割した s |
+| `boundary_line[].t_position` | `Position::SetLanePos(road, lane, s, SIGN(lane)*width/2)` の `GetT()`。`GetInnerOffset(s,k) == GetOuterOffset(s,k-sign(k))` が恒等式なので、隣接レーンの見る t は構成的に一致する |
+| `boundary_line[].position` | 同じ `SetLanePos` の世界座標。**レーンの上で**評価するのが肝で、`SetTrackPos` を edge の t で呼ぶと `Track2Lane` がどちらのレーンに落ちるかで z が変わる（下の高さ分割） |
 | `passing_rule` | §2-3-1 |
-| `physical_boundary_id[]` | その t 位置に物理境界（`GetLaneBoundaryGlobalId()` または roadmark ライン）があれば入れる。無ければ空（規格が空を許容） |
+| `physical_boundary_id[]` | 同じ edge にある物理境界。**`gt->lane_boundary()` に実在する id だけ**を入れる（後段パスなので既に完成しており、ここで会員判定すれば参照の閉包が構成的になる）。無ければ空（規格が空を許容） |
 
-s グリッドを参照線から借りる点には制約がある。参照線の刻みはその曲率で決まっており、外側の
-境界のほうが曲率半径が大きい／小さい。**5cm 要件が外側境界で破れうる**ので、S3 実装時に
-`CheckAndAddOSIPoint` と同じ偏差判定を境界ごとに回して点を追加する（§10-2）。
+**s グリッドは参照線のものだけでは足りない。** 参照線の刻みはその曲率で決まっており、
+外側の境界は別の半径・別の幅多項式・（縁石の向こう側では）途中で段のつく `<height>` に乗る。
+そこで種グリッドを中点で再帰分割する。**分割判定は中点だけで見てはいけない** — 区間の中央に
+対して対称に膨らむ幅多項式は中点での偏差がちょうど 0 になり、中点だけの判定は収束したと
+言って止まる（soderleden road 0 で実測 0.33 m）。u = 0.25 / 0.5 / 0.75 の 3 点で見る。
+
+**1 つの edge が 2 本の境界になる場合がある。** 規格の但し書き:
+
+> if two lanes have different Z heights (e.g. a driving lane is beside a sidewalk, where the
+> sidewalk is 10cm higher than the road), then these lanes cannot share a boundary, since their
+> boundaries have different Z heights.
+
+OpenDRIVE の `<lane><height inner outer>` がまさにこれで、出荷資産の歩道・縁石は 0.12 m 上にある。
+**XY は 1 本、z が 2 つ**なので、点列は 1 回だけ作り（縁石は鉛直面であって 2 本の線ではない）、
+side ごとの z を同じ点で読む。独立に 2 回リファインすると、どちらも理想線に対しては budget 内
+なのに**互いに最大 14 mm 離れる**（multi_intersections 実測）。
 
 #### 2-3-1. `passing_rule`
 
@@ -490,14 +503,20 @@ BuildOsiLogicalLanes(opendrive, static_gt):
 
     # --- pass 2: 境界 ---
     for road, section in sections:
-        for edge_t in lane_edges(section):        # n+1 本
-            lb = static_gt.add_logical_lane_boundary()
-            lb.id = GetNewGlobalId(); lb.reference_line_id = ref_line_id[road]
-            for s in s_grid(section) + refine_for_5cm(edge_t):
-                lb.add_boundary_line(position=world(road,s,edge_t), s=s, t=edge_t(s))
-            lb.passing_rule = map_passing_rule(roadmark_at(edge_t))
-            lb.physical_boundary_id = physical_ids_at(edge_t)   # 無ければ空
-            boundary_id[road, section, edge] = lb.id
+        for edge_owner in [0] + [lane.id for lane in section if not lane.is_center]:   # n+1 本
+            sides = sides_of(edge_owner)                  # (lane, outer|inner) を 1 つか 2 つ
+            split_z = sides differ in z by more than 1cm  # 縁石・歩道
+            for [lo, hi] in split_by_roadmark(section, edge_owner):
+                pts = sample(lo) + [refine(a, b) for consecutive seeds] + sample(hi)
+                for group in (sides if split_z else [sides[0]]):
+                    lb = static_gt.add_logical_lane_boundary()
+                    lb.id = GetNewGlobalId(); lb.reference_line_id = ref_line_id[road]
+                    for pt in pts:                        # XY/s/t は共通、z だけ side 別
+                        lb.add_boundary_line(position=(pt.x, pt.y, pt.z[group]), s=pt.s, t=pt.t)
+                    lb.passing_rule = map_passing_rule(roadmark_covering(lo))
+                    lb.physical_boundary_id = [id for id in physical_at(edge_owner)
+                                               if id in static_gt.lane_boundary]   # 無ければ空
+                    boundary_id[road, section, edge_owner, viewing_lane] = lb.id
 
     # --- pass 3: 論理レーン本体（接続は張らない） ---
     for road, section, lane in lanes where !lane.IsCenter():
@@ -1106,6 +1125,70 @@ RoadManager インスタンス**を同一プロセスに載せ、`(roadId, s_pos
    `offset_ = SIGN(lane_id)*GetWidth(s,lane_id)/2`）。ただし作られるのは
    `n_roadmarks == 0` のレーンだけ（§2-3）。
 
+#### S3（2026-09-24）— 論理境界
+
+`LogicalLaneBoundary` と `left/right_boundary_id`。置いたもの:
+
+| 追加/変更 | 何 |
+| :-- | :-- |
+| 変更 `GT_OSIReporter_LogicalLane.cpp` | pass 2（境界）と、pass 3 での左右境界の結線。`EdgeSide` / `EdgeSample` / `EdgeBuilder` / `MapPassingRule` / `BoundaryKey` |
+| 変更 `test_OsiLogicalLane.cpp` | S3 の 4 テスト（被覆・共有と高さ例外の両極性・passing_rule・5cm）。傘バイナリで **OsiLogicalLane 29/29 緑** |
+| 新規 `scripts/probe_osi_logical_lane_boundary.py` | 実測プローブ。出力 `test_results/osi_logical_lane/boundary_probe.json` |
+| 変更 `scripts/probe_osi_logical_lane_size.py` | S1 段の「境界は 0 本」判定を S3 の「レーン端ごとに 1 本以上」へ。増分表を層まるごとに |
+
+**設計との差分（コードが正、本書をコードに合わせた）**:
+
+1. **レーン端の t は `SetLanePos` から取るほうが良い。** S2.5 引き継ぎ 1 の式
+   （`GetLaneOffset(s) + SIGN*GetOuterOffset(s,k)`）は正しいが、`SetLanePos(road, k, s,
+   SIGN(k)*width/2)` が同じ t を返し、**かつ物理境界（`SetLaneBoundaryPos`）と同じ呼び方**になる。
+   隣接レーンの見る t が一致するのは `GetInnerOffset(s,k) == GetOuterOffset(s,k-sign(k))` が
+   esmini の中で恒等式（`GetOuterOffset` は 1 ずつ戻る再帰）だからで、近似ではない。
+2. **`SetTrackPos` を edge の t で呼んではいけない。** `Track2XYZ` は `EvaluateLaneHeight()` を
+   通すので、edge 上では `Track2Lane` がどちらのレーンに落ちるかで z が変わる。**レーンを指定して
+   評価する**こと。
+3. **中点だけの分割判定では足りない**（上記 §2-3）。
+4. **`Refine(a, b, out, ...)` の a/b は値渡し。** 呼び出し側は `out.back()` を渡すのが自然で、
+   再帰の中の `push_back` が同じ vector を再確保すると参照が浮く。
+5. **分割判定は全 side の z を見る。** 幾何の由来側だけで見ると、multi_intersections road 276
+   （22 m の区間で歩道の高さが s=3 で 0.02 → 0.12 に段をつける）は 2 点で収束し、**もう一方の
+   側の段をまたいで線形補間される**（実測 0.10 m ずれ）。
+6. **`physical_boundary_id` は `gt->lane_boundary()` の会員に限る。** 後段パスなので既に完成して
+   おり、ここで判定すれば参照の閉包が構成的に保証される。roadmark ラインのうち
+   `GetSOffset() > 0` のものは「参照先は短くてはならない」に反するので落とす。
+
+**実測（受入基準ごと）**:
+
+| 受入基準 | 実測 |
+| :-- | :-- |
+| 左右境界が `[start_s, end_s]` を隙間・重複なく覆う | 5 資産・**386 論理レーン × 2 辺すべて**で、先頭境界の始 s == `start_s`、末尾境界の終 s == `end_s`、連結点の s 差 0（許容 1e-6） |
+| 隣接境界の接点が一致 | 道路標示で分割された **63 か所**（multi_intersections）で、前の境界の最終点と次の始点のワールド距離 **最大 0 m** |
+| 最大横偏差 ≤ 5cm | **0.0250 m**（multi_intersections road 210/200 の接続路、R≈19 m 付近の別区間）。5 資産の全 14,812 サンプル。縦は **0.0139 m**（規格 0.02）。**測ったのは構築に使っていない s**（黄金比刻み）で、**別 DLL（esminiRMLib）が独立に組み立てた理想レーン端**と比べている |
+| 曲率の大きい区間を実際に踏んだか | サンプル中の最大曲率は soderleden **0.833 1/m（R=1.2 m）**、multi_intersections 0.465（R=2.2 m）、fabriksgatan 0.370（R=2.7 m）。**最悪偏差はそこではなく緩い曲率側に出る** — 急曲率は budget まで分割されるので、残るのは種グリッドがたまたま長い区間だけ |
+| 隣接 2 レーンが同じ境界 id を共有 | **126 組が共有**。残り **120 組は高さで分割**（0.12 m の歩道・縁石）。両方が実データに出ている（e6mini / highway_merge_split は共有のみ、fabriksgatan / soderleden / multi_intersections は両方） |
+| 物理境界の参照閉包 | **639/639** の `physical_boundary_id` が `lane_boundary[]` に実在（5 資産） |
+| `GT_OSI_LOGICAL_LANE=0` で空 | 5 資産すべてで `logical_lane_boundary[] = 0`、`logical_lane[] = 0` |
+| 毎フレーム側が増えていない | S2.5 が narrow した判定（ON 側から `logical_lane_assignment` だけ剥がして再直列化し OFF と SHA 一致）を **そのまま緑で通過**。S3 は静的側にしか触っていない |
+| 回帰ゲート | **PASS**（unit 29/29 緑 / ODR quick 緑 / behavioral 67 シナリオ 0 deviation） |
+
+**サイズ実測（境界込み、`scripts/probe_osi_logical_lane_size.py`）**:
+
+| 資産 | 論理レーン | 境界 | 境界点 | 参照線 B | 論理レーン B | 境界 B | 増分 B | static x | roadnet x |
+| :-- | --: | --: | --: | --: | --: | --: | --: | --: | --: |
+| e6mini | 14 | 15 | 1,084 | 2,363 | 1,925 | 53,416 | 57,704 | 1.26x | 1.78x |
+| fabriksgatan | 44 | 72 | 729 | 6,588 | 5,427 | 37,105 | 49,120 | **2.85x** | 2.85x |
+| multi_intersections | 242 | 440 | 6,514 | 29,442 | 30,992 | 328,307 | 388,741 | 2.48x | 2.71x |
+| soderleden | 33 | 51 | 847 | 4,117 | 4,074 | 42,431 | 50,622 | 2.04x | 2.04x |
+| highway_merge_split | 53 | 66 | 633 | 4,899 | 6,599 | 32,318 | 43,816 | 1.96x | 1.96x |
+
+**境界が層の 84〜93% を占める**（設計の予想どおり）。1 境界点あたり約 50 B。
+
+> **点密度と budget の取引**: 構築 budget は規格値の**半分**（横 0.025 m / 縦 0.01 m）にしてある。
+> 実測の最大偏差はちょうどその budget に張り付く（0.0249〜0.0250 m）ので、budget を規格値の
+> 5cm にすれば点数は約 1/√2 に、境界バイト（層の 9 割）も同じだけ減り、fabriksgatan の 2.85x は
+> 2.3x 前後まで下がる。**取らなかった**: 偏差が規格値ちょうどに張り付く設計は、まだ測っていない
+> 資産や、サンプル運で規格を超える。§7-3 の閾値 3x に対して 2.85x はまだ余裕の側にあるので、
+> 精度をバイトと交換する理由がない。必要になったら `--osi_lateral_deviation` で両方が同時に動く。
+
 ### 8-1. 依存関係 — 逐次なのは S0 → S1 までで、その先は扇形に開く
 
 ```
@@ -1206,8 +1289,18 @@ R1 の当たりは `ScenarioEngine/CMakeLists.txt` の 4 行のみ。`OSIReporte
    **junction id ではなく接続路レーンの論理レーン id** を指すこと。物理側の
    `assigned_lane_id` が junction id のままであることも同時に確認する（片方だけ直すと
    既存の消費側が壊れる）。`signal:ego_lane` の join 欠けが埋まったことの直接の証拠になる。
-8. **L1 の s/t と Position の一致** — `s_position == pos.GetS()`、`t_position == pos.GetT()` が
-   全フレームで成立すること。参照線 s を road s と同一にした設計判断（§2-1）の不変量。
+8. **L1 の s/t が参照点（bbox 中心）であること** — entity origin ではないこと。直線では
+   `s_position == pos.GetS() + center_x` / `t_position == pos.GetT()`、ヨーがあれば
+   `center_x·sin(h_rel)` だけ横へ動き、曲路では 1 次近似から外れること（§2-6-1 注 2）。
+   **origin を入れた版が落ちること**を同じテストの中で固定する（負の対照）。
+10. **境界の被覆と共有** — 各論理レーンの `left/right_boundary_id` が `[start_s, end_s]` を
+   隙間・重複なく覆うこと。隣接 2 レーンが同じ境界 id を名指すこと、**ただし高さの違う
+   レーン同士（縁石・歩道）は規格の但し書きどおり分かれ、XY 一致・z 相違であること**。
+   両方の結果が実データに出ることを要求する（片方しか起きない資産では検査が半分死ぬ）。
+11. **`passing_rule` が `UNKNOWN` を出さない**こと、かつ**全部が同じ値でない**こと
+   （全部 OTHER の実装は「UNKNOWN を出さない」検査を素通りする）。
+12. **境界の横偏差 ≤ 5cm** — 構築に使っていない s で測ること。重い測定
+   （別 DLL・5 資産・曲率つき）は `scripts/probe_osi_logical_lane_boundary.py`。
 9. **L2 の生存性** — 物理駆動で走らせたとき `s_along_route` が単調増加すること。
    **`Position::GetRouteS()` が同じ走行で凍ることも併せて示す**（現状記録 §4-3 の負の対照。
    「凍る値を使っていない」ことを実証しないと、将来また同じ欄に手が伸びる）。
@@ -1254,11 +1347,13 @@ L2（経路進捗）は**新しい signal を起こさない**。既存の `sign
 1. **`overlapping_lane` を出さない。** 交差点内で経路が交差する区間の s レンジ。幾何計算が要り、
    RoadManager に概念がない。`repeated` なので規格違反ではないが、交差点の competing path を
    OSI から読む消費側には情報が足りない。+2〜3 日で別途。
-2. **境界の 5cm 精度が参照線の s グリッド依存。** §2-3 のとおり、外側境界では偏差が広がりうる。
-   S3 で境界ごとの偏差判定を入れるが、入れ損ねても「それらしい線」は出るため症状が出にくい。
-   単体テストで最大偏差を直接測ること。
-3. **Z 方向 2cm 精度を保証しない。** `OSI_MAX_LATERAL_DEVIATION` は XY 平面の判定であり、
-   勾配・カントのある道路では Z 誤差が規格値を超えうる。カント厳密化と同じ土俵の課題。
+2. ~~**境界の 5cm 精度が参照線の s グリッド依存。**~~ **解消（S3）。** 種グリッドを 3 点判定で
+   再帰分割する（§2-3）。実測 **0.0250 m / 0.0139 m**（規格 5cm / 2cm）で、測定は構築に使って
+   いない s と別 DLL による。ただし**この偏差は budget（規格値の半分）で頭打ちになる設計**で、
+   さらに詰めたければ `--osi_lateral_deviation` を下げる（境界も同じ値に追従する）。
+3. **Z 方向 2cm は実測で満たしているが構成的な保証ではない。** 分割判定は z も見るので
+   勾配・カント・`<height>` の段は拾うが、budget は `kBoundaryBudgetZ = 0.01` の固定値であり
+   `OSI_MAX_LATERAL_DEVIATION` のような設定項目に繋がっていない。カント厳密化と同じ土俵の課題。
 4. **速度制限が道路単位。** OpenDRIVE の `<lane><speed>` はパーサが読んでいない。
    `traffic_rule[].speed_limit` には `Road::GetSpeedByS()` の値が入る。
 5. **連続レーンの併合をしない。** 規格は同型・単一後続のレーンを 1 本の論理レーンへ併合することを

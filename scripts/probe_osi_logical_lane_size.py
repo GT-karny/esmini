@@ -230,6 +230,7 @@ try:
     centerline_points = sum(len(L.classification.centerline) for L in g.lane)
     boundary_points = sum(len(b.boundary_line) for b in g.lane_boundary)
     reference_line_points = sum(len(r.poly_line) for r in g.reference_line)
+    logical_boundary_points = sum(len(b.boundary_line) for b in g.logical_lane_boundary)
 
     res = {
         "init_ok": True,
@@ -245,6 +246,7 @@ try:
         "centerline_points": centerline_points,
         "lane_boundary_points": boundary_points,
         "reference_line_points": reference_line_points,
+        "logical_lane_boundary_points": logical_boundary_points,
         # The id sets the ODR conformance goldens and the lane_map join are keyed
         # on. Compared OFF vs ON directly, because a shifted id is the one failure
         # mode of this feature that nothing downstream would report out loud.
@@ -463,10 +465,9 @@ def main():
         if off["logical_layer_bytes"] != 0:
             fail("%s: flag OFF still spent %d bytes on the logical layer" % (name, off["logical_layer_bytes"]))
 
-        # (4) ON emits exactly the S1 model: one reference line per road, one
-        # logical lane per non-centre OpenDRIVE lane (junction connecting roads
-        # included -- that is the whole point of the layer), and NO boundaries,
-        # which arrive in S3.
+        # (4) ON emits the S3 model: one reference line per road, one logical lane
+        # per non-centre OpenDRIVE lane (junction connecting roads included -- that
+        # is the whole point of the layer), and at least one boundary per lane edge.
         want_lanes = entry["shape"]["lanes_excl_center"]
         if on["counts"]["logical_lane"] != want_lanes:
             fail(
@@ -484,8 +485,18 @@ def main():
                 "%s: reference_line=%d but the xodr has %d roads"
                 % (name, on["counts"]["reference_line"], entry["shape"]["roads"])
             )
-        if on["counts"]["logical_lane_boundary"] != 0:
-            fail("%s: S1 emitted %d logical_lane_boundary (boundaries are S3)" % (name, on["counts"]["logical_lane_boundary"]))
+        # A section with n lanes has n+1 edges, so a network with L non-centre lanes
+        # over S lane sections has at least L + S of them -- more wherever a road mark
+        # changes inside a section or a curb splits an edge by height. Fewer means a
+        # lane is missing a side, which nothing downstream would notice.
+        want_boundaries = want_lanes + entry["shape"]["lane_sections"]
+        if on["counts"]["logical_lane_boundary"] < want_boundaries:
+            fail(
+                "%s: logical_lane_boundary=%d but %d non-centre lanes over %d lane sections "
+                "need at least %d (one per lane edge)"
+                % (name, on["counts"]["logical_lane_boundary"], want_lanes,
+                   entry["shape"]["lane_sections"], want_boundaries)
+            )
         # Freshly drawn ids, disjoint from every id that already existed.
         existing = set(off["lane_ids"]) | set(off["lane_boundary_ids"])
         clash = existing & (set(on["logical_lane_ids"]) | set(on["reference_line_ids"]))
@@ -539,15 +550,17 @@ def main():
     print("  junctions -- the ones osi_lane fuses into a single TYPE_INTERSECTION lane today.")
 
     print()
-    print("=== S1 measured increment: reference_line + logical_lane only (NO boundaries) ===")
-    print("  This is the middle value design section 7-3 asks for before flipping the default")
-    print("  ON at S3: the S0 table could only project the whole layer, and the projection")
-    print("  bundled the boundaries -- which are the bulk of it -- with the lane bodies.")
-    print("  'static x' is measured against the consumer's whole static payload, 'roadnet x'")
-    print("  against the road-network part alone (lane + lane_boundary). They diverge wherever")
-    print("  a fixture carries many stationary objects, which the logical layer never touches.")
-    hdr2 = ("fixture", "logLanes", "refLines", "refPts", "refLine_B", "logLane_B", "added_B", "static x", "roadnet x")
-    print("  %-22s %8s %8s %7s %10s %10s %9s %9s %10s" % hdr2)
+    print("=== S3 measured increment: the WHOLE logical layer ===")
+    print("  This is the number design section 7-3 asks for before flipping the default ON:")
+    print("  the S0 table could only project it, and the boundaries -- the bulk of the layer --")
+    print("  were the part the projection was least able to estimate. 'static x' is measured")
+    print("  against the consumer's whole static payload, 'roadnet x' against the road-network")
+    print("  part alone (lane + lane_boundary). They diverge wherever a fixture carries many")
+    print("  stationary objects, which the logical layer never touches. The condition for")
+    print("  reverting to opt-in is 3x measured; anything under that keeps the default ON.")
+    hdr2 = ("fixture", "logLanes", "bounds", "bndPts", "refLine_B", "logLane_B", "bound_B", "added_B",
+            "static x", "roadnet x")
+    print("  %-22s %8s %7s %8s %10s %10s %9s %9s %9s %10s" % hdr2)
     for name, e in results.items():
         o, n = e["off"], e["on"]
         if not o.get("init_ok") or not n.get("init_ok") or o["counts"]["lane"] == 0:
@@ -555,14 +568,15 @@ def main():
         added = n["logical_layer_bytes"]
         roadnet = o["per_field_bytes"]["lane"] + o["per_field_bytes"]["lane_boundary"]
         print(
-            "  %-22s %8d %8d %7d %10d %10d %9d %8.2fx %9.2fx"
+            "  %-22s %8d %7d %8d %10d %10d %9d %9d %8.2fx %9.2fx"
             % (
                 name,
                 n["counts"]["logical_lane"],
-                n["counts"]["reference_line"],
-                n["reference_line_points"],
+                n["counts"]["logical_lane_boundary"],
+                n.get("logical_lane_boundary_points", 0),
                 n["per_field_bytes"]["reference_line"],
                 n["per_field_bytes"]["logical_lane"],
+                n["per_field_bytes"]["logical_lane_boundary"],
                 added,
                 (o["static_subtotal_bytes"] + added) / float(o["static_subtotal_bytes"]),
                 (roadnet + added) / float(roadnet),
