@@ -440,7 +440,7 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/gate_catalog.yaml
     status: active
-    count: 17  # 2026-08-06: 実体は 16 だったが count は 14 のまま（scenario-handoff / stop-line-pairing 追加時に未更新）。実数に合わせ直したうえで manualdrive-adas-regression を足した
+    count: 19  # 2026-09-24: 実数と照合し直した（`grep -c "^  - id:" gate_catalog.yaml`）。直前は 17 と書かれていたが実体は 18 で、telemetry-golden 追加時に未更新だった。osi-logical-lane-probes を足して 19。過去2回とも「足したのに count を直さない」で漏れているので、**カタログに行を足したら必ずここも数え直すこと**
     notes: >-
       検証スパイン⑥常設（capability_model.md §4）。カタログの真実源は実行系
       （root CLAUDE.md §5 ＋ scripts/ ＋ .github/workflows/ci.yml）で、本ノードは

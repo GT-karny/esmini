@@ -309,6 +309,29 @@ gates:
       意味論オラクルは不在（Annex F 275ルール中 gap 259）。
     note: OSI層は含まない（gate:odr-conformance-full 参照）。
 
+  - id: osi-logical-lane-probes
+    title: OSI論理レーン層プローブ5本（接続性・境界・割当・route・ペイロード）
+    command: scripts/probe_osi_logical_lane_{connectivity,boundary,assignment,size}.py + scripts/probe_hvd_route.py --skip-udp
+    context: local  # regression-gate Step 1.6
+    blocking: true
+    requires: [release-build, venv]  # GT_esminiLib.dll をプロセス内ロード
+    covers: >-
+      論理レーン層の前後・左右接続（multi_intersections 接続路76本に pred/succ）／
+      境界の横5cm・縦2cm 偏差／logical_lane_assignment の s,t と車線跨ぎ2本割当／
+      HostVehicleData.route の参照閉包と向きの符号／毎フレーム側ペイロードの不変量。
+      **各プローブが ON/OFF 両極性を自分の子プロセスで作る**（env.pop で ON、"0" で OFF）ため
+      外側の環境変数に免疫がある。
+    not_covers: >-
+      **踏む道路は固定5資産**（e6mini / fabriksgatan / multi_intersections / soderleden /
+      highway_merge_split）。新しい道路形状は自動では入らない。
+      overlapping_lane は未実装なので対象外。probe_hvd_route の UDP分割送信は --skip-udp で
+      除外（ソケットが環境flaky。分割の正しさは S4 の手動実測 40/40 が一次証拠）。
+    note: >-
+      2026-09-24 新設（spine-work:osi-logical-lane S5b）。**動機は被覆の穴ではなく腐敗**:
+      gate:route-lane-regression が踏む道路は1資産で、交差点規模の連結と境界5cmはそこから
+      到達できない。手動プローブのまま置くと gate:odr-conformance-full の OSIゴールデンと
+      同じ経路で腐る（起動点が無く3ヶ月 stale だったことを同日に検出）。実行時間 約13秒。
+
   - id: odr-conformance-schema-ci
     title: ODR適合 schema層のみ（CI）
     command: scripts/run_odr_conformance.py --layers schema --check-matrix

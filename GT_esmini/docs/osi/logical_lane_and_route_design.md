@@ -1568,6 +1568,34 @@ L2（経路進捗）は**新しい signal を起こさない**。既存の `sign
 ベースラインの凍結は、3 回連続実行で自己決定論性を確認し、かつ比較器が負の対照で発火することを
 示してから行う。
 
+#### S5b — プローブを常設ゲートへ（2026-09-24）
+
+`gate:route-lane-regression` **だけでは足りない**ことが S5 完了時に判明した。同ゲートが踏む
+道路は **1 資産（highway_merge_split）** で、S2 の主眼だった**交差点の接続路連結**
+（multi_intersections 76 本）と S3 の**境界 5cm 整合**は、そこから構造的に到達できない。
+
+手動プローブのまま置くと `gate:odr-conformance-full` の OSI ゴールデンと同じ経路で腐る。
+**同じ日にその実例を検出している** — `--profile full` は CI にも回帰ゲートにも起動点が無く、
+ゴールデン 13 件が 3 ヶ月 stale だった。
+
+そこで回帰ゲートに **Step 1.6（HARD、`-SkipOsiProbes`）** を新設し、5 本のプローブを常設した。
+詳細な covers / not_covers は `gate_catalog.yaml` の `gate:osi-logical-lane-probes`。
+
+| 検証 | 結果 |
+| :-- | :-- |
+| 緑側 | 5 本とも PASS、合計 **13 秒**（connectivity 2s / boundary 3s / assignment 3s / size 3s / hvd_route 2s） |
+| **赤側（配線の負の対照）** | 存在しないプローブを 1 本混ぜた同一ロジックで `$osiFailed` が埋まり `overallOk=False`、exit 1。**緑と赤の両方を実証してから常設化した** |
+| 引数の展開 | `@($probe.Args)` が空配列で無引数、`@("--skip-udp")` で 1 引数に展開されることを実測（PowerShell の配列アンロール） |
+
+**`probe_hvd_route` は `--skip-udp` で入れている。** UDP 分割送信の正しさは S4 の手動実測
+（`osi_bridge` 40/40・`udp_common` 40/40）が一次証拠で、ソケット経路は環境 flaky のため
+常設からは外した（CI で UDP を外した前例と同じ判断）。
+
+> **外側の環境変数でプローブを赤にしようとしても赤にならない。** 各プローブは ON/OFF を
+> **自分の子プロセスごとに**作る（`env.pop(ENV_FLAG)` で ON、`"0"` で OFF）ので、親の
+> `GT_OSI_LOGICAL_LANE` に免疫がある。これは正しい設計であって腐敗ではない。
+> 負の対照はプローブの内部（各プローブが既に持つ）か、ゲート配線側（上表）で取ること。
+
 ### ODR 適合
 
 `run_odr_conformance.py` の OSI 抽出に `logical_lane_count` / `reference_line_count` /
