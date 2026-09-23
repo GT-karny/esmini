@@ -18,6 +18,16 @@
 
 **`support/cmake/common/locations.cmake`** の `EXTERNALS_OSI_PATH` を upstream v3.4.0 の `externals/osi/${OSI_RELEASE_TAG}` 合成からフラット `externals/osi` に固定(`# [GT_ODR:osi-path]` マーカー 1 箇所、実質 1 行 + 説明コメント)。理由: GT は OSI 3.7.0 パッケージ(`externals/osi/v11`、リポジトリ追跡、ego Identifier wire 送出の修復 = commit 9fffa06e)を使用しており、upstream 合成パスは存在しない `externals/osi/<tag>/v11` を指して **upstream OSI 3.5.0 アーカイブを再ダウンロードし GT アップグレードを黙ってダウングレードする**(P6 S0b の再構成で実際に発生、`externals/osi/v3.5.0_2/` が落ちてきた)。v3.4.0 の OSI gzip 圧縮(OSIReporter.hpp が gzip_stream.h を無条件 include、osi.cmake が zlibstatic.lib をリンク)への対応として、zlib 1.2.13 成果物 4 点(zlib.h / zconf.h / zlibstatic.lib / zlibstaticd.lib、upstream v3.5.0_2 パッケージ由来 = 同一バージョン、GT libprotobuf は元から WITH_ZLIB=ON ビルドで GzipOutputStream 同梱)を `externals/osi/v11` に追加。将来の再生成は `scripts/generate_osi_libs.sh`(zlib ビルド済み)のパッケージング段で zlib を含めること。upstream の `set_osi_libs` は OSI 3.5.0 以外を FATAL とするため(osi.cmake:81)、この偏差は upstream 収束不能 — OSI 3.7.0 継続の間は永続 GT 例外。
 
+#### 0b-2. OSI バージョンの二重管理解消(2026-09-24)
+
+`[GT_ODR:osi-path]` の射程を「パス固定」から「**OSI の選択と表示の一本化**」へ拡張(locations.cmake に `set_osi_resolved_version()` を追加、ルート `CMakeLists.txt` から呼出)。9fffa06e が `locations.cmake` のパスだけを v10→v11 に進め `OSI_VERSION` を据え置いたため、`build/CMakeCache.txt` が `OSI_VERSION:STRING=3.5.0` と表示したまま実体は 3.7.0 をリンクする状態が続いていた。
+
+- **判断: OSI_VERSION は 3.7.0 に「直せない」変数である。** upstream 設計では OSI_VERSION は「ビルド対象の OSI バージョン」ではなく **esmini-dependencies のリリースタグ選択子**(`version_mapping.cmake` が `OSI_RELEASE_TAG` / `OSI_TAG_URL` へ写像、`external/osi.cmake` が lib 名リストの分岐にも使う)。GT のパッケージは vendored(`externals/osi/v11`、`scripts/generate_osi_libs.sh` が OSI 3.7.0 でビルド)で対応するリリースが存在しないため、3.7.0 を名乗らせるにはタグを捏造し `OSI_TAG_URL` を 404 に、`OSI_RELEASE_TAG` を実在しないディレクトリにする必要がある。値を正すと参照側が全部壊れる = 変数の意味論が GT に合っていない。
+- **よって版は宣言せず、パッケージから導出する。** 唯一の正が `externals/osi/v11/VERSION`(バイナリと同梱 = 乖離しえない)であり、`OSI_RESOLVED_VERSION` として毎 configure 再計算(FORCE、キャッシュの stale 化を封じる)。`OSI_VERSION` は値を触らず docstring だけ差し替え、CMakeCache 上で版の主張として読めないようにした。**upstream の `osi.cmake` / `version_mapping.cmake` は無改変**(新規 R1 例外を増やさない)。VERSION ファイルを同梱するのは `generate_osi_libs.sh` 製パッケージだけで upstream アーカイブには無いため、導出は `not-found` / `unknown` / `unparsable` を区別して返す。
+- **lib レイアウトの是正は不要だった**: `externals/osi/v11/lib` と upstream 3.5.0 パッケージ(`v3.5.0_2/v10/lib`)のファイル集合は同一(`open_simulation_interface_pic.lib` / `libprotobuf.lib` / `zlibstatic.lib` + debug)。`"3.5.0"` 分岐が出すリンク行は vendored 3.7.0 に対して正しく、**誤リンクは発生していなかった**。
+- **実害はダウンロード経路にあった**: `DOWNLOAD_EXTERNALS` 既定 ON のため vendored パッケージ欠落時(LFS 未 hydrate)に `OSI_TAG_URL` が **OSI 3.5.0** を取得し `Download OK` を出し、誰も読まない場所へ展開してビルドは後段の include 欠落で落ちる。`download(osi ...)` を **MSVC でのみ抑止**し(`if(NOT MSVC)`)、`if(USE_OSI)` で MSVC の vendored 欠落を `git lfs pull` 誘導つき FATAL として即報告する形に置換。**Linux/macOS では upstream のダウンロードを残す**: vendored GT パッケージが存在せず、nightly の `sanitize.yml` / `memoryleak.yml`(ubuntu、`USE_OSI=ON`)がこの経路に依存している。導出マクロの呼出もダウンロード後へ置いた(Linux ではダウンロードがパッケージを実体化するため)。
+- **在庫の注記**: リポジトリ追跡は `externals/osi/v11` のみ(`.gitignore: externals/osi/*` + `!externals/osi/v11/`)。手元の `v10` / `v3.5.0_2` は過去のダウンロード残渣であり追跡対象外。
+
 ## 1. フォーク内パッチ一覧
 
 | # | マーカー | 関数アンカー | 位置(2026-07-03 時点) | 行数 | 内容 | upstream PR |
