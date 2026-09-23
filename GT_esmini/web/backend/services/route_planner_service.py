@@ -23,6 +23,7 @@ to. See GT_esmini/docs/virtualdriver/design/route_lane_plan_design.md section 2.
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 
 from GT_esmini.web.backend.config import ESMINI_RM_LIB, GT_ESMINI_LIB
@@ -253,6 +254,57 @@ def _drivable_lanes(rm, road_id: int, s: float) -> list[int]:
     return lanes
 
 
+def _finish_in_the_clicked_lane(
+    rm, lib, goal: dict, arrived_lane: int, waypoints: list, lane_changes: list
+) -> tuple[int, list, list]:
+    """Turn a substituted destination lane into a lane change on the goal road.
+
+    "The router could not END in that lane" is not "you cannot be in that lane".
+    Entering road 209 from connector 206 puts you in lane -2 whatever you asked
+    for, but -2 is a drop lane: it tapers to zero width at s=59. A goal clicked
+    at s=67 IS lane -1, reachable by the ordinary lane change a driver makes --
+    and the router emits exactly that change itself (road 209, -2 -> -1) when the
+    route continues past 209 instead of ending on it. Ending on -2 instead put
+    the destination in a lane that is not there.
+
+    Only lanes running the SAME way qualify. The other carriageway is not a lane
+    change, and that case stays a reported adjustment.
+    """
+    clicked = goal["lane_id"]
+    if lib.GetLaneDrivingDirection(
+        goal["road_id"], clicked, goal["s"]
+    ) != lib.GetLaneDrivingDirection(goal["road_id"], arrived_lane, goal["s"]):
+        return arrived_lane, waypoints, lane_changes
+    if clicked not in _drivable_lanes(rm, goal["road_id"], goal["s"]):
+        return arrived_lane, waypoints, lane_changes
+
+    lane_changes = lane_changes + [
+        {
+            "road_id": int(goal["road_id"]),
+            # s is a placeholder throughout -- the router does not locate its own
+            # lane changes either (route_lanechange_util.hpp). Where the change is
+            # DRAWN is decided from lane widths in _lane_change_windows.
+            "s": 0.0,
+            "from_lane_id": int(arrived_lane),
+            "to_lane_id": int(clicked),
+        }
+    ]
+    if waypoints and waypoints[-1]["road_id"] == goal["road_id"]:
+        # The last waypoint is the destination, so it must name the lane the user
+        # clicked -- it is what the generated xosc writes as its final
+        # LanePosition, and what the map draws the goal marker on.
+        waypoints = waypoints[:-1] + [
+            {
+                **waypoints[-1],
+                "lane_id": int(clicked),
+                "x": goal["x"],
+                "y": goal["y"],
+                "h": goal["h"],
+            }
+        ]
+    return clicked, waypoints, lane_changes
+
+
 def _plan_leg(
     rm, lib, start: dict, goal: dict, strategy: int
 ) -> tuple[list, list, float, int]:
@@ -275,8 +327,14 @@ def _plan_leg(
     router. It is not: it is an exact-match constraint meeting a click whose lane
     was incidental.
 
-    So each leg's GOAL lane is relaxed to any drivable lane of that road, shortest
-    wins, and the lane actually arrived in is reported back so the UI can say so.
+    So each leg's GOAL lane is relaxed to any drivable lane of that road and the
+    shortest wins. Arriving elsewhere is then the LAST resort, not the answer:
+    _finish_in_the_clicked_lane turns the substitution back into a lane change on
+    the goal road whenever the clicked lane runs the same way, which is what the
+    router itself emits for the identical geometry when the route continues past
+    that road instead of ending on it. Only a lane no lane change can reach --
+    the other carriageway -- is reported as an adjustment.
+
     The START lane is left alone -- that is where the vehicle physically is, and
     moving it would put the car somewhere the user did not ask for.
     """
@@ -341,6 +399,10 @@ def _plan_leg(
 
     if best is not None:
         length, lane_id, wps, lcs = best
+        if lane_id != goal["lane_id"]:
+            lane_id, wps, lcs = _finish_in_the_clicked_lane(
+                rm, lib, goal, lane_id, wps, lcs
+            )
         return wps, lcs, length, lane_id
 
     rc = -2
@@ -365,9 +427,10 @@ def _plan_leg(
 
 _PATH_STEP_M = 2.0
 _SEAM_EPS_M = 0.01
-# A lane narrower than this is a taper stub, not somewhere a car sits. Used to
-# decide WHERE along a road a lane change gets drawn (see _lane_change_windows).
-_LANE_MIN_USABLE_M = 2.0
+# The width at which a lane counts as having started. Only has to clear the
+# floating-point noise of a taper's first metre -- see _lane_change_windows for
+# why the change begins there and not where the lane is wide enough to sit in.
+_LANE_OPEN_EPS_M = 0.10
 # How long the drawn lane change takes. Drawing it as an instant sideways jump
 # reads as a glitch; a real change takes a few seconds at road speed.
 _LANE_CHANGE_BLEND_M = 25.0
@@ -404,13 +467,21 @@ def _lane_chain(road_id: int, exit_lane_id: int, lane_changes: list[dict]) -> li
     return chain
 
 
-def _lane_change_windows(rm, road_id, chain, start, end):
+def _lane_change_windows(rm, pos_handle, road_id, chain, start, end):
     """Place each lane change of one road along the travelled span.
 
     A change is drawn where the target lane is actually there to move into: a
-    turn pocket that opens 50 m before a junction is entered where it opens,
-    not at the far end of the road where its width is still zero. Widths are
-    read from the road, so this needs no per-map tuning.
+    turn pocket that opens before a junction is entered where it opens, not at
+    the far end of the road where its width is still zero. Widths are read from
+    the road, so this needs no per-map tuning.
+
+    The change spans the TAPER, from the first metre the target lane exists to
+    where it reaches full width. Waiting until it is wide enough to sit in is
+    what makes the drawn route wiggle: a lane appearing between the through lane
+    and the centre line pushes the through lane's centre sideways, so a line that
+    stays on it until halfway up the taper swings out and then cuts back. Nobody
+    drives that. Blending across the whole taper keeps the line where the car
+    already is while the new lane opens beneath it.
 
     Returns [(s_from, s_to, from_lane, to_lane), ...] in travel order.
     """
@@ -427,22 +498,37 @@ def _lane_change_windows(rm, road_id, chain, start, end):
     cursor = start
     for lane_a, lane_b in zip(chain, chain[1:]):
         widths = [(s, _lane_width(rm, road_id, lane_b, s)) for s in probes]
-        widest = max((w for _, w in widths), default=0.0)
-        # Half of the lane's own maximum, so a uniform lane opens immediately
-        # and a taper opens halfway up. The floor keeps a lane that is narrow
-        # everywhere from being declared absent.
-        threshold = max(0.5, min(_LANE_MIN_USABLE_M, 0.5 * widest))
-        s_open = cursor
-        for s, w in widths:
-            if (s - cursor) * direction < 0:
-                continue
-            if w >= threshold:
-                s_open = s
-                break
-        s_done = s_open + direction * _LANE_CHANGE_BLEND_M
+        ahead = [(s, w) for s, w in widths if (s - cursor) * direction >= 0]
+        widest = max((w for _, w in ahead), default=0.0)
+
+        # Where the lane starts to exist, and where it has finished opening. A
+        # lane that is full width throughout gives s_open == s_full == cursor,
+        # and then the change simply takes _LANE_CHANGE_BLEND_M.
+        s_open = next((s for s, w in ahead if w > _LANE_OPEN_EPS_M), cursor)
+        s_full = next(
+            (
+                s
+                for s, w in ahead
+                if (s - s_open) * direction >= 0 and w >= 0.95 * widest
+            ),
+            s_open,
+        )
+        # An opening lane sets the length: the change IS the taper. The fixed
+        # minimum is for the ordinary case where the target lane is simply there.
+        taper = abs(s_full - s_open)
+        s_done = s_open + direction * (
+            taper if taper > _PATH_STEP_M else _LANE_CHANGE_BLEND_M
+        )
         if (s_done - end) * direction > 0:
             s_done = end
-        windows.append((s_open, s_done, lane_a, lane_b))
+        t_from = _lane_offset(rm, pos_handle, road_id, lane_a, s_open)
+        t_to = _lane_offset(rm, pos_handle, road_id, lane_b, s_done)
+        if t_from is None or t_to is None:
+            # Without both ends the offset blend has nothing to pin; skipping the
+            # window leaves the line on lane_a, which is wrong but not silent --
+            # the route simply does not show the change.
+            continue
+        windows.append((s_open, s_done, lane_a, lane_b, t_from, t_to))
         cursor = s_done
     return windows
 
@@ -485,7 +571,7 @@ def _sample_route_path(
         end = wp["s"] if i == last else exit_
 
         chain = _lane_chain(road_id, lane_id, lane_changes)
-        windows = _lane_change_windows(rm, road_id, chain, start, end)
+        windows = _lane_change_windows(rm, pos_handle, road_id, chain, start, end)
         travel = 1.0 if end >= start else -1.0
 
         span = abs(end - start)
@@ -503,7 +589,8 @@ def _sample_route_path(
             lane_here = chain[0]
             blend_to = None
             frac = 0.0
-            for s_open, s_done, lane_a, lane_b in windows:
+            t_from = t_to = 0.0
+            for s_open, s_done, lane_a, lane_b, w_from, w_to in windows:
                 if (s_val - s_open) * travel < 0:
                     break
                 if (s_val - s_done) * travel >= 0:
@@ -511,21 +598,62 @@ def _sample_route_path(
                     continue
                 lane_here = lane_a
                 blend_to = lane_b
+                t_from, t_to = w_from, w_to
                 frac = (s_val - s_open) / (s_done - s_open) if s_done != s_open else 1.0
                 break
 
-            point = _lane_centre_xy(rm, pos_handle, road_id, lane_here, s_val)
+            if blend_to is None:
+                point = _lane_centre_xy(rm, pos_handle, road_id, lane_here, s_val)
+            else:
+                # Interpolate the LATERAL OFFSET between the two lane centres
+                # taken at the ends of the window -- not between the two lane
+                # centres at this s, which are both still moving.
+                #
+                # Where a turn pocket opens, the through lane's centre slides
+                # outward by a full lane width and then the route crosses back
+                # into the pocket: interpolating moving centres traces that whole
+                # excursion, so the drawn line bulges out and returns (2.4 m on
+                # multi_intersections road 202) where a driver simply carries
+                # straight on as the pocket opens beside them. With the ends
+                # pinned, the same window draws the straight line, and on a road
+                # of constant width the two formulations agree exactly.
+                offset = t_from + (t_to - t_from) * frac
+                point = _offset_point(rm, pos_handle, road_id, s_val, offset)
+                if point is None:
+                    point = _lane_centre_xy(rm, pos_handle, road_id, lane_here, s_val)
             if point is None:
                 continue
-            if blend_to is not None:
-                target = _lane_centre_xy(rm, pos_handle, road_id, blend_to, s_val)
-                if target is not None:
-                    point = {
-                        "x": point["x"] + (target["x"] - point["x"]) * frac,
-                        "y": point["y"] + (target["y"] - point["y"]) * frac,
-                    }
             path.append(point)
     return path
+
+
+def _road_frame(rm, pos_handle, road_id: int, s: float):
+    """(x, y, nx, ny) of the road's reference line at s; n is the +t normal."""
+    rm.SetLanePosition(pos_handle, road_id, 0, 0.0, s, True)
+    res, data = rm.GetPositionData(pos_handle)
+    if res != 0:
+        return None
+    heading = float(data.h)
+    return (float(data.x), float(data.y), -math.sin(heading), math.cos(heading))
+
+
+def _lane_offset(rm, pos_handle, road_id: int, lane_id: int, s: float):
+    """Signed lateral offset of a lane's centre from the reference line at s."""
+    frame = _road_frame(rm, pos_handle, road_id, s)
+    centre = _lane_centre_xy(rm, pos_handle, road_id, lane_id, s)
+    if frame is None or centre is None:
+        return None
+    x, y, nx, ny = frame
+    return (centre["x"] - x) * nx + (centre["y"] - y) * ny
+
+
+def _offset_point(rm, pos_handle, road_id: int, s: float, offset: float):
+    """World point at a signed lateral offset from the reference line at s."""
+    frame = _road_frame(rm, pos_handle, road_id, s)
+    if frame is None:
+        return None
+    x, y, nx, ny = frame
+    return {"x": x + offset * nx, "y": y + offset * ny}
 
 
 def _lane_centre_xy(rm, pos_handle, road_id: int, lane_id: int, s: float):

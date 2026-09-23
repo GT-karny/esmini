@@ -549,16 +549,15 @@ def test_turn_is_not_routed_the_long_way_when_the_clicked_goal_lane_is_unreachab
     plan = plan_route(MULTI_INTERSECTIONS, [start, goal])
 
     assert plan["length"] < 300.0, f"route is a detour: {plan['length']:.1f} m"
-    assert _chain(plan) == [(197, 1), (206, -1), (209, -2)]
-    assert plan["lane_adjustments"] == [
-        {
-            "index": 1,
-            "road_id": 209,
-            "clicked_lane": -1,
-            "arrived_lane": -2,
-            "opposite_direction": False,
-        }
-    ]
+    # The route enters 209 on -2 because that is all connector 206 feeds, then
+    # changes into the lane that was clicked -- so the goal is the clicked lane
+    # and there is nothing to report as an adjustment.
+    assert _chain(plan) == [(197, 1), (206, -1), (209, -1)]
+    assert [
+        (lc["road_id"], lc["from_lane_id"], lc["to_lane_id"])
+        for lc in plan["lane_changes"]
+    ] == [(209, -2, -1)]
+    assert plan["lane_adjustments"] == []
 
 
 @requires_libs
@@ -583,12 +582,13 @@ def test_detour_check_fires_without_goal_lane_relaxation(monkeypatch):
 
 @requires_libs
 def test_arrival_on_the_other_carriageway_is_reported_as_such():
-    """`opposite_direction` separates a near-miss from a different destination.
+    """A near-miss and a different destination must not look the same.
 
-    Both look like 3.75 m on the map and neither is visible in the drawn line at
-    map zoom, but one ends the route facing the way the user pointed and the
-    other does not. multi_intersections 196/-1 -> 222/+1 can only be reached on
-    the far carriageway; 197/+1 -> 209/-1 lands one lane over on the same one.
+    Both are 3.75 m on the map and neither shows in the drawn line at map zoom,
+    but one ends the route facing the way the user pointed and the other does
+    not. multi_intersections 196/-1 -> 222/+1 can only be reached on the far
+    carriageway, so it is reported; 197/+1 -> 209/-1 is one lane over on the
+    same carriageway, so it is simply driven to.
     """
     across = plan_route(
         MULTI_INTERSECTIONS,
@@ -605,8 +605,14 @@ def test_arrival_on_the_other_carriageway_is_reported_as_such():
         ],
     )
 
+    # Other carriageway: cannot be reached by changing lanes, so it is reported.
     assert [a["opposite_direction"] for a in across["lane_adjustments"]] == [True]
-    assert [a["opposite_direction"] for a in alongside["lane_adjustments"]] == [False]
+    # Same carriageway: reached by changing lanes, so there is nothing to report.
+    assert alongside["lane_adjustments"] == []
+    assert [
+        (lc["road_id"], lc["from_lane_id"], lc["to_lane_id"])
+        for lc in alongside["lane_changes"]
+    ] == [(209, -2, -1)]
 
 
 @requires_libs
@@ -702,3 +708,100 @@ def test_a_map_replaced_at_the_same_path_is_re_read(tmp_path):
     assert before != after
     assert {r for r, _ in after} & {222, 196}
     assert road_geometry_service._ODR_LOADED["rm"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Where a lane opens beside the route, the drawn line must not swing out and
+# come back
+# ---------------------------------------------------------------------------
+
+
+def _lateral_offsets(xodr: Path, path: list[dict], road_id: int) -> list[float]:
+    """Signed-magnitude offset from the road's reference line, per path point."""
+    import sys
+
+    from GT_esmini.web.backend.config import GT_SCRIPTS_DIR
+
+    if str(GT_SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(GT_SCRIPTS_DIR))
+    from rm_lib import EsminiRMLib  # type: ignore[attr-defined]
+
+    from GT_esmini.web.backend.services.road_geometry_service import (
+        ESMINI_RM_LOCK,
+        init_odr_cached,
+    )
+
+    offsets: list[float] = []
+    with ESMINI_RM_LOCK:
+        rm = EsminiRMLib(str(ESMINI_RM_LIB))
+        assert init_odr_cached(rm, xodr, "rm") >= 0
+        handle = rm.CreatePosition()
+        try:
+            for point in path:
+                px, py = float(point["x"]), float(point["y"])
+                rm.SetWorldXYHPosition(handle, px, py, 0.0)
+                _, data = rm.GetPositionData(handle)
+                if int(data.roadId) != road_id:
+                    continue
+                rm.SetLanePosition(handle, road_id, 0, 0.0, float(data.s), True)
+                _, ref = rm.GetPositionData(handle)
+                offsets.append(math.hypot(px - float(ref.x), py - float(ref.y)))
+        finally:
+            rm.DeletePosition(handle)
+    return offsets
+
+
+@requires_libs
+def test_route_holds_its_line_where_a_turn_pocket_opens_beside_it():
+    """road 222 -> road 196. On road 202 a left-turn pocket opens at s=59.
+
+    A lane appearing between the through lane and the centre line pushes the
+    through lane's centre a full width outward. A line that follows it and then
+    crosses back into the pocket traces a 2.4 m excursion -- nobody drives that;
+    the pocket opens where the car already is, so the car carries straight on.
+    """
+    plan = plan_route(
+        MULTI_INTERSECTIONS,
+        [
+            _world_point(MULTI_INTERSECTIONS, 222, -1, 65.0),
+            _world_point(MULTI_INTERSECTIONS, 196, -1, 30.0),
+        ],
+    )
+    assert [
+        (lc["road_id"], lc["from_lane_id"], lc["to_lane_id"])
+        for lc in plan["lane_changes"]
+    ] == [(202, 2, 1)]
+
+    offsets = _lateral_offsets(MULTI_INTERSECTIONS, plan["path"], 202)
+    assert (
+        len(offsets) > 20
+    ), f"expected the road-202 stretch, got {len(offsets)} points"
+    swing = max(offsets) - min(offsets)
+    assert swing < 1.0, f"the line swings {swing:.2f} m across road 202"
+
+
+@requires_libs
+def test_swing_check_fires_without_the_offset_blend(monkeypatch):
+    """Negative control: drop the offset blend and the excursion comes back.
+
+    `_offset_point` is what draws the change as a lateral move between pinned
+    offsets. With it unavailable the sampler falls back to the lane centres,
+    which is exactly the shape this test exists to keep out.
+    """
+    from GT_esmini.web.backend.services import route_planner_service
+
+    monkeypatch.setattr(
+        route_planner_service,
+        "_offset_point",
+        lambda rm, handle, road_id, s, offset: None,
+    )
+    plan = route_planner_service.plan_route(
+        MULTI_INTERSECTIONS,
+        [
+            _world_point(MULTI_INTERSECTIONS, 222, -1, 65.0),
+            _world_point(MULTI_INTERSECTIONS, 196, -1, 30.0),
+        ],
+    )
+    offsets = _lateral_offsets(MULTI_INTERSECTIONS, plan["path"], 202)
+    swing = max(offsets) - min(offsets)
+    assert swing > 2.0, f"expected the excursion back, got {swing:.2f} m"
