@@ -18,6 +18,15 @@ GT_esmini (GroundTruth esmini) は、[esmini](https://github.com/esmini/esmini) 
 | [LightStateAction](features/light_state_action.md) | OpenSCENARIO でのライト制御 |
 | [AutoLight](features/auto_light.md) | 自動ライト制御（ブレーキ灯・ウインカー等） |
 
+## OSI 出力 (osi/)
+
+OSI GroundTruth / HostVehicleData へ何をどう出しているかの設計記録。
+
+| ドキュメント | 内容 |
+|:---|:---|
+| [論理レーンと route — 規格モデルと現状](osi/logical_lane_and_route.md) | `logical_lane` / `HostVehicleData.route` について、規格が要求するものと GT の現状の突き合わせ |
+| [論理レーンと route — 実装設計](osi/logical_lane_and_route_design.md) | データモデルの写像・id 採番の規律・段取り・検証設計。**各段の進捗と実測値は同書 §8-0** |
+
 ## ManualDriveコントローラー
 
 ハンドルコントローラー/ゲームパッドによるリアルタイム車両操作。

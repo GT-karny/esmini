@@ -5,7 +5,9 @@
  * the ScenarioEngine swap zone rather than in GT_esminiLib, and why the pass runs
  * last in the static ground-truth build.
  *
- * STAGE: S1 -- reference lines (design 2-1), logical lane bodies (2-2) and the
+ * STAGE: S2.5 -- adds LogicalLaneAssignment (design 2-6-1) on top of S1.
+ *
+ * S1 -- reference lines (design 2-1), logical lane bodies (2-2) and the
  * (road, lane section, lane) -> logical lane id index (3). Connectivity
  * (predecessor / successor / adjacent) is S2 and boundaries are S3, so
  * left_boundary_id / right_boundary_id are deliberately left empty here: they are
@@ -22,6 +24,7 @@
 #include "RoadManager.hpp"
 #include "GT_OSIReporter_Internals.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -439,6 +442,138 @@ void BuildOsiLogicalLanes(roadmanager::OpenDrive* opendrive)
     }
 
     BuildOsiLogicalLanesInto(opendrive, obj_osi_internal.static_gt, &g_logical_lane_index);
+}
+
+// ---------------------------------------------------------------------------
+// L1 / L1-b -- LogicalLaneAssignment (design 2-6-1)
+// ---------------------------------------------------------------------------
+
+std::vector<LogicalLaneAssignmentEntry> ComputeLogicalLaneAssignments(const roadmanager::Position& pos,
+                                                                     const ObjectBox&             box,
+                                                                     const LogicalLaneIndex&      index)
+{
+    std::vector<LogicalLaneAssignmentEntry> out;
+    if (index.empty())
+    {
+        return out;  // feature OFF, or no static ground truth was ever built
+    }
+
+    roadmanager::Road* road = pos.GetRoadById(pos.GetTrackId());
+    if (road == nullptr)
+    {
+        return out;  // off road: nothing to be assigned to
+    }
+
+    const double s       = pos.GetS();
+    const idx_t  sec_idx = road->GetLaneSectionIdxByS(s);
+    if (sec_idx == IDX_UNDEFINED)
+    {
+        return out;
+    }
+    roadmanager::LaneSection* lsec = road->GetLaneSectionByIdx(sec_idx);
+    if (lsec == nullptr)
+    {
+        return out;
+    }
+
+    const double t = pos.GetT();
+    // Position keeps h_relative_ in [0, 2pi). Every other angle this reporter
+    // emits is wrapped to [-pi, pi] first (see the orientation block in
+    // GT_OSIReporter_Moving.cpp), and leaving this one unwrapped would put a
+    // 2pi step between a vehicle drifting a hair left of the lane direction and
+    // one drifting a hair right -- exactly the comparison angle_to_lane is for.
+    // Design 2-6-1 said GetHRelative() raw; corrected here, doc updated.
+    const double h_rel = GetAngleInIntervalMinusPIPlusPI(pos.GetHRelative());
+
+    // The lane area the body overlaps is around the BOX CENTRE, which sits
+    // center_x ahead of the entity origin that s/t are taken from. Rotating that
+    // offset by the heading relative to the road gives its lateral part; the
+    // half-extent is the standard projection of an oriented box onto the t axis,
+    // so a yawing vehicle reaches further sideways than its width alone.
+    const double sin_h    = std::sin(h_rel);
+    const double cos_h    = std::cos(h_rel);
+    const double t_centre = t + box.center_x * sin_h + box.center_y * cos_h;
+    const double half_t   = 0.5 * (std::fabs(box.length * sin_h) + std::fabs(box.width * cos_h));
+    const double body_lo  = t_centre - half_t;
+    const double body_hi  = t_centre + half_t;
+
+    // Lane edges live in the same t frame as Position::GetT(), which is
+    //   offset_ + road lane offset + signed centre offset   (GT_RoadManager.cpp)
+    // so the road-level <laneOffset> has to be added back to the section-local,
+    // always-positive accumulated widths that Get{Inner,Outer}Offset return.
+    const double lane_offset     = road->GetLaneOffset(s);
+    const int    anchor_lane_id  = pos.GetLaneId();
+    bool         anchor_resolved = false;
+
+    for (idx_t k = 0; k < lsec->GetNumberOfLanes(); k++)
+    {
+        roadmanager::Lane* lane = lsec->GetLaneByIdx(k);
+        if (lane == nullptr || lane->IsCenter())
+        {
+            continue;  // the centre lane has no area, and no logical lane either
+        }
+        const int    lane_id  = lane->GetId();
+        const double sign     = (lane_id < 0) ? -1.0 : 1.0;
+        const double edge_in  = lane_offset + sign * lsec->GetInnerOffset(s, lane_id);
+        const double edge_out = lane_offset + sign * lsec->GetOuterOffset(s, lane_id);
+        const double lane_lo  = std::min(edge_in, edge_out);
+        const double lane_hi  = std::max(edge_in, edge_out);
+
+        const double overlap   = std::min(body_hi, lane_hi) - std::max(body_lo, lane_lo);
+        const bool   is_anchor = (lane_id == anchor_lane_id);
+        if (!is_anchor && !(overlap > kLogicalLaneOverlapThresholdM))
+        {
+            continue;
+        }
+
+        const auto it = index.find(LogicalLaneKey{road->GetId(), static_cast<unsigned>(sec_idx), lane_id});
+        if (it == index.end())
+        {
+            continue;  // a section the post-pass skipped -- callers treat this as normal
+        }
+
+        LogicalLaneAssignmentEntry e;
+        e.assigned_lane_id = it->second;
+        // Same s/t/angle on every entry: one reference line per road (design 2-1),
+        // and every overlapped lane is in this one lane section. The proto expects
+        // exactly that -- s_position "might be outside [s_start,s_end] of the lane
+        // ... if the reference point is outside the lane, but the object overlaps".
+        e.s_position    = s;
+        e.t_position    = t;
+        e.angle_to_lane = h_rel;
+        e.lane_id       = lane_id;
+        e.overlap_m     = overlap;
+        e.is_anchor     = is_anchor;
+        out.push_back(e);
+        anchor_resolved = anchor_resolved || is_anchor;
+    }
+
+    if (anchor_resolved && out.size() > 1)
+    {
+        // Anchor first, everything else in lane-section order. Keeps entry [0] in
+        // agreement with the physical assigned_lane_id for any consumer that only
+        // reads one.
+        std::stable_partition(out.begin(), out.end(), [](const LogicalLaneAssignmentEntry& e) { return e.is_anchor; });
+    }
+    return out;
+}
+
+void EmitLogicalLaneAssignment(osi3::MovingObject_MovingObjectClassification* classification,
+                               const roadmanager::Position&                   pos,
+                               const ObjectBox&                               box)
+{
+    if (classification == nullptr || !GetUseOsiLogicalLane())
+    {
+        return;
+    }
+    for (const LogicalLaneAssignmentEntry& e : ComputeLogicalLaneAssignments(pos, box, g_logical_lane_index))
+    {
+        osi3::LogicalLaneAssignment* a = classification->add_logical_lane_assignment();
+        a->mutable_assigned_lane_id()->set_value(e.assigned_lane_id);
+        a->set_s_position(e.s_position);
+        a->set_t_position(e.t_position);
+        a->set_angle_to_lane(e.angle_to_lane);
+    }
 }
 
 }  // namespace osi

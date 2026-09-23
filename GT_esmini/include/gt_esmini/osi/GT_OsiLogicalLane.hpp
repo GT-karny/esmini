@@ -26,10 +26,12 @@
 #include <cstdint>
 #include <map>
 #include <tuple>
+#include <vector>
 
 namespace roadmanager
 {
     class OpenDrive;
+    class Position;
 }
 
 // Forward declaration only: this header is included by GT_esminiLib-side consumers
@@ -38,6 +40,9 @@ namespace roadmanager
 namespace osi3
 {
     class GroundTruth;
+    // Protobuf generates a nested message as a namespace-scope class named
+    // <Parent>_<Nested>, so this names MovingObject::MovingObjectClassification.
+    class MovingObject_MovingObjectClassification;
 }
 
 namespace gt_esmini
@@ -109,6 +114,74 @@ void BuildOsiLogicalLanesInto(roadmanager::OpenDrive* opendrive, osi3::GroundTru
 // own it. This is the ONLY coupling between the static logical-lane layer and
 // the per-frame consumers (S2.5 assignment, S4 route).
 const LogicalLaneIndex& GetLogicalLaneIndex();
+
+// ---------------------------------------------------------------------------
+// L1 / L1-b -- LogicalLaneAssignment (design 2-6-1)
+// ---------------------------------------------------------------------------
+
+// The entity's bounding box, flattened to the four numbers the lateral overlap
+// test needs. scenarioengine::OSCBoundingBox itself is an anonymous-struct
+// typedef, so it can be neither forward declared nor named here without pulling
+// ScenarioEngine into a header that GT_esminiLib and the unit gate both include.
+//
+//   length / width   extents along the entity's own x / y axes [m]
+//   center_x/_y      offset from the entity ORIGIN to the box centre, entity
+//                    frame [m]. esmini positions a vehicle by its origin (rear
+//                    axle for the shipped catalogue), while the box -- and hence
+//                    the area that overlaps a lane -- sits center_x ahead of it.
+struct ObjectBox
+{
+    double length   = 0.0;
+    double width    = 0.0;
+    double center_x = 0.0;
+    double center_y = 0.0;
+};
+
+// One osi3::LogicalLaneAssignment, plus three numbers that are NOT emitted and
+// exist so tests and probes can say why an entry is present.
+struct LogicalLaneAssignmentEntry
+{
+    std::uint64_t assigned_lane_id = 0;
+    double        s_position       = 0.0;
+    double        t_position       = 0.0;
+    double        angle_to_lane    = 0.0;
+    // diagnostics ------------------------------------------------------------
+    int    lane_id   = 0;      // OpenDRIVE lane id this entry resolved from
+    double overlap_m = 0.0;    // lateral overlap between box and lane [m]
+    bool   is_anchor = false;  // lane that Position itself reports the object on
+};
+
+// osi_common.proto: "any object overlapping the lane more than 5cm has to be
+// assigned to the lane". Strictly greater, as written.
+constexpr double kLogicalLaneOverlapThresholdM = 0.05;
+
+// Which logical lanes does this object overlap, and where is it in their ST
+// frame? Pure: reads Position and the index, writes nothing, touches no protobuf.
+//
+// The anchor lane -- the one Position::GetLaneId() reports, i.e. the same lane
+// the physical assigned_lane_id is derived from -- is ALWAYS first in the result
+// and always present (when it is in the index), whatever its overlap. Parity with
+// the physical face matters more here than the 5cm rule: an object whose origin
+// sits in a lane is assigned to it, and a consumer reading entry [0] gets the
+// same lane on both faces.
+//
+// Every entry carries the SAME s/t/angle, because every lane of a road shares one
+// reference line (design 2-1) and all overlapped lanes live in one lane section.
+//
+// Returns empty when the object is off-road, when the index is empty (feature
+// OFF), or when the lane section is degenerate.
+std::vector<LogicalLaneAssignmentEntry> ComputeLogicalLaneAssignments(const roadmanager::Position& pos,
+                                                                     const ObjectBox&             box,
+                                                                     const LogicalLaneIndex&      index);
+
+// Fill moving_object_classification.logical_lane_assignment[] for one object,
+// from the index of the last static ground-truth build.
+//
+// Hard no-op when the feature flag is OFF -- the flag is checked HERE and not at
+// the call site, so the fork file GT_OSIReporter_Moving.cpp carries only the call.
+void EmitLogicalLaneAssignment(osi3::MovingObject_MovingObjectClassification* classification,
+                               const roadmanager::Position&                   pos,
+                               const ObjectBox&                               box);
 
 // ---- pure field mappings (design 2-2-1 / 2-2-2) ----
 //

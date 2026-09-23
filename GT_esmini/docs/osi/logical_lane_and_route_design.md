@@ -304,11 +304,14 @@ const id_t assigned_lane_gid = ResolveMovingObjectAssignedLaneGlobalId(objectSta
 obj_osi_internal.mobj->add_assigned_lane_id()->set_value(assigned_lane_gid);
 obj_osi_internal.mobj->mutable_moving_object_classification()->add_assigned_lane_id()->set_value(assigned_lane_gid);
 
-// ★追加
-if (GetUseOsiLogicalLane()) {
-    EmitLogicalLaneAssignment(obj_osi_internal.mobj->mutable_moving_object_classification(),
-                              objectState.pos_);
-}
+// ★追加（2026-09-24 実装。フラグ判定は呼ばれた側に置いた — フォークファイルに
+//   条件分岐を持ち込まないため。バウンディングボックスは L1-b が使う）
+gt_esmini::osi::EmitLogicalLaneAssignment(obj_osi_internal.mobj->mutable_moving_object_classification(),
+                                          objectState.pos_,
+                                          {objectState.boundingbox_.dimensions_.length_,
+                                           objectState.boundingbox_.dimensions_.width_,
+                                           objectState.boundingbox_.center_.x_,
+                                           objectState.boundingbox_.center_.y_});
 ```
 
 値は追加の幾何計算なしで揃う。**論理レーンの参照線 s を road s と同一にした（§2-1）ことの
@@ -318,8 +321,15 @@ if (GetUseOsiLogicalLane()) {
 | :-- | :-- |
 | `s_position` | `pos.GetS()` |
 | `t_position` | `pos.GetT()` |
-| `angle_to_lane` | `pos.GetHRelative()` |
+| `angle_to_lane` | `GetAngleInIntervalMinusPIPlusPI(pos.GetHRelative())`（下の注） |
 | `assigned_lane_id` | 索引 `(pos.GetTrackId(), road->GetLaneSectionIdxByS(pos.GetS()), pos.GetLaneId())` |
+
+> **2026-09-24（S2.5 実装時に是正）**: ここは当初 `pos.GetHRelative()` を素で書いていたが、
+> **`Position` はこれを `[0, 2pi)` で持っている**。素のまま出すと、レーン方向からわずかに
+> 右へ向いた車が `6.28` rad、わずかに左へ向いた車が `0.00` rad になり、
+> **この欄が比較のために存在するまさにその場所に 2pi の段差が入る**。同じリポータが出す
+> 他の角度（`base.orientation` の roll/pitch/yaw）はすべて `[-pi, pi]` に畳んであるので、
+> ここも畳む。単体で両符号を固定してある（`OsiLogicalLane.AssignmentAngleIsWrappedAndSigned`）。
 
 **索引の引き方は `ResolveMovingObjectAssignedLaneGlobalId` とは違う**。既存のリゾルバは OSI 交差点の
 接続路上にいる物体に対して**junction のグローバル id を返す**（物理レーンが 1 本へ融合されている
@@ -330,10 +340,35 @@ if (GetUseOsiLogicalLane()) {
 > 無く、実測 171/15800 フレームで外れる）を論理レーン面で解消する**。物理レーン側の融合は
 > upstream 由来の正しい振る舞いなので触らず、論理レーン面に穴のない経路を用意する形になる。
 
-`repeated` の扱い: 規格は「5cm 以上重なったレーンには全部割り当てよ」と要求している。
-初版は**各オブジェクトのキャッシュ済み走行レーン 1 本のみ**を出す。車体幅から隣接レーンへの重なりを
-判定して複数出すのは L1-b として分けた（§10-7）。1 本しか出さないことは規格からの不足であり、
-消費側が「跨いでいない」と誤読しうるので、**不足として §10 に明記する**。
+`repeated` の扱い（**L1-b**）: 規格は「5cm 以上重なったレーンには全部割り当てよ」と要求している。
+**走行レーン 1 本だけを出す実装にしない。** 車体幅と隣接レーン境界から重なりを判定し、5cm を超えて
+重なるレーンすべてに割り当てる。1 本しか出さないと**車線変更の途中でも 1 本しか出ず、消費側が
+「跨いでいない」と誤読する**。誤読が起きても形は正しく見えるので、症状が出にくい種類の欠陥になる。
+
+> 2026-09-24: 当初これを L1-b として S2.5 の外へ出していたが、+0.5 日で規格の不足が 1 つ閉じる
+> ため S2.5 に畳んだ（§8-α）。検証は「車線変更シナリオで割り当て数が 1 → 2 → 1 と推移する」
+> ことを実データで示す。全フレーム 1 本のままなら判定器が効いていない。
+
+**重なりの取り方（2026-09-24 実装で確定）**: 「車体幅と隣接レーン端」では 2 つ足りなかった。
+
+1. **車体は原点ではなくボックス中心のまわりにある。** esmini は車両を entity origin
+   （カタログ車は後軸）で置き、`boundingbox_.center_.x_` （カタログ車で 1.4 m）だけ前に
+   ボックスがある。レーン方向に対して `h_rel` 傾いていると、この前方オフセットが
+   `center_x * sin(h_rel)` だけ**横**にずれる。`t` をそのままボックス中心として扱うと、
+   車線変更中に片側の重なりを取りこぼす。
+2. **ヨーが横の張り出しを広げる。** t 軸への OBB の射影は
+   `0.5 * (|length * sin(h_rel)| + |width * cos(h_rel)|)`。5 m × 2 m の車が 20° 傾くと
+   片側 1.00 m ではなく 1.80 m 張り出す。幅だけで判定すると、**第 2 の割り当てが最も
+   意味を持つ場面（車線変更の最中）でだけ過小評価する**。
+
+レーン端の t は `LaneSection::Get{Inner,Outer}Offset(s, lane_id)` から取るが、これは
+**セクション内の符号なし累積幅**なので、`Position::GetT()` と同じ枠に戻すには
+`road->GetLaneOffset(s)` を足して `lane_id` の符号を掛ける必要がある。
+
+**アンカーレーン**（`Position::GetLaneId()` が返すレーン＝物理 `assigned_lane_id` の出どころ）は
+**重なり量によらず常に、かつ先頭に**入れる。規格の 5cm 則は「重なったら足せ」であって
+「重なりが浅ければ外せ」ではなく、ここで物理面と論理面の先頭を一致させておくほうが、
+片方しか読まない消費側にとって安全なため。
 
 対象は自車だけでなく `UpdateOSIMovingObject` を通る全オブジェクトである。同じコストで出るし、
 「どの車がどの論理レーンにいるか」は経路上の競合判定に使える。
@@ -344,7 +379,14 @@ if (GetUseOsiLogicalLane()) {
 更新するには `CalcRoutePosition()` を呼ぶしかないが、それは route の状態を書き換える
 （現状記録 §4-3）。**観測が対象を変えてはいけない。**
 
-代わりに `BuildOsiRoute()` の副産物として積み上げる。区間長は全セグメントで既に持っている。
+代わりにレーンセクション展開の副産物として積み上げる。区間長は全セグメントで既に持っている。
+
+> **2026-09-24（S4 実装時に是正）**: ここは当初「`BuildOsiRoute()` の副産物」と書いていたが、
+> **同じ展開は使えない**。`route` が載せるのは自車から先の区間で、最初のセグメントは必ず
+> 自車 s から始まる（§2-5）。その列から積み上げると `s_along_route` は毎フレーム 0 になり、
+> `route_length` は走るほど縮む。どちらも名前が意味するものではない。
+> 展開の起点を `RouteExpansionStart::{EgoPosition, RouteStart}` の 2 値で切り替え、
+> **`route` は `EgoPosition`、L2 は `RouteStart`** を使う。それ以外は同じ関数・同じ規約である。
 
 ```cpp
 struct RouteProgress {
@@ -460,16 +502,24 @@ BuildOsiLogicalLanes(opendrive, static_gt):
 ## 5. HVD 側 — `route` の構築とキャッシュ
 
 ```cpp
-// GT_esmini/src/osi/RouteToOsiRoute.{hpp,cpp}   純関数・ログを出さない
-osi3::Route BuildOsiRoute(const roadmanager::Route&     route,
-                          const roadmanager::Position&  ego,
-                          const gt_esmini::RouteLanePlan& plan,
-                          const LogicalLaneIndex&       index,
-                          uint64_t                      route_id);
+// GT_esmini/src/osi/RouteToOsiRoute.{hpp,cpp}   純関数・ログを出さない・roadmanager を書き換えない
+//
+// (1) バンド（道路単位）→ セグメント（レーンセクション単位）。protobuf 非依存
+std::vector<RouteSectionSegment> ExpandRouteLanePlan(const roadmanager::Route&, const roadmanager::Position& ego,
+                                                    const RouteLanePlan&, RouteExpansionStart);
+// (2) L2。同じく protobuf 非依存なので VD telemetry から直接呼べる
+RouteProgress ComputeRouteProgress(const std::vector<RouteSectionSegment>&, const roadmanager::Position& ego);
+// (3) 索引を引いて osi3 へ。出力先は引数（S1 引継ぎ 2 と同じ理由）
+void BuildOsiRouteInto(const std::vector<RouteSectionSegment>&, const LogicalLaneIndex&,
+                       std::uint64_t route_id, osi3::Route* out);
 ```
 
+3 本に割った理由は §8-0 の S4 差分 2 を見よ（1 本だと VD が L2 のために protobuf を抱え込み、
+リポータ抜きで実 xodr を検証できなくなる）。
+
 `UpdateFromObjectState(egoObj)` から `egoObj->pos_.GetRoute()` に届く。VD の
-`ControllerVirtualDriver` を経由しない（手動運転や DefaultController の ego でも経路があれば出る）。
+`ControllerVirtualDriver` を経由しない（手動運転や DefaultController の ego でも経路があれば出る。
+実測: `routing-test.xosc` はコントローラを一切持たない ego で `route` が出る）。
 
 **キャッシュ**: `BuildRouteLanePlan` は失敗経路で `LaneIndependentRouter` の再探索まで走るので、
 毎フレーム呼んではいけない。キーには **`Route` のポインタやクローンを使わない**
@@ -484,9 +534,16 @@ struct RouteSignature {                 // 全部 minimal_waypoints_ から取�
 };
 ```
 
-署名が変わったときだけ `BuildRouteLanePlan` + `BuildOsiRoute` を回し、`route_id` を進める。
+署名が変わったときだけ `BuildRouteLanePlan` を回し、`route_id` を進める。
 `route_id` は規格が `must be unique within all route messages exchanged with one traffic participant`
-と要求しているので、**単調増加のカウンタ**にする（再計算のたびに +1）。
+と要求しているので、**単調増加のカウンタ**にする（再計算のたびに +1。シナリオを開き直しても
+戻さない）。
+
+**キャッシュするのはプランまでで、`osi3::Route` メッセージはしない**（§8-0 S4 差分 3）。展開は
+自車 s で切るので経路が同じでも毎フレーム変わり、論理レーン id はシナリオ再ロードで振り直される。
+したがって展開と id 解決は毎フレーム走り、署名が守るのは `BuildRouteLanePlan`（失敗経路では
+`LaneIndependentRouter` の再探索まで走る）だけである。**`route_id` がラン中ずっと定数であることが、
+プランが再構築されていないことの外から見える証拠**になる（同じ分岐で進むため）。
 
 **`route` を毎フレーム載せるか** — 載せる。「変化時だけ送る」は採らない。フィールドが
 間欠的に消えると、受け側は「経路が無い」と「今回は送っていない」を区別できない。
@@ -506,16 +563,28 @@ struct RouteSignature {                 // 全部 minimal_waypoints_ から取�
 20 セクション × 並列 3 レーン = 60 本で約 1.8 KB、100 セクション × 4 レーンなら約 12 KB。
 **大きい地図の経路は実際に上限を超える。**
 
-**解決はフラグメンテーションの実装とする。** 送信側を GroundTruth 側と同じ形に揃えるだけで、
-**受信側は両方とも既に対応済み**である。
+> **2026-09-24 実測（S4）**: 「大きい地図の経路は実際に上限を超える」は、**この repo にある
+> 地図では起きない**。最大は `routing-test.xosc`（`multi_intersections`、63 道路 / 論理レーン 242）の
+> **817 B / lane_segment 16 本**で、8192 B には遠く届かない。上限を踏むには 1 道路 400 レーン
+> セクションの生成資産が要った（HVD 11,212 B）。分割送信は必要な備えだが、**現実的な経路の
+> サイズ主張としてこの節の見積もりを引かないこと**。
+
+**解決はフラグメンテーションの実装とする。** 送信側を GroundTruth 側と同じ形に揃える。
 
 - `GT_OSIReporter.cpp:373-382`: counter は 1 始まり、最後のパケットは負の counter。
 - `osi_bridge.py` `_OSIProtocol.datagram_received`: `counter == 0` を単一パケット、
   `counter >= 1` を分割として扱う。**GT ストリームと HVD ストリームで同じクラスを使っている。**
-- `DriverScript/realdriver/udp_common.py`: 同じプロトコルを 0 始まり / 1 始まり両対応で実装。
+- `DriverScript/realdriver/udp_common.py`: 分割（1..N / 末尾負）を再組み立てできる。
 
 したがって送信側 ~40 行の追加で、消費側の変更はゼロになる。単一パケットに収まる場合の
 `counter = 0` は現状の挙動なので、既存の受信側は何も変わらない。
+
+> **2026-09-24 是正（S4 実測）**: 当初ここに「**受信側は両方とも既に対応済み**」「udp_common は
+> 0 始まり / 1 始まり両対応」と書いていたが、**単一パケットについては誤り**だった。
+> `udp_common.OSIReceiver.receive()` は `counter < 0` でしか `done` にならないので、
+> `counter == 0` の 1 パケットを受け取ると続きを待ち続ける（実測 **0/61 完了**、`osi_bridge` は
+> 61/61）。GroundTruth 送信側は counter を必ず 1 から振って末尾を負にするため udp_common 自身の
+> 用途では踏まないが、**HVD の単一パケットは踏む**。分割経路は両方とも通る（実測 40/40 対 40/40）。
 
 > 経路の先読み区間で打ち切る案（horizon truncation）は採らない。OSI に「ここで切った」を
 > 表す欄が無く、切った経路と本当に終わる経路が区別できないため。必要になったら
@@ -581,8 +650,8 @@ GT は OSI 3.7.0（proto3 explicit presence）をリンクしており、reporte
 
 | 段 | 既定 | 理由 |
 | :-- | :-- | :-- |
-| S0〜S2 | **OFF** | 理由 1（モデルが不完全） |
-| S3 完了コミット以降 | **ON**（`GT_OSI_LOGICAL_LANE=0` で opt-out） | モデルが規格として完結する。**既定 OFF のまま残さない** |
+| S3 より前（実行順で T / S0 / S1 / S4 / S2.5） | **OFF** | 理由 1（境界が無く、モデルが規格として不完全） |
+| S3 完了コミット以降（S2 / S5 を含む） | **ON**（`GT_OSI_LOGICAL_LANE=0` で opt-out） | モデルが規格として完結する。**既定 OFF のまま残さない** |
 
 既定 OFF のまま置き去りにすると、どのゲートも通らない経路になって腐る。この repo には
 「構造上一度も赤にできないゲート」を抱え込んだ前例があり、既定 OFF の未検証出力は同じ形をしている。
@@ -629,17 +698,37 @@ bool GetUseOsiLogicalLane()
 | ~~**S0**~~ **✅ 完了 2026-09-24** | サイズ・レーン数・境界点数の実測プローブ、env ゲート（既定 OFF）、空の後段パス、CMake の R1 承認 | 0.5 日 | **ON/OFF で 1 バイトも変わらないことが実証できる**。§7-3 の既定値判断に使う実測値が出る → §8-3 |
 | ~~**S1**~~ **✅ 完了 2026-09-24** | 参照線 + 論理レーン本体（境界・接続なし） | 2〜3 日 | `GroundTruth.logical_lane[]` が出る。xodr のレーンと 1:1 対応していることを OSI 直読で確認できる。**交差点内レーンが初めて個別に見える** |
 | **S2** | 連結性（pred / succ / adjacent） | 2〜3 日 | **論理レーンの列として経路をたどれる**。`route` の参照先が実在し連結していることが保証される |
-| **S2.5** | L1 `LogicalLaneAssignment`（§2-6-1） | 0.5 日 | **全オブジェクトの論理レーン相対 s / t / 向きが出る**。交差点内でも車線が個別に引ける（`signal:ego_lane` の join 欠けが論理レーン面で埋まる） |
+| ~~**S2.5**~~ **✅ 完了 2026-09-24** | L1 `LogicalLaneAssignment`（§2-6-1）＋ **L1-b 車線跨ぎの複数割り当て**（§10-7） | 1 日 | **全オブジェクトの論理レーン相対 s / t / 向きが出る**。交差点内でも車線が個別に引ける（`signal:ego_lane` の join 欠けが論理レーン面で埋まる）。車線変更中は両方のレーンに割り当たる |
 | **S3** | 論理境界（ST 化・合成・`passing_rule`）＋ 既定 ON へ反転 | 2〜3 日 | **規格の必須参照が全部埋まる**。外部の OSI 準拠チェッカを通せる。サイズはここで最大になる |
-| **S4** | HVD `route` ＋ L2 経路進捗（§2-6-2）。**T が入っていること** | 2 日 | **目的達成**。`capability_model.md` W4 の `route` が閉じる。S2.5 と揃えば `route` × L1 の合成で経路相対位置が外から出せる |
+| ~~**S4**~~ **✅ 完了 2026-09-24** | HVD `route` ＋ L2 経路進捗（§2-6-2）。**T が入っていること** | 2 日 | **目的達成**。`capability_model.md` W4 の `route` が閉じる。S2.5 と揃えば `route` × L1 の合成で経路相対位置が外から出せる |
 | **S5** | signal 登録 / matcher / ゲート常設化（§9） | 1.5〜2 日 | **回帰で守られる**。両極性を実証してから緑にする |
 
-**合計 11〜15 日**（`overlapping_lane` / L1-b / L3 を除く）。
+**合計 11.5〜15.5 日**（`overlapping_lane` / L3 を除く）。**残り S3 / S2 / S5 = 5.5〜8 日。**
 
-**S4 は S2 も S3 も待たずに実施できる**（§8-1）。`right/left_boundary_id` は repeated なので、
-**S1 完了時点で** `route` → `logical_lane` の参照は成立する。厳密な OSI バリデータには落ちるが、
-参照が無言で壊れている状態にはならない。目的を最短で出すなら **S0(+T)→S1→S4** で
-6〜7 日、その後 S2 → S2.5 → S3 → S5。S3 までは既定 OFF を維持する（§7-3）。
+段の ID は実行順ではない（§7.1 の「順序は ID でなく依存で表す」）。依存は §8-1、実行順は次節。
+
+### 8-α. 実行順とリリース線（2026-09-24 決定）
+
+**S4 → S2.5 → S3 → S2 → S5 → リリース。** 残り **5.5〜8 日**（S4・S2.5 完了、2026-09-24）。
+
+一度は「S2 を後回しにして早期リリース」も検討したが、**論理レーン層を規格として完結させてから
+1 度で出す**ことにした。段ごとの根拠は次のとおり。
+
+| 順 | 段 | なぜここか |
+| :-- | :-- | :-- |
+| 1 | **S4** | S1 完了時点で成立する（§8-1）。目的である `route` を最初に通し、以降の段が「既に動いているものを壊していないか」で測れるようにする |
+| 2 | **S2.5** | S1 にしか依存しない。`route` と揃って経路相対位置が合成できるようになる（§2-6） |
+| 3 | **S3** | **S2 より先。** 規格は隣接レーンについて `The XY positions of the polyline generated by the LogicalLaneBoundaries of adjacent lanes must match up to a small error (5cm)` という整合要件を課している。S3 が先なら S2 の隣接を張った瞬間にこれを検査でき、逆順だと検査が S3 まで待つ。ここで既定 ON へ反転（§7-3） |
+| 4 | **S2** | 最後の実装段。**S3 が入ると隣接は冗長になる**（隣接する 2 レーンは `LogicalLaneBoundary` を共有するので、消費側は境界 id の一致から隣接を復元できる）。S2 に残る固有の価値は**前後接続**で、これは OSI の中に代替の手がかりが無い。なお工数は減らない — 隣接は S2 の最も安い部分で、重いのは交差点の前後接続（multi_intersections で接続路 76 本）だから |
+| 5 | **S5** | 全部揃ってから常設化する。縮小版にしない |
+
+**S2 / S2.5 / S3 は同じファイル（`GT_OSIReporter_LogicalLane.cpp`）を触る**ので、依存が無くても
+どのみち直列になる（§8-1）。
+
+`overlapping_lane`（§10-1）と L3（§10-8）は**入れない**。前者は唯一 RoadManager から導けず
+新規の幾何計算が要る（+2〜3 日）。後者は OSI に欄が無いうえ基準の取り方が用途で変わるので、
+用途が決まるまで定義を与えない。L1-b（§10-7）だけは 0.5 日で規格の不足を 1 つ閉じるので
+S2.5 に畳んだ。
 
 ### 8-0. 各段の実測結果
 
@@ -769,7 +858,156 @@ S0 の投影（**層まるごと**で 1.26x〜2.73x）に対し、**本体だけ
    と同一）。S4 でこの文字列を突き合わせるなら、**数値へ戻してから比較すること**。
    同じ s でも書式が一致する保証はない。
 
+#### S4（2026-09-24）
+
+`HostVehicleData.route` と L2 経路進捗。置いたもの:
+
+| 追加/変更 | 何 |
+| :-- | :-- |
+| 新規 `GT_esmini/include/gt_esmini/osi/RouteToOsiRoute.hpp` / `src/osi/RouteToOsiRoute.cpp` | 純関数 3 本 + `RouteSignature`。詳細は下の「設計との差分」 |
+| 変更 `GT_esmini/src/osi/GT_HostVehicleReporter.{hpp,cpp}` | `FillRoute()` + 経路キャッシュ（pimpl）+ `route_id` カウンタ |
+| 変更 `GT_esmini/src/control/ControllerVirtualDriver.cpp` ほか | L2 を telemetry `route_lane` ブロックへ（`on_route` / `s_along_route` / `route_length` / `segment_index`） |
+| 新規 `GT_esmini/test/unit/osi/test_RouteToOsiRoute.cpp` | 9 テスト（傘バイナリ） |
+| 新規 `scripts/probe_hvd_route.py` | 実測プローブ。出力 `test_results/osi_logical_lane/hvd_route_probe.json` |
+
+**設計との差分（コードが正、本書をコードに合わせた）**:
+
+1. **展開の起点が 2 つ要る。** 本書 §2-6-2 は L2 を「`BuildOsiRoute()` の副産物」と書いていたが、
+   これは成立しない。`route` は**自車から先**を載せる（受入基準）ので最初のセグメントが必ず
+   自車 s から始まり、同じ展開から積むと `s_along_route` は**構造的に恒久 0** になる。
+   `ExpandRouteLanePlan(..., RouteExpansionStart)` の 2 値で分けた —
+   `EgoPosition` が `route` 用、`RouteStart` が L2 用。両者はそれ以外すべて同一。
+2. **`BuildOsiRoute` は 3 本に割れた。** `ExpandRouteLanePlan`（バンド→レーンセクション、protobuf 非依存）
+   / `ComputeRouteProgress`（L2、同じく非依存）/ `BuildOsiRouteInto`（索引を引いて `osi3::Route` へ）。
+   VD が protobuf に触らず L2 を出せるのと、S1 引継ぎ 2 の「出力先を引数で受ければリポータ抜きで
+   実 xodr を検証できる」の両方がこれで満たせる。
+3. **キャッシュするのは `RouteLanePlan` だけで、`osi3::Route` メッセージはしない。** 署名が同じでも
+   自車が動けば展開結果は変わるうえ、シナリオ再ロードで論理レーン id が振り直されるため。
+   展開と id 解決は毎フレーム、`BuildRouteLanePlan` だけが署名で守られる。
+4. **`Road::GetConnectedLaneIdAtS()` は使えない。** レーンセクションを跨ぐ id 追跡の実装は
+   「既に離れたセクションの**始端** s」と `s_target` を比べて進むため
+   （[`GT_RoadManager.cpp:3235-3253`](../../src/road/GT_RoadManager.cpp#L3235)）、
+   **3 セクション以上ある道路では行き過ぎて常に最終セクションの id を返す**。
+   `EvaluateRouteLaneStatus` も同じ関数を使っている（既存の挙動なので本段では触らない）。
+   S4 はレーンリンクを 1 段ずつ辿る `MapLaneIdAcrossSections()` を自前に持ち、1 パス O(n) で解いた。
+5. **`Position` は渡された `Route*` を所有する。** `Position::SetRoute(Route*)` はポインタを持つだけだが
+   `~Position()` が**無条件に `delete` する**（[`GT_RoadManager.cpp:7942`](../../src/road/GT_RoadManager.cpp#L7942)）。
+   スタック上の `Route` を渡すとヒープ破壊（実測: 終了コード `0xC0000374`）。ユニットテストで
+   `SetRoute` を使うときは `new Route` を渡す。
+6. **`route` は静的 GroundTruth が一度も組まれていないと空になる。** 索引を埋める後段パスは
+   `OSIReporter::UpdateOSIGroundTruth()` の初回にしか走らないので、**HVD だけを有効にした
+   セッションでは全ルックアップが外れる**。実測: OSI 出力なしの同一シナリオで HVD 384 B
+   （セグメント 0）、`GT_OpenOSISocket` を足すと 11,212 B。空の `route` は「経路が尽きた」と
+   区別できないので、`GT_HostVehicleReporter` に一度だけ出る `LOG_WARN` を入れた。
+7. **§6 の「受信側は両方とも既に対応済み」は分割経路についてのみ正しい。** 実測で
+   `DriverScript/realdriver/udp_common.py` の `OSIReceiver` は**負の counter でしか受信を終えない**ため、
+   `counter == 0` の単一パケット HVD を延々待ち続ける（実測 0/61 完了。`osi_bridge.py` は
+   `counter == 0` を明示的に単一メッセージとして扱い 61/61）。GroundTruth 送信側は counter を
+   必ず 1 始まり・末尾負で振るので udp_common の実運用では踏まないが、**HVD 単一パケットは踏む**。
+   分割経路（1..N / -N）は両方とも通る（実測 40/40 対 40/40）。
+
+**実測（受入基準ごと）**:
+
+| 受入基準 | 実測 |
+| :-- | :-- |
+| 参照の閉包 | 3 資産合計 **19,297 / 19,297** の `lane_segment` が実在する `logical_lane` を指す（routing-test 2,946 / exit-ramp 796 / 長経路 15,555） |
+| 向きの両極性 | 昇順 18,443・**降順 854**。降順は routing-test（`multi_intersections`、RHT の正レーン `laneId=1` から始まる実カタログ経路）で出た。単体側は同一経路内で昇順 1・降順 1 を固定 |
+| 最初のセグメント = 自車 s | on-route フレーム 102 本で最大偏差 **4.98e-10 m**。off-route 97 本では経路が自車の **最大 40 m 先**から始まる — road 0 のレーン -4 が s=50 からしか存在しないため（下の §10-10） |
+| 最後のセグメント = 終点 WP の s | 3 資産とも全フレームで単一値（20.0 / 40.0 / 15.0）、シナリオの最終 Waypoint と一致 |
+| `route_id` と キャッシュ | 1 ラン内で**定数**（1 / 2 / 3）＝ `BuildRouteLanePlan` が再実行されていない証拠（id はプラン再構築と同じ分岐で進むため）。同一プロセスで 3 シナリオを続けて開くと 1 → 2 → 3 と単調増加 |
+| 8192 B 超で落ちない | HVD **11,212 B** が 8200 B + 3020 B の 2 パケットで出る。`osi_bridge` 40/40・`udp_common` 40/40 が再組み立て。**実地図の経路は 8192 B に届かない**（routing-test 最大 817 B / 16 lane_segment）ため、超過側は生成資産（1 道路 400 レーンセクション）で踏んだ — 転送層の worst case であって現実的なペイロードの主張ではない |
+| L2 単調増加 + 負の対照 | `s_along_route` 0.29 → 71.28 m、逆行 0 / 102 フレーム。単体で同一走行の `GetRouteS()` が割当時の値から動かないことを併せて固定（`SetInertiaPos` 駆動、15 サンプル） |
+| 経路外 | off-route 97 フレームすべてで `on_route=false` かつ `s_along_route == -1`（0 ではない） |
+| `GT_OSI_LOGICAL_LANE=0` | 3 資産・全 477 フレームで `route` フィールド自体が不在。`logical_lane[] == 0` |
+
 ---
+
+#### S2.5（2026-09-24）
+
+L1 `LogicalLaneAssignment` と L1-b（車線跨ぎの複数割り当て）。置いたもの:
+
+| 追加/変更 | 何 |
+| :-- | :-- |
+| 変更 `GT_esmini/src/osi/GT_OSIReporter_LogicalLane.cpp` | `ComputeLogicalLaneAssignments()`（純関数、protobuf 非依存）と `EmitLogicalLaneAssignment()`（薄い emit 包み） |
+| 変更 `GT_esmini/include/gt_esmini/osi/GT_OsiLogicalLane.hpp` | `ObjectBox` / `LogicalLaneAssignmentEntry` / `kLogicalLaneOverlapThresholdM` と上記 2 本の宣言。`osi3::MovingObject_MovingObjectClassification` は**前方宣言のみ** |
+| 変更 `GT_esmini/src/osi/GT_OSIReporter_Moving.cpp` | **呼び出し 1 か所（実質 6 行、うちコメント 3 行）＋ include 1 行**。フォーク系譜なので条件分岐も本体も持ち込まない |
+| 変更 `GT_esmini/test/unit/osi/test_OsiLogicalLane.cpp` | S2.5 の 7 テスト（S1 の 14 と合わせて 21、傘バイナリで全緑） |
+| 新規 `scripts/probe_osi_logical_lane_assignment.py` | 実測プローブ。出力 `test_results/osi_logical_lane/assignment_probe.json` |
+| 変更 `scripts/probe_osi_logical_lane_size.py` | **毎フレーム側の受入判定を「バイト一致」から「logical_lane_assignment を剥がせば一致」へ**（下の差分 5） |
+
+**設計との差分（コードが正、本書をコードに合わせた）**:
+
+1. **`angle_to_lane` は畳む必要があった。** §2-6-1 は `pos.GetHRelative()` を素で書いていたが、
+   `Position` はこれを `[0, 2pi)` で持っている。素のまま出すと、レーン方向からわずかに右へ
+   向いた車が `6.28`、左へ向いた車が `0.00` になり、**この欄が比較のために存在するまさに
+   その場所に 2pi の段差が入る**。同じリポータの他の角度と揃えて `[-pi, pi]` に畳んだ。
+   §2-6-1 の表と注を是正済み。
+2. **「車体幅と隣接レーン端」では重なりが正しく出ない。** 2 つ足りなかった。
+   (a) 車体は entity origin ではなく**ボックス中心**のまわりにあり、レーン方向に対して
+   傾いているとその前方オフセットが `center_x * sin(h_rel)` だけ横へずれる。
+   (b) ヨーは横の張り出しを広げる（t 軸への OBB 射影 =
+   `0.5 * (|L*sin| + |W*cos|)`）。5 m × 2 m の車が 20° 傾くと片側 1.00 m ではなく 1.80 m。
+   **幅だけで判定すると、第 2 の割り当てが最も意味を持つ場面でだけ過小評価する**。
+   §2-6-1 に追記済み。
+3. **フラグ判定は呼ばれた側に置いた。** §2-6-1 の擬似コードは呼び出し側に `if` を書いて
+   いたが、`GT_OSIReporter_Moving.cpp` は `lineage:gt_osireporter` のフォーク系譜なので、
+   条件分岐を含めて GT 側の TU に寄せた。フォーク差分は呼び出し 1 か所だけになる。
+4. **`OSCBoundingBox` は引数型にできない。** 無名 struct の `typedef` なので前方宣言も
+   名前付けもできず、ヘッダに ScenarioEngine を引き込まずには受け取れない。
+   4 つの double を持つ `ObjectBox` へ平らにして渡す。
+5. **毎フレーム側の不変量を「narrow」した（緩めたのではない）。** S0/S1 の
+   `probe_osi_logical_lane_size.py` は「毎フレーム GroundTruth が OFF/ON でバイト一致」を
+   受入条件にしていた。L1 は**動的メッセージ**に載るので、この条件は S2.5 で構造的に
+   成立しなくなる。落とさず絞った — **ON 側から `logical_lane_assignment` だけを剥がして
+   再直列化し、OFF 側と SHA 一致すること**。「差分は割り当てが全部である」がそのまま条件になる。
+   **負の対照も取った**: ON 側だけ `moving_object.base.velocity.x` に +1 した細工版では
+   （**剥がした後のバイト長は 2121 B で OFF と同じまま**）この判定が FAIL する。
+   長さ比較では捕まらない改変を SHA が捕まえている。
+
+**実測（受入基準ごと）**:
+
+| 受入基準 | 実測 |
+| :-- | :-- |
+| `s_position == pos.GetS()` / `t_position == pos.GetT()` が全フレーム | 3 資産・**4,825 比較すべてで差 0.0**（`max |s_position - SE.s| = 0`、`max |t_position - SE.t| = 0`）。突き合わせ相手は `SE_GetObjectState`、つまり**メッセージを埋めたのとは別の DLL 経路**。内訳 cut-in 502 / routing-test 279 / highway_driver 4,044 |
+| 交差点の接続路で論理 id が junction id でない | routing-test の**物理側が融合 junction レーンを指している 23 オブジェクトフレーム**で、論理側が junction id を指した回数 **0/23**、かつ **23/23** が「その車が実際に乗っている road のレーン」に解決した。単体側は multi_intersections の接続路走行レーン **42 本すべて**で「論理 = 接続路レーン」と「物理 = junction グローバル id」を**同じテストの中で**固定 |
+| L1-b の両極性（1 → 2 → 1） | cut-in.xosc（e6mini・2 台）を 239 フレーム。車線変更する `OverTaker` が **1（146 フレーム）→ 2（24）→ 1（69）**、直進する `Ego` が **239 フレーム全部 1**。単体側は 5cm しきい値の両側を固定: レーン -3（幅 3.50）で横オフセット **0.79 m → 1 本 / 0.81 m → 2 本**（境界は 0.75 + 0.05 = 0.80 m ちょうど） |
+| 参照の閉包 | **4,825 / 4,825** の `assigned_lane_id` が静的 GT の `logical_lane[]` に実在。単体側は e6mini / fabriksgatan / multi_intersections の全レーンを掃いて 549 割り当てで同じ検査 |
+| `GT_OSI_LOGICAL_LANE=0` で空 | 3 資産・**4,747 オブジェクトフレームで割り当て 0**、`logical_lane[] = 0` |
+| `angle_to_lane` が畳まれている | 実測レンジ cut-in `[-0.0523, 0.0000]` / routing-test `[0.0000, 3.1416]` / highway_driver `[-0.3066, 0.1125]` rad。routing-test の `3.1416` は正レーンを -s 方向へ走る車（畳んでいなければ 2pi 近傍が出る） |
+| 動的 GroundTruth の増分 | 下表 |
+
+**動的 GroundTruth の増分（実測、`scripts/probe_osi_logical_lane_assignment.py`）**:
+
+| 資産 | 台数/フレーム | 割り当て/フレーム | 動的 GT OFF | 動的 GT ON | 増分 | 倍率 | 1 割り当てあたり |
+| :-- | --: | --: | --: | --: | --: | --: | --: |
+| cut-in | 2.00 | 2.10 | 2,967 B | 3,038 B | +71.4 B | 1.024x | **34.00 B** |
+| routing-test | 1.00 | 1.00 | 2,174 B | 2,208 B | +34.0 B | 1.016x | **34.00 B** |
+| highway_driver | 10.00 | 10.14 | 9,166 B | 9,511 B | +344.6 B | **1.038x** | **34.00 B** |
+
+**見積り 35 B / 跨ぎ 70 B は当たっていた（実数 34 B / 68 B）。外れていたのは倍率のほうである。**
+現状記録 §5-5a は「20 台なら動的 GT が 1.3〜1.7 倍」と書いていたが、**動的 GroundTruth は
+1 台あたり約 900 B ある**（highway_driver で 10 台 9,166 B）ので、1 台 34 B の追加は
+**+3.8% にしかならない**。20 台でも 1.04 倍前後で、1.3〜1.7 倍には届かない。現状記録を是正済み。
+
+**S3 へ引き継ぐ発見**:
+
+1. **レーン端の t の出し方が S3 の論理境界と共有の基準になる。**
+   `road->GetLaneOffset(s) + SIGN(lane_id) * LaneSection::Get{Inner,Outer}Offset(s, lane_id)` が
+   `Position::GetT()` と同じ枠の値である（`Get{Inner,Outer}Offset` は**セクション内の符号なし
+   累積幅**なので、road 単位の `<laneOffset>` を足して符号を掛けないと枠が合わない）。
+   S3 の `LogicalLaneBoundary` がこの t から外れたら、**同じレーンの端が面ごとに 2 つある**
+   ことになる。規格が隣接レーン境界に課している 5cm 整合は、S3 でこの式を基準に測れる。
+2. **毎フレーム側の受入条件はもう「バイト一致」ではない（差分 5）。** S3 が増やすのは
+   静的バイトだけなので、**S3 は narrow 後の判定をそのまま緑で通せなければならない**。
+   将来さらに動的フィールドを足す段は、長さ比較へ緩めるのではなく同じやり方で絞ること
+   （負の対照が示したとおり、長さが同じまま中身だけ動く改変が実在する）。
+3. **`Position::GetHRelative()` は畳まれていない（差分 1）。** 論理レーン層で角度を出す
+   のは S3 の境界にはないが、`overlapping_lane` など将来の欄で同じ罠を踏む。
+4. **アンカーレーンは重なり量によらず常に入る（§2-6-1）。** したがって「割り当て 1 本」は
+   L1-b が死んでいる証拠にならない。**跨ぐはずのエンティティを名指しで 2 本要求する**検査が
+   要る（プローブは `OverTaker` を名指ししている）。
+5. **重なり判定は物体のレーンセクション内に閉じている**（§10-14）。S3 の境界はセクション
+   境界で切れるので、同じ制約を共有する。
 
 ### 8-1. 依存関係 — 逐次なのは S0 → S1 までで、その先は扇形に開く
 
@@ -816,7 +1054,7 @@ L1（S2.5）だけでは経路相対位置は出ない。`route`（S4）が無�
 | 新規 | `GT_esmini/src/osi/GT_OSIReporter_LogicalLane.cpp` | **スワップゾーン側**（`obj_osi_internal` を触るため。§8 R1） |
 | 新規 | `GT_esmini/include/gt_esmini/osi/GT_OsiLogicalLane.hpp` | 索引型 + `GetUseOsiLogicalLane()` の宣言 |
 | 新規 | `GT_esmini/src/osi/RouteToOsiRoute.cpp` | GT_esminiLib 側（純関数、`obj_osi_internal` を触らない） |
-| 新規 | `GT_esmini/include/gt_esmini/osi/RouteToOsiRoute.hpp` | |
+| 新規 | `GT_esmini/include/gt_esmini/osi/RouteToOsiRoute.hpp` | **`control` の `RouteLanePlan.hpp` を include する** — 下の注を見よ |
 | 変更 | `GT_esmini/src/osi/GT_OSIReporter.cpp` | 後段パスの呼び出し 1 行 |
 | 変更 | `GT_esmini/src/osi/GT_OSIReporter_Moving.cpp` | L1 の**呼び出しのみ** 4 行（`:979` の直後）。本体は `GT_OSIReporter_LogicalLane.cpp` 側に置く — 同ファイルは `lineage:gt_osireporter` のフォーク系譜なので、inbound 差分を増やさないため |
 | 変更 | `GT_esmini/src/osi/GT_HostVehicleReporter.cpp` | `route` 充填 + `Send()` の分割送信 |
@@ -827,6 +1065,17 @@ L1（S2.5）だけでは経路相対位置は出ない。`route`（S4）が無�
 
 R1 の当たりは `ScenarioEngine/CMakeLists.txt` の 4 行のみ。`OSIReporter.hpp` は触らない
 （メンバ関数ではなく GT 自由関数として書く）。
+
+> **モジュール依存の注（2026-09-24、S4）**: `RouteToOsiRoute.hpp` は `osi` モジュールにありながら
+> `control` の `RouteLanePlan.hpp` を include する。`GT_esmini/CLAUDE.md` §2 の `osi -> core, scenario`
+> には無い向きである。**`RouteLanePlan` と `osi3::Route` の両方を見る関数に合法な置き場が無い**ため
+> で、`core` は両方より下、`osi` 側に `RouteLaneBand` を写すと同じ経路バンドの定義が 2 つになる
+> （手で同期し続ける必要が出る）。`RouteLanePlan.hpp` 自体は roadmanager にしか依存しない道路
+> トポロジのヘルパで、制御パイプラインではない。ファイル単位の逆向き依存は既に 1 件あり
+> （`GT_OSIReporter_Moving.cpp` → `control/common/TransitionDynamics.hpp`）、新種ではない。
+> 逆向き（`control` → `osi`）は `PlannedPathBuilder.hpp` → `GT_PlannedPathRegistry.hpp` の前例がある。
+> **`RouteLanePlan` を中立モジュールへ移すのが本筋だが、`vd-component:route-lane-plan` として
+> 知識グラフに登録済みなので、移動は記帳側の変更とセットで別途判断する。**
 
 > **2026-09-24（S0 実装時に是正）**: この 4 行は**新規の R1 例外ではなく既存例外の拡張**である。
 > 同ファイルには既に `# GT_esmini Modification: Swap OSIReporter` ブロックがあり、
@@ -919,15 +1168,79 @@ L2（経路進捗）は**新しい signal を起こさない**。既存の `sign
    許しているが、行わない。論理レーンは常に 1 レーンセクションで切れる。消費側から見ると
    セグメント数が多くなるだけで、意味は変わらない。
 6. **`source_reference` が規格本文の素の id 形式ではなく GT の接頭辞付き形式。** §2-2。
-7. **L1 の割り当てが 1 レーンのみ（L1-b 未実装）。** 規格は「5cm 以上重なったレーンには全部
-   割り当てよ」と要求しているが、初版はキャッシュ済み走行レーン 1 本しか出さない。
-   **車線変更の途中でも 1 本しか出ないので、消費側が「跨いでいない」と誤読しうる。**
-   車体幅と隣接レーン境界から重なりを判定すれば出せる（+0.5 日）。規格からの明確な不足である。
+7. ~~**L1 の割り当てが 1 レーンのみ。**~~ **2026-09-24 にスコープへ戻した**（L1-b、§2-6-1 / §8-α）。
+   S2.5 で車体幅から重なりを判定し、5cm を超えるレーンすべてに割り当てる。
 8. **L3（経路レーン帯からの符号付き横距離）を出さない。** §2-6-3。OSI に欄がなく、基準の取り方も
    未定。`on_target_lane` の bool と L1 の `t_position` で「どのレーンにいて経路は何を許すか」は
    外から判定できるので、必要になった時点で用途と一緒に設計する。
-9. **L2 を OSI へ出さない。** §2-6-2。経路始点からの累積距離に該当する欄が OSI に無いため
-   telemetry 止まり。OSI しか読まない消費側からは経路進捗が見えない。
+9. **L2 を OSI の型付き欄へ出さない（ただし規格上の不足ではない）。** §2-6-2。
+
+   > **2026-09-24 訂正**: ここは当初「OSI しか読まない消費側からは経路進捗が見えない」と
+   > 書いていたが、**過大だった**。L2 も L3 も**公式フィールドの組み合わせから消費側が導ける**。
+   >
+   > - **L2** = `route.route_segment[]` は順序付きで各 `lane_segment` が `start_s`/`end_s` を持つ。
+   >   L1 の `assigned_lane_id` で自車がどの segment にいるか分かるので、
+   >   「そこまでの segment 長の累積 + (`s_position` − `segment.start_s`)」で出る。
+   > - **L3** = segment に含まれるレーン集合が「許されるレーン」。L1 の `t_position` が今いる
+   >   レーンでの横位置。S3 の境界からレーン幅が引けるので帯の最寄りまでの距離も出る。
+   >
+   > OSI が持っているのは **L1 と `route` という原材料**で、L2 / L3 はそこからの導出値である。
+   > `Route` が `high level path information, similar to that of a map or a navigation system` と
+   > 定義され、そこに自車位置の欄をわざと持たせていないのも同じ思想。
+   > **レーン相対は公式、経路相対は導出**という切れ目は規格の切り方であって GT の都合ではない。
+   >
+   > したがって GT が L2 を出すのは**計算の肩代わり（便宜）**であり、置き場の選択は
+   > 「規格の不足をどこに逃がすか」ではなく「消費側に計算させるか、させないなら
+   > どの範囲の ego に出すか」である。`custom_detail`
+   > （`repeated KeyValuePair`、規格自身が `An opaque set of key-value pairs` と定義）へ
+   > 載せても公式フィールドにはならず、telemetry と性質は同じ。
+
+   **既知の提供範囲**: L2 は VD telemetry にしか出ないので、**VD 以外の ego（手動運転 /
+   DefaultController）では取れない**。`route` 自体は `UpdateFromObjectState` が
+   コントローラに関係なく呼ばれるため全 ego で出るので、ここだけ非対称になる。
+   手動運転で経路進捗が要るようになったら `custom_detail` へ足す（4 つの KV:
+   `s_along_route` / `route_length` / `segment_index` / `on_route`。キー名に単位を埋め、
+   受け側のパースは 1 か所に閉じる）。**不足ではなく便宜の提供範囲**として記録する。
+
+10. **経路のレーンが自車位置にまだ存在しないとき、`route` は自車より先から始まる。**（S4 実測）
+    合流・分岐路では経路が指すレーンが途中から開くことがある。`highway_example_with_merge_and_split`
+    の road 0 はレーンセクションが s=0 / 50 / 175 で、**レーン -4 は s=50 から**しかない。
+    自車が s=10 にいる間、指すべき論理レーンが存在しないので最初の `RouteSegment` は s=50 から
+    始まり、**自車と経路の間に 40 m の空白ができる**。参照が壊れているわけではない（存在しない
+    レーンの id を書くよりは正しい）が、規格の
+    `Consecutive segments should be connected without gaps` を自車〜経路始点については満たさない。
+    L2 の `on_route` はこの間 false になるので、消費側は区別できる。
+
+11. **`route_id` は「計画」の同一性であって、メッセージ内容の同一性ではない。** 経路が変わらない
+    限り id は据え置くが、内容は自車 s で切るぶん毎フレーム変わる（先頭セグメントが縮み、
+    通過した道路が落ちる）。**id をキーにメッセージをキャッシュしてはいけない。** 毎フレーム
+    送っているので読み直せばよい（§5）。
+
+12. **`route` は OSI GroundTruth を一度も出していないセッションでは空になる。** 索引を埋める
+    後段パスが `OSIReporter::UpdateOSIGroundTruth()` の初回にしか走らないため
+    （§8-0 S4 差分 6）。`GT_HostVehicleReporter` が一度だけ `LOG_WARN` を出すが、
+    設定で解くほうが筋なら S5 で見直す。
+
+13. **L1 の `s_position` / `t_position` は OSI の「オブジェクト参照点」ではない。**（S2.5 実測）
+    OSI は `BaseMoving` / `BaseStationary` の参照点を**バウンディングボックスの中心**と定義して
+    おり（`osi_common.proto`「The reference point for position and orientation, i.e. the center
+    (x,y,z) of the bounding box」）、`base.position` はその中心を出している。一方
+    `LogicalLaneAssignment.s_position` / `t_position` に入れているのは `Position` の s / t、
+    つまり esmini の **entity origin**（カタログ車で box 中心の 1.4 m 後ろ）のものである。
+    **物理 `assigned_lane_id` も同じ origin から導いているので 2 つの面は互いに整合している**が、
+    `base.position` と `s_position` の間には車長方向に `center_x` ぶんのずれが残る。
+    揃えるには BB 中心を road 座標へ落とす追加の幾何計算が要り、§2-1 の「追加の幾何計算なしで
+    揃う」と引き換えになるうえ、曲路では 1 次近似では足りない。**消費側から「どちらの点か」を
+    問われた時点で決める**。重なり判定（L1-b）のほうは BB 中心を使っている（§2-6-1）。
+
+14. **重なり判定は物体のいるレーンセクション内に閉じている。**（S2.5）長い車両がレーンセクション
+    の継ぎ目を跨いでいても、隣のセクションのレーンには割り当てない。規格は面積の重なりで
+    定義しているので厳密には不足だが、継ぎ目でのみ、かつ車長の一部でのみ起きる。
+
+15. **単一道路だけの経路は進行方向を +s と決め打ちする。** `RouteLanePlan` は道路が 1 本の
+    プランで `exit_at_road_end = true` を固定するため（`RouteLanePlan.cpp` の `skeleton.size()==1`
+    分岐）、-s 方向へ進む 1 道路経路は逆向きに展開される。ホップが 1 つでもあれば方向は
+    トポロジから決まるので、この穴は 1 道路経路に限られる。
 
 ---
 
@@ -939,5 +1252,5 @@ L2（経路進捗）は**新しい signal を起こさない**。既存の `sign
 | 2 | 知識グラフのノード型 | **決着（2026-09-24 ユーザー判断）**: 既存の `spine-work` 名前空間へ `spine-work:osi-logical-lane` として起こす。`feature:F10` は採らない（`F1..F9` はユーザーに見える機能で本件と性格が違ううえ、凍結体系の `id_pattern` 拡張が要る）。face-1 work-item 名前空間の新設も採らない（実体 0 件。`spine-work` は face タグが "3" だが `ego-anchor-face1-migration` / `osi-assigned-lane-driving` という face-1 の実体を既に 2 件収容している） |
 | 3 | `overlapping_lane` をスコープに入れるか | 入れない（§10-1）。必要なら別工程 |
 | 4 | S3 完了時に既定 ON へ倒すか | 倒す（§7-3）。S0 の実測で 3 倍超かつ OSI 記録が日常なら再検討 |
-| 5 | L1-b（車線跨ぎの複数割り当て）を初版に入れるか | 入れない（§10-7）。**ただし車線変更の検証に L1 を使うなら初版から必要**。用途次第なので S2.5 着手時に再判定する |
+| 5 | L1-b（車線跨ぎの複数割り当て）を初版に入れるか | **決着（2026-09-24）: 入れる。** S2.5 に畳んだ（§8-α）。+0.5 日で規格の不足が 1 つ閉じるため |
 | 6 | L3（経路帯からの符号付き横距離）の用途 | 未定のうちは設計しない（§10-8）。「誰が何のために読むか」が決まった時点で基準の取り方を決める |

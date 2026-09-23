@@ -29,6 +29,12 @@ Also checked against the xodr itself: one reference line per road, one logical
 lane per non-centre OpenDRIVE lane -- junction connecting roads included, which
 is where the logical layer carries strictly more than osi_lane does.
 
+S2.5 changed one of these invariants on purpose. LogicalLaneAssignment lives in
+the DYNAMIC message, so the per-frame payload is no longer byte-identical OFF vs
+ON. The check was not dropped, it was narrowed: the ON frame is re-serialized with
+ONLY logical_lane_assignment removed, and that must match the OFF frame exactly.
+Anything else moving in the moving objects still fails.
+
     DriverScript/.venv/Scripts/python.exe scripts/probe_osi_logical_lane_size.py
 
 Exit 0 = PASS. Requires a completed Release build (GT_esminiLib.dll).
@@ -203,6 +209,24 @@ try:
     # renumbered lane changes lane's bytes even though its count is unchanged.
     pre_sha = {n: field_sha(n) for n in PREEXISTING_STATIC_FIELDS}
 
+    # Per-frame message, parsed twice: once as it stands, once with the S2.5 field
+    # removed. Both are re-serialized by the SAME python serializer so the digests
+    # are comparable (comparing a python round-trip against the DLL's raw bytes
+    # would measure the serializers, not the content).
+    frame_norm_sha, frame_stripped_sha, frame_stripped_bytes = "", "", 0
+    frame_assignments, frame_moving_objects = 0, 0
+    if frame_data:
+        fg = gtpb.GroundTruth()
+        fg.ParseFromString(frame_data)
+        frame_norm_sha = hashlib.sha256(fg.SerializeToString()).hexdigest()
+        frame_moving_objects = len(fg.moving_object)
+        for mo in fg.moving_object:
+            frame_assignments += len(mo.moving_object_classification.logical_lane_assignment)
+            mo.moving_object_classification.ClearField("logical_lane_assignment")
+        stripped = fg.SerializeToString()
+        frame_stripped_sha = hashlib.sha256(stripped).hexdigest()
+        frame_stripped_bytes = len(stripped)
+
     centerline_points = sum(len(L.classification.centerline) for L in g.lane)
     boundary_points = sum(len(b.boundary_line) for b in g.lane_boundary)
     reference_line_points = sum(len(r.poly_line) for r in g.reference_line)
@@ -231,6 +255,19 @@ try:
         # the byte-identity check compares this, not just the length
         "gt_sha256": hashlib.sha256(data).hexdigest(),
         "frame_sha256": hashlib.sha256(frame_data).hexdigest(),
+        # S2.5: the per-frame payload is no longer expected to be byte-identical
+        # OFF vs ON -- LogicalLaneAssignment rides in the DYNAMIC message, on every
+        # object, every frame. The invariant that survives is the same one the
+        # static side has: nothing that existed before moved. So the frame is also
+        # reported twice more: round-tripped through the parser (the fair
+        # comparison basis for the OFF run) and round-tripped with ONLY the new
+        # field stripped. OFF-normalised == ON-stripped is exactly "the assignment
+        # is the whole of the difference".
+        "frame_sha256_normalised": frame_norm_sha,
+        "frame_sha256_without_logical_assignment": frame_stripped_sha,
+        "frame_stripped_bytes": frame_stripped_bytes,
+        "frame_logical_assignments": frame_assignments,
+        "frame_moving_objects": frame_moving_objects,
     }
 except Exception as e:
     res = {"init_ok": False, "error": "%%s: %%s" %% (type(e).__name__, e)}
@@ -391,11 +428,21 @@ def main():
                 moved = sorted(set(off[f]) ^ set(on[f]))
                 fail("%s: %s differ OFF vs ON (%d symmetric-difference entries, e.g. %s)"
                      % (name, f, len(moved), moved[:8]))
-        if off["frame_sha256"] != on["frame_sha256"]:
+        # The per-frame payload DOES change from S2.5 on: LogicalLaneAssignment is a
+        # dynamic-message field. What must not change is everything else, so the
+        # comparison is made after removing exactly that field from the ON run.
+        if off["frame_sha256_normalised"] != on["frame_sha256_without_logical_assignment"]:
             fail(
-                "%s: per-frame GroundTruth payload differs OFF vs ON (%d vs %d bytes)"
-                % (name, off["frame_payload_bytes"], on["frame_payload_bytes"])
+                "%s: per-frame GroundTruth differs OFF vs ON beyond logical_lane_assignment "
+                "(%d B off vs %d B on, %d B on with the field stripped)"
+                % (name, off["frame_payload_bytes"], on["frame_payload_bytes"], on["frame_stripped_bytes"])
             )
+        if off["frame_logical_assignments"] != 0:
+            fail("%s: flag OFF still emitted %d logical_lane_assignment entries"
+                 % (name, off["frame_logical_assignments"]))
+        if on["frame_moving_objects"] > 0 and on["frame_logical_assignments"] == 0:
+            fail("%s: flag ON emitted no logical_lane_assignment for %d moving object(s)"
+                 % (name, on["frame_moving_objects"]))
 
         # (2) the gate demonstrably fired -- without this, (1) is also true of a dead flag
         if off.get("post_pass_log_seen"):
@@ -477,6 +524,16 @@ def main():
                 s["junction_lanes_excl_center"],
             )
         )
+    print("  per-frame (dynamic) payload, OFF -> ON -- S2.5 LogicalLaneAssignment is the")
+    print("  ONLY difference; the probe asserts that by stripping the field and re-comparing:")
+    for name, e in results.items():
+        o, n = e["off"], e["on"]
+        if not o.get("init_ok") or not n.get("init_ok"):
+            continue
+        print("    %-22s %6d -> %6d B  (+%3d B for %d assignment(s) on %d object(s))"
+              % (name, o["frame_payload_bytes"], n["frame_payload_bytes"],
+                 n["frame_payload_bytes"] - o["frame_payload_bytes"],
+                 n["frame_logical_assignments"], n["frame_moving_objects"]))
     print("  lanes* / juncLanes* = OpenDRIVE lanes excluding centre lanes (from the xodr),")
     print("  i.e. how many LOGICAL lanes the network has vs. how many of them sit inside")
     print("  junctions -- the ones osi_lane fuses into a single TYPE_INTERSECTION lane today.")

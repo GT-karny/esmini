@@ -755,3 +755,305 @@ TEST(OsiLogicalLane, LaneSectionSeamsCollapseToASinglePoint)
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// S2.5 -- LogicalLaneAssignment (design 2-6-1)
+//
+// Exercised through ComputeLogicalLaneAssignments(), which takes the index
+// explicitly for the same reason BuildOsiLogicalLanesInto() takes the
+// GroundTruth: the protobuf emit wrapper reads the module-level index, which is
+// only populated by a real static ground-truth build, so testing the wrapper
+// alone would run past every line that matters (S1 hand-off).
+// ---------------------------------------------------------------------------
+
+namespace
+{
+using gt_esmini::osi::LogicalLaneAssignmentEntry;
+using gt_esmini::osi::ObjectBox;
+
+// The shipped car_white catalogue box, rounded: 5 m long, 2 m wide, centre 1.4 m
+// ahead of the entity origin. Concrete numbers rather than a fixture lookup, so
+// the arithmetic in each expectation below can be read off the page.
+constexpr ObjectBox kCarBox{5.0, 2.0, 1.4, 0.0};
+
+// Position::SetLanePos returns an enum class, so the usual ", 0)" does not compile.
+constexpr roadmanager::Position::ReturnCode kPosOk = roadmanager::Position::ReturnCode::OK;
+
+std::vector<LogicalLaneAssignmentEntry> Assign(const roadmanager::Position&            pos,
+                                               const gt_esmini::osi::LogicalLaneIndex& index,
+                                               const ObjectBox&                        box = kCarBox)
+{
+    return gt_esmini::osi::ComputeLogicalLaneAssignments(pos, box, index);
+}
+
+std::set<std::uint64_t> LogicalLaneIdSet(const osi3::GroundTruth& gt)
+{
+    std::set<std::uint64_t> ids;
+    for (const auto& ll : gt.logical_lane())
+    {
+        ids.insert(ll.id().value());
+    }
+    return ids;
+}
+}  // namespace
+
+// The invariant behind the design decision of section 2-1: because the logical
+// reference line IS the OpenDRIVE road reference line, the assignment's ST
+// coordinates are the Position's own s / t with no conversion. If this ever needs
+// arithmetic, the reference line stopped being the road's.
+TEST(OsiLogicalLane, AssignmentCarriesPositionStVerbatim)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("e6mini.xodr"), &gt, &index));
+
+    roadmanager::Position pos;
+    for (double s : {5.0, 120.0, 700.0, 1400.0})
+    {
+        for (double offset : {-0.4, 0.0, 0.3})
+        {
+            ASSERT_EQ(pos.SetLanePos(0, -3, s, offset), kPosOk) << "s=" << s;
+            const std::vector<LogicalLaneAssignmentEntry> a = Assign(pos, index);
+            ASSERT_FALSE(a.empty()) << "s=" << s << " offset=" << offset;
+            for (const LogicalLaneAssignmentEntry& e : a)
+            {
+                EXPECT_DOUBLE_EQ(e.s_position, pos.GetS());
+                EXPECT_DOUBLE_EQ(e.t_position, pos.GetT());
+            }
+            EXPECT_TRUE(a.front().is_anchor) << "entry [0] must be the lane Position reports";
+            EXPECT_EQ(a.front().lane_id, pos.GetLaneId());
+            const auto it = index.find(gt_esmini::osi::LogicalLaneKey{0u, 0u, -3});
+            ASSERT_NE(it, index.end());
+            EXPECT_EQ(a.front().assigned_lane_id, it->second);
+        }
+    }
+}
+
+// angle_to_lane. Design 2-6-1 specified GetHRelative() raw; Position keeps that in
+// [0, 2pi), so a vehicle yawed a hair to the RIGHT of the lane direction would be
+// reported at ~6.28 rad while one yawed a hair left reads ~0.00 -- a 2pi step
+// through the value the field exists to compare. Wrapped to [-pi, pi] like every
+// other angle this reporter emits. Both signs are shown, because a build that
+// always returned the raw value passes any single-sided check.
+TEST(OsiLogicalLane, AssignmentAngleIsWrappedAndSigned)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("e6mini.xodr"), &gt, &index));
+
+    roadmanager::Position pos;
+    ASSERT_EQ(pos.SetLanePos(0, -3, 200.0, 0.0), kPosOk);
+
+    pos.SetHeadingRelative(0.10);
+    ASSERT_FALSE(Assign(pos, index).empty());
+    EXPECT_NEAR(Assign(pos, index).front().angle_to_lane, 0.10, 1e-9);
+
+    pos.SetHeadingRelative(-0.10);
+    // The negative control: Position itself hands out 2pi-0.10 here.
+    EXPECT_NEAR(pos.GetHRelative(), 2.0 * M_PI - 0.10, 1e-9) << "precondition: Position is unwrapped";
+    ASSERT_FALSE(Assign(pos, index).empty());
+    EXPECT_NEAR(Assign(pos, index).front().angle_to_lane, -0.10, 1e-9);
+}
+
+// L1-b, BOTH POLARITIES, and the 5 cm threshold either side of its own edge.
+//
+// e6mini road 0 lane -3 is 3.50 m wide, its inner neighbour -2 is 3.65 m. A 2.00 m
+// body centred in -3 has 0.75 m of clearance each side, so the boundary between
+// "one lane" and "two" sits at offset 0.75 + 0.05 = 0.80 m exactly. A build that
+// only ever emits the driving lane passes the centred case and fails here; one
+// that assigns on any touch at all fails the 0.79 m case.
+TEST(OsiLogicalLane, AssignmentStraddleAppearsAndDisappearsAcrossTheFiveCentimetreEdge)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("e6mini.xodr"), &gt, &index));
+
+    roadmanager::Position pos;
+    const auto            lane_m2 = index.find(gt_esmini::osi::LogicalLaneKey{0u, 0u, -2});
+    const auto            lane_m3 = index.find(gt_esmini::osi::LogicalLaneKey{0u, 0u, -3});
+    ASSERT_NE(lane_m2, index.end());
+    ASSERT_NE(lane_m3, index.end());
+
+    struct Case
+    {
+        double      offset;
+        size_t      expected;
+        const char* why;
+    };
+    // 1 -> 2 -> 1: the lane change, and its return.
+    const Case cases[] = {{0.00, 1, "centred in lane -3"},
+                          {0.79, 1, "0.04 m into lane -2 -- at or below the 5 cm rule"},
+                          {0.81, 2, "0.06 m into lane -2 -- above it"},
+                          {1.20, 2, "0.45 m into lane -2"},
+                          {1.75, 2, "body centre on the lane boundary"},
+                          {0.00, 1, "back to the middle of lane -3"}};
+
+    for (const Case& c : cases)
+    {
+        ASSERT_EQ(pos.SetLanePos(0, -3, 300.0, c.offset), kPosOk);
+        const std::vector<LogicalLaneAssignmentEntry> a = Assign(pos, index);
+        EXPECT_EQ(a.size(), c.expected) << "offset " << c.offset << " (" << c.why << ")";
+        ASSERT_FALSE(a.empty());
+        EXPECT_EQ(a.front().assigned_lane_id, lane_m3->second) << "anchor stays first at offset " << c.offset;
+        if (a.size() == 2)
+        {
+            EXPECT_EQ(a[1].assigned_lane_id, lane_m2->second) << "offset " << c.offset;
+            EXPECT_GT(a[1].overlap_m, gt_esmini::osi::kLogicalLaneOverlapThresholdM) << "offset " << c.offset;
+        }
+    }
+}
+
+// Yaw widens the body's lateral footprint: a 5 m long car at 20 deg to the lane
+// reaches 0.5*(5*sin20 + 2*cos20) = 1.80 m to each side instead of 1.00 m. Taking
+// only the width would under-report exactly during a lane change, which is when the
+// second assignment matters. Same position, same box, only the heading differs.
+TEST(OsiLogicalLane, AssignmentWidthAccountsForYawRelativeToTheLane)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("e6mini.xodr"), &gt, &index));
+
+    roadmanager::Position pos;
+    ASSERT_EQ(pos.SetLanePos(0, -3, 300.0, 0.0), kPosOk);
+
+    pos.SetHeadingRelative(0.0);
+    EXPECT_EQ(Assign(pos, index).size(), 1u) << "aligned with the lane: 1.00 m of body each side of centre";
+
+    pos.SetHeadingRelative(20.0 * M_PI / 180.0);
+    const std::vector<LogicalLaneAssignmentEntry> yawed = Assign(pos, index);
+    EXPECT_GT(yawed.size(), 1u) << "20 deg yaw reaches 1.80 m each side and must pick up a neighbour";
+    for (const LogicalLaneAssignmentEntry& e : yawed)
+    {
+        std::cout << "[S2.5] yawed 20deg -> lane " << e.lane_id << " overlap " << e.overlap_m << " m" << std::endl;
+    }
+}
+
+// The one acceptance criterion that only the logical face can satisfy. Inside an OSI
+// intersection the PHYSICAL lanes are fused into one TYPE_INTERSECTION lane carrying
+// the junction's global id, which is why signal:ego_lane cannot join there. The
+// logical layer keeps one lane per connecting-road lane, so the assignment resolves
+// to the connecting lane itself.
+//
+// The physical face is asserted in the same test, unchanged: fixing only one of the
+// two would break replayer's osi_receiver and the upstream UDP samples, which read
+// the fused id on purpose (design 2-6-1, trap 2).
+TEST(OsiLogicalLane, AssignmentOnAConnectingRoadNamesTheConnectingLaneNotTheJunction)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("multi_intersections.xodr"), &gt, &index));
+    roadmanager::OpenDrive* od = roadmanager::Position::GetOpenDrive();
+
+    unsigned              checked = 0;
+    roadmanager::Position pos;
+    for (unsigned i = 0; i < od->GetNumOfRoads(); i++)
+    {
+        roadmanager::Road* road = od->GetRoadByIdx(i);
+        if (road->GetJunction() == ID_UNDEFINED)
+        {
+            continue;
+        }
+        roadmanager::Junction* junction = od->GetJunctionById(road->GetJunction());
+        if (junction == nullptr || !junction->IsOsiIntersection())
+        {
+            continue;
+        }
+        roadmanager::LaneSection* lsec = road->GetLaneSectionByIdx(0);
+        ASSERT_NE(lsec, nullptr);
+        for (unsigned k = 0; k < lsec->GetNumberOfLanes(); k++)
+        {
+            roadmanager::Lane* lane = lsec->GetLaneByIdx(k);
+            if (lane->IsCenter() || !lane->IsDriving())
+            {
+                continue;
+            }
+            ASSERT_EQ(pos.SetLanePos(road->GetId(), lane->GetId(), road->GetLength() / 2.0, 0.0), kPosOk);
+            const std::vector<LogicalLaneAssignmentEntry> a = Assign(pos, index);
+            ASSERT_FALSE(a.empty()) << "road " << road->GetId() << " lane " << lane->GetId();
+
+            const auto it = index.find(gt_esmini::osi::LogicalLaneKey{road->GetId(), 0u, lane->GetId()});
+            ASSERT_NE(it, index.end());
+
+            // logical face: the connecting lane itself
+            EXPECT_EQ(a.front().assigned_lane_id, it->second);
+            EXPECT_NE(a.front().assigned_lane_id, static_cast<std::uint64_t>(junction->GetGlobalId()));
+            // physical face: still the fused junction, unchanged by this stage
+            EXPECT_EQ(pos.GetLaneGlobalId(), junction->GetGlobalId());
+            checked++;
+        }
+    }
+    std::cout << "[S2.5] multi_intersections connecting-road driving lanes checked=" << checked << std::endl;
+    ASSERT_GT(checked, 0u) << "fixture exposed no OSI-intersection connecting road -- the check never ran";
+}
+
+// Reference closure for the assignment face (design 9 check 6): sweep every lane of
+// a network and require that every id handed out exists in the emitted
+// logical_lane[]. A dangling id serialises perfectly well, so this is the only thing
+// standing between "looks right" and "is right".
+TEST(OsiLogicalLane, EveryAssignedLogicalLaneIdExists)
+{
+    for (const char* name : {"e6mini.xodr", "fabriksgatan.xodr", "multi_intersections.xodr"})
+    {
+        osi3::GroundTruth                gt;
+        gt_esmini::osi::LogicalLaneIndex index;
+        ASSERT_TRUE(BuildFor(Xodr(name), &gt, &index)) << name;
+        const std::set<std::uint64_t> live = LogicalLaneIdSet(gt);
+        roadmanager::OpenDrive*       od   = roadmanager::Position::GetOpenDrive();
+
+        unsigned              assignments = 0, straddles = 0;
+        roadmanager::Position pos;
+        for (unsigned i = 0; i < od->GetNumOfRoads(); i++)
+        {
+            roadmanager::Road* road = od->GetRoadByIdx(i);
+            for (unsigned j = 0; j < road->GetNumberOfLaneSections(); j++)
+            {
+                roadmanager::LaneSection* lsec = road->GetLaneSectionByIdx(j);
+                const double              end_s =
+                    (j + 1 < road->GetNumberOfLaneSections()) ? road->GetLaneSectionByIdx(j + 1)->GetS() : road->GetLength();
+                const double s = 0.5 * (lsec->GetS() + end_s);
+                for (unsigned k = 0; k < lsec->GetNumberOfLanes(); k++)
+                {
+                    roadmanager::Lane* lane = lsec->GetLaneByIdx(k);
+                    if (lane->IsCenter())
+                    {
+                        continue;
+                    }
+                    if (pos.SetLanePos(road->GetId(), lane->GetId(), s, 0.0) != roadmanager::Position::ReturnCode::OK)
+                    {
+                        continue;
+                    }
+                    const std::vector<LogicalLaneAssignmentEntry> a = Assign(pos, index);
+                    if (a.size() > 1)
+                    {
+                        straddles++;
+                    }
+                    for (const LogicalLaneAssignmentEntry& e : a)
+                    {
+                        ASSERT_EQ(live.count(e.assigned_lane_id), 1u)
+                            << name << " road " << road->GetId() << " lane " << lane->GetId() << " -> " << e.assigned_lane_id;
+                        assignments++;
+                    }
+                }
+            }
+        }
+        std::cout << "[S2.5] " << name << " assignments=" << assignments << " positions_with_straddle=" << straddles << std::endl;
+        EXPECT_GT(assignments, 0u) << name;
+    }
+}
+
+// An empty index is what every consumer sees while the feature is OFF (the post-pass
+// clears it unconditionally before the flag check). Nothing may be emitted then --
+// not a dangling id, not a zero.
+TEST(OsiLogicalLane, AssignmentIsEmptyWithoutAnIndex)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("e6mini.xodr"), &gt, &index));
+
+    roadmanager::Position pos;
+    ASSERT_EQ(pos.SetLanePos(0, -3, 300.0, 0.0), kPosOk);
+    ASSERT_FALSE(Assign(pos, index).empty()) << "precondition: this position does resolve with an index";
+
+    const gt_esmini::osi::LogicalLaneIndex empty;
+    EXPECT_TRUE(Assign(pos, empty).empty());
+}
