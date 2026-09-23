@@ -1059,10 +1059,15 @@ export interface BuildFromRouteBody {
 }
 
 export interface BuildFromRouteResult {
+  /** The project the scenario was written into, and where it can be run. */
+  project_id: string;
+  project_name: string;
+  /** Project-relative path, which is what POST /api/simulations expects here. */
   scenario_id: string;
+  /** Bare filename, for `?scenario=` on the project page. */
+  scenario_file: string;
   entities: unknown;
   road_file: string;
-  expires_at: string;
   route: RoutePlan;
 }
 

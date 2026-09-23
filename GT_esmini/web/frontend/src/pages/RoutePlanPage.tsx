@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   api,
   type BuildFromRouteResult,
@@ -44,6 +45,8 @@ export function RoutePlanPage() {
   const [roadId, setRoadId] = useState<string>('');
   const [boundaries, setBoundaries] = useState<RoadBoundary[]>([]);
   const [loadingRoad, setLoadingRoad] = useState(false);
+
+  const navigate = useNavigate();
 
   const [points, setPoints] = useState<RoutePlanPoint[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
@@ -231,6 +234,13 @@ export function RoutePlanPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [undo, selected, points, commit]);
+
+  // The project page is the only place a scenario can actually be launched, so
+  // that is where "created it" has to lead. `scenario` preselects the new one.
+  const openBuilt = (result: BuildFromRouteResult) =>
+    navigate(
+      `/projects/${result.project_id}?scenario=${encodeURIComponent(result.scenario_id)}`,
+    );
 
   const build = async () => {
     setError(null);
@@ -464,10 +474,15 @@ export function RoutePlanPage() {
             )}
             {error && <p className="text-red-400">{error}</p>}
             {built && (
-              <p className="text-emerald-400">
-                Scenario <code className="font-mono">{built.scenario_id}</code> created — pick it
-                on the simulation page to run it.
-              </p>
+              <div className="space-y-2">
+                <p className="text-emerald-400">
+                  Saved to {built.project_name} as{' '}
+                  <code className="font-mono">{built.scenario_file}</code>
+                </p>
+                <Button size="sm" onClick={() => openBuilt(built)}>
+                  Open in project
+                </Button>
+              </div>
             )}
           </div>
         </aside>

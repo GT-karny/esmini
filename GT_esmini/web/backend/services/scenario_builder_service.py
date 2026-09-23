@@ -12,11 +12,13 @@ Shape decisions worth knowing:
   acquire a runtime dependency on it. simulation_runner already builds XOSC
   variants with ElementTree, so this follows the house style.
 
-* Paths are written ABSOLUTE. Generated files land in TEMP_SCENARIOS_DIR, nowhere
-  near resources/, and absolutize_scenario_paths only fixes up LogicFile /
-  SceneGraphFile / CatalogLocations / Controller File -- not Vehicle ``model3d``.
-  Writing absolute paths up front sidesteps the whole question for a file that is
-  ephemeral anyway.
+* Paths are written ABSOLUTE by default, because absolutize_scenario_paths only
+  fixes up LogicFile / SceneGraphFile / CatalogLocations / Controller File -- not
+  Vehicle ``model3d`` -- so there is no base directory that would make every
+  relative path work. The road is the exception: a caller that puts the scenario
+  and the road in one project passes ``road_reference="../xodr/<name>.xodr"``,
+  which is what makes the project self-describing rather than a file pointing at
+  wherever the road happened to live when it was generated.
 
 * The Ego DOES carry an <ObjectController> naming VirtualDriverController, with a
   ``policies`` Property. That is not redundant with simulation_runner's controller
@@ -118,6 +120,7 @@ def build_route_scenario(
     route_length: float | None = None,
     description: str = "GT_Sim route-plan scenario",
     sumocfg: str | Path | None = None,
+    road_reference: str | None = None,
 ) -> str:
     """Render a route scenario as an OpenSCENARIO XML string.
 
@@ -140,6 +143,12 @@ def build_route_scenario(
         description: FileHeader description.
         sumocfg: path to a .sumocfg to run background traffic from. Generate one
             with scripts/xodr_to_sumo_net.py --demand N. Omit for an empty road.
+        road_reference: what to write as the RoadNetwork LogicFile path, when the
+            scenario is going somewhere the road sits at a known place relative to
+            it -- a project writes "../xodr/<name>.xodr" so the project stays
+            self-describing and survives being moved. simulation_runner resolves
+            relative paths against the scenario's own directory at run time.
+            Defaults to the absolute path of ``xodr_path``.
 
     Raises:
         ScenarioBuildError: no waypoints, or the xodr is missing.
@@ -186,7 +195,9 @@ def build_route_scenario(
     ET.SubElement(root, "CatalogLocations")
 
     road_network = ET.SubElement(root, "RoadNetwork")
-    ET.SubElement(road_network, "LogicFile", {"filepath": str(xodr_path)})
+    ET.SubElement(
+        road_network, "LogicFile", {"filepath": road_reference or str(xodr_path)}
+    )
 
     entities = ET.SubElement(root, "Entities")
     ego = ET.SubElement(entities, "ScenarioObject", {"name": "Ego"})
