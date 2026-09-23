@@ -95,7 +95,11 @@ defaults:
   max_time: 42.0   # 既存4本(StopTrigger=28s)は末尾に重複フレームが増えるだけで末尾値は不変(実測済)。
                    # _during_gradual_acceleration(StopTrigger=40s)のための引き上げ - 上のコメント参照。
   snapshots: 3
-  osi: false
+  # osi capture は matcher:route_matches_plan のために必要（spine-work:osi-logical-lane S5）。
+  # GroundTruth.logical_lane[] は静的 GT の第1レコードにしか出ず、HostVehicleData.route は
+  # その後段パスが走った後でないと空になるので、OSI を消費しない run では両方とも観測できない。
+  # route_lane ブロック自体は OSI 非依存なので、既存4 matcher の判定はこれで変わらない。
+  osi: true
 scenarios:
   - scenario: resources/xosc/verification/06_route_lane/merge_required_for_exit_ramp.xosc
     expectations: resources/xosc/verification/06_route_lane/merge_required_for_exit_ramp.expectations.yaml

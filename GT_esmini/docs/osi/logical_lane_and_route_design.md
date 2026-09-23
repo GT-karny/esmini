@@ -1493,7 +1493,19 @@ L2（経路進捗）は**新しい signal を起こさない**。既存の `sign
 
 `run_odr_conformance.py` の OSI 抽出に `logical_lane_count` / `reference_line_count` /
 `logical_lane_boundary_count` を追加する（`DUMP_POLYGONS` と同じ opt-in 形にして、
-フラグ無しのフィクスチャは byte-identical に保つ）。ゴールデンの更新は S5 で 1 回だけ行う。
+フラグ無しのフィクスチャは byte-identical に保つ）。
+
+> **2026-09-24（S5 実施）**: 機構は入れた（マニフェストの `osi_dump_logical_lanes: true`。
+> 拡張 C）。**どのフィクスチャでも有効にしていない。** 有効化はそのフィクスチャのゴールデンを
+> 書き直すことを意味し、いま 13 件のゴールデンが本作業と無関係に stale なので、
+> 自分の追加と 3 ヶ月ぶんのドリフトが同じコミットで凍結されてしまう。
+> 動くことは実測で示した: fabriksgatan に対して OFF では鍵が 1 つも増えず、ON では
+> `logical_lane_count=44 / logical_lane_boundary_count=72 / reference_line_count=16`
+> （連結性プローブの実測値と一致）。
+> **残作業**: ゴールデン再生成の Issue が片付いた後、版・機能ごとに 1 本ずつ有効化する。
+> なお OSI 層は `--profile full` でしか走らず、回帰ゲート Step 1.5 は quick、CI は schema 層だけ
+> なので、**ここを有効化しても常設ゲートにはならない**（常設で踏むのは
+> `gate:route-lane-regression` の matcher:route_matches_plan のほう）。
 
 ---
 
