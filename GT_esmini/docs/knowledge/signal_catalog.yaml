@@ -971,7 +971,11 @@ signals:
   - id: logical_lane_assignment
     title: オブジェクトの論理レーン相対 s / t / 向き（L1）
     exposure: [osi]
-    state: "●"
+    # (b)＝emit 済みだが読む matcher が無い。当初 "●" と書いたが誤りだった:
+    # 台帳の (b) 件数は state 欄だけで数えるので、"●" と書くと**未配線の穴が台帳から
+    # 消える**（(a) には「matcher があるのに未emit」の逆向き検査があるが、"●" 側には無い）。
+    # 打ち手は emit ではなく配線＝「交差点内で L1 が接続路レーンを名指す」を判定する matcher。
+    state: "(b)"
     emit: GT_OSIReporter_LogicalLane.cpp:1574（EmitLogicalLaneAssignment）→ osi3 MovingObject.moving_object_classification.logical_lane_assignment[]
     note: >-
       **交差点の中でも車線が個別に引ける**のがこの signal の存在理由。物理面の

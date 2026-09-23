@@ -2417,3 +2417,73 @@ edges:
       on_target_lane に乗る。取り消し理由の rerouted も同層由来。
       **診断のみで是正しない**という route-lane-plan の性格がそのまま投影に現れ、
       「経路帯から外れているのに移る先が無い」場面が blocker no_target_lane になる。
+
+  # ---- ④観測: OSI 論理レーン面（spine-work:osi-logical-lane S5, 2026-09-24） ----
+  # matcher:route_matches_plan は3つの signal を同時に読む。1つでも欠けると判定が成立しない
+  # ので、3本とも張る（片方だけの辺は「読んでいる」を誤って狭く見せる）。
+  - from: matcher:route_matches_plan
+    to: signal:ego_route_lane_segments
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      vd_metrics.py の route_matches_plan 分岐が frames[i]["hvd"]["route"]
+      （HostVehicleData.route = 論理レーン区間の列）を読む。ハーネス側の配線は
+      gt_sim_test.py:_hvd_to_dict で、**osi capture が有効なときだけ**取る —
+      route は静的 GT の後段パスが走った後でないと空になるため（GT_HostVehicleReporter::FillRoute）。
+      キーが無いフレームは「未報告」であって「経路が空」ではない。両者を混ぜると
+      機能 OFF の run が緑になる。
+  - from: matcher:route_matches_plan
+    to: signal:logical_lane_topology
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      frames[i]["scene"]["logical_lanes"]（GroundTruth.logical_lane[] の id → road/lane と
+      pred/succ/left/right）を読む。**観測できる口は .osi の第1レコードだけ**なので、
+      gt_sim_test.py の静的 scene キーに入れて前方充填している（lane_map と同じ扱い）。
+      これが無いと matcher は常に空のトポロジを見て vacuous に緑になる。
+      判定は閉包（全 logical_lane_id が実在）と連続セグメントの連結（前後接続の辺が存在）で、
+      **件数の閾値は持たない** — 連結性は4つの repeated なので「> 0」は片側だけ壊れた
+      実装を通してしまう。
+  - from: matcher:route_matches_plan
+    to: signal:route_lane_conformance
+    type: observes
+    source: GT_esmini/web/backend/services/vd_metrics.py
+    note: >-
+      frames[i]["route_lane"] の road_id / target_lanes を読み、自車の現在道路について
+      公開経路が名指すレーン集合と一致することを判定する（expect_lanes_match_plan）。
+      matcher:route_lane_plan_holds が同じブロックを読むのとは**目的が違う**: あちらは
+      VD が内部でどう見ているかを判定し、こちらは**外へ宣言した経路と内部の見方が
+      食い違っていないか**を判定する。2つの signal を分けたまま持っている理由そのもの。
+
+  # ---- ⑥常設: 論理レーン面を既存ゲートへ相乗り（2026-09-24） ----
+  # 新規バッチは作らず gate:route-lane-regression の6シナリオに載せた。
+  # ベースラインは3回連続実行で verdict が detail 文字列まで一致することを確認してから、
+  # **別 run** に対して凍結し、記録済み route_matches_plan の status を1つ反転させて
+  # deviations=1 / exit 1 を実証してから受け入れた。
+  - from: matcher:route_matches_plan
+    to: gate:route-lane-regression
+    type: sustained-by
+    source: resources/xosc/verification/route_lane_batch.yaml
+    note: >-
+      OSI 論理レーン層と HostVehicleData.route を常設で踏む唯一の経路。6本のうち5本が
+      経路の存在・閉包・連結・レーン集合一致を判定し、残る1本
+      （merge_required_for_exit_ramp）が **expect_route_present: false** の負の対照になる
+      （esmini が粗い2 WP 経路を無効と判定するので経路が publish されない）。
+      これが無いと本 matcher は「存在する経路」しか見たことがないことになる。
+      踏むのは highway_example_with_merge_and_split.xodr **1資産だけ**で、
+      multi_intersections 規模の交差点連結・境界の 5cm 整合・横隣接は本ゲートの対象外
+      （それぞれ手動プローブと傘バイナリのユニットが持つ）。
+
+  - from: matcher:route_matches_plan
+    to: req-vd-ad:REQ-AD-017
+    type: verifies
+    source: GT_esmini/docs/osi/logical_lane_and_route_design.md
+    note: >-
+      **段 a のみ、かつ「第2の面」としてのみ。** 段 a（経路が各 road で要求する目標レーン集合を
+      算出できる）は matcher:route_lane_plan_holds が VD テレメトリ面で既に判定している。
+      本 matcher が足すのは *独立した導出* ではなく *独立した面* である: 同じ RouteLanePlan から
+      出た値が OSI/HVD 面へも同じ形で出ていること、そしてその参照先の論理レーンが実在し
+      前後に繋がっていることまでを見る。両者は同じ計画に由来するので、**これは正しさの
+      二重確認ではなく、公開面と内部面が食い違っていないことの確認**である。
+      段 b/c/d/e はこの辺の主張の外。どの段を検証済みかは要求側の
+      acceptance_ladder[].verified_by が持つ。

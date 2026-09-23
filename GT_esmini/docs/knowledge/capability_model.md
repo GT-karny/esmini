@@ -384,7 +384,7 @@ ManualDrive 忠実度・Kinematic は deferred（実車比較データ等の前�
 | **W1** | `ControllerVirtualDriver::GetADASStates` は **空のスタブ**（`ControllerVirtualDriver.hpp:66`）。`GT_esminiLib.cpp:1458-1490` は `size()>=24` のときだけ転送するため、**VD は AD機能状態を OSI に1つも出していない** | **AEB(FUNC-001, 実装済・テスト緑)ですら外から作動を観測できない**。規格に正欄があるのに空＝④観測の(b)未配線の最大例 | **実装済** |
 | **W2** | `PolicyConstraint` は `tier`(SAFETY/COMPLIANCE/COURTESY/COMFORT) を持つが `VirtualDriverTelemetryJson.cpp:81-82` が **JSON化時に tier を落としている** | tier調停の結果が外から見えない。**1行の欠落**で AEB の「安全層として効いたのか」が検証不能 | **実装済** |
 | **W3** | `AebSafety.cpp:114-127` の `ttc` / `a_req` は **ローカル const のまま破棄**。生き残るのは bool 結果のみ | 「なぜ作動した/しなかった」の切り分け不能 | **実装済** |
-| **W4** | `custom_detail` / `custom_state` / `DriverOverride` / 実 `Name` 列挙（常に `NAME_OTHER` 固定）/ `route` / `vehicle_motion.current_curvature` が **populate されていない**（`GT_HostVehicleReporter.cpp:343-350`） | HVD 側の未使用余地。(a)/(a') の受け皿はここ | **一部**（`custom_detail` と実 `Name` 列挙は W1/W3 で解消。`custom_state`/`DriverOverride`/`route`/`current_curvature` は未着手） |
+| **W4** | `custom_detail` / `custom_state` / `DriverOverride` / 実 `Name` 列挙（常に `NAME_OTHER` 固定）/ `route` / `vehicle_motion.current_curvature` が **populate されていない**（`GT_HostVehicleReporter.cpp:343-350`） | HVD 側の未使用余地。(a)/(a') の受け皿はここ | **一部**（`custom_detail` と実 `Name` 列挙は W1/W3 で解消。**`route` は `spine-work:osi-logical-lane` で解消（2026-09-24）** — OSI 論理レーン面を新設したうえで populate し、`gate:route-lane-regression` の `matcher:route_matches_plan` で常設。`custom_state`/`DriverOverride`/`current_curvature` は未着手） |
 
 ##### 実装（2026-07-20, VD側 W1-W3）
 
@@ -1013,6 +1013,18 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
   それが「フラグが読まれていないだけ」ではないことを 5 資産で同時に実測した
   （`scripts/probe_osi_logical_lane_size.py`）。同時に、設計が upstream の assert から逆算していた
   「静的 GT が 2〜3 倍」を実測値へ置き換えた。
+  **S1 / S4 / S2.5 / S2.5b / S3 / S2 完了（2026-09-24）**: 参照線・論理レーン本体・`route`・
+  `LogicalLaneAssignment`（参照点は bbox 中心）・論理境界（ここで既定 ON へ反転）・
+  前後接続と横隣接まで揃い、**規格として完結**した。連結性の実測は
+  `scripts/probe_osi_logical_lane_connectivity.py`（5 資産、参照の閉包 1,268/1,268、
+  接続路レーン 76/76 に pred と succ、隣接ペアの境界 XY 最大 0.0000 m）。
+  **S5 完了（2026-09-24）**: `signal:logical_lane_topology` / `logical_lane_assignment` /
+  `ego_route_lane_segments` を台帳へ起こし、`matcher:route_matches_plan` を
+  `gate:route-lane-regression` へ相乗りさせて常設化した（新規バッチは作らない）。
+  **W4 の `route` 行はこれで閉じた。**
+  残る穴は `signal:logical_lane_assignment` で、emit はされているが読む matcher が無い＝
+  ④(b)。閉じるには「交差点内で L1 が接続路レーンを名指す」ことを判定する matcher が要る
+  （現状は `scripts/probe_osi_logical_lane_assignment.py` の手動プローブが持つ）。
 
 ### 7.1 命名規約（2026-07-20 制定・`spine-work:derived-report-lint` で機械化）
 

@@ -1,6 +1,6 @@
 # OSI 論理レーンと HostVehicleData.route — 実装設計
 
-> ステータス: **T / S0 / S1 / S4 / S2.5 / S2.5b / S3 / S2 完了（2026-09-24）。残り S5**。
+> ステータス: **全段完了（T / S0 / S1 / S4 / S2.5 / S2.5b / S3 / S2 / S5、2026-09-24）。リリース待ち**。
 > 現状と規格の突き合わせは
 > [`logical_lane_and_route.md`](logical_lane_and_route.md)。本書はそれを前提に、
 > 何をどこへどう書くかを決める。
@@ -798,15 +798,15 @@ bool GetUseOsiLogicalLane()
 | ~~**S2.5**~~ **✅ 完了 2026-09-24** | L1 `LogicalLaneAssignment`（§2-6-1）＋ **L1-b 車線跨ぎの複数割り当て**（§10-7） | 1 日 | **全オブジェクトの論理レーン相対 s / t / 向きが出る**。交差点内でも車線が個別に引ける（`signal:ego_lane` の join 欠けが論理レーン面で埋まる）。車線変更中は両方のレーンに割り当たる |
 | ~~**S3**~~ **✅ 完了 2026-09-24** | 論理境界（ST 化・合成・`passing_rule`）＋ 既定 ON へ反転 | 2〜3 日 | **規格の必須参照が全部埋まる**。外部の OSI 準拠チェッカを通せる。サイズはここで最大になる |
 | ~~**S4**~~ **✅ 完了 2026-09-24** | HVD `route` ＋ L2 経路進捗（§2-6-2）。**T が入っていること** | 2 日 | **目的達成**。`capability_model.md` W4 の `route` が閉じる。S2.5 と揃えば `route` × L1 の合成で経路相対位置が外から出せる |
-| **S5** | signal 登録 / matcher / ゲート常設化（§9） | 1.5〜2 日 | **回帰で守られる**。両極性を実証してから緑にする |
+| ~~**S5**~~ **✅ 完了 2026-09-24** | signal 登録 / matcher / ゲート常設化（§9） | 1.5〜2 日 | **回帰で守られる**。両極性を実証してから緑にする |
 
-**合計 11.5〜15.5 日**（`overlapping_lane` / L3 を除く）。**残り S5 = 1.5〜2 日。**
+**合計 11.5〜15.5 日**（`overlapping_lane` / L3 を除く）。**全段完了（2026-09-24）。**
 
 段の ID は実行順ではない（§7.1 の「順序は ID でなく依存で表す」）。依存は §8-1、実行順は次節。
 
 ### 8-α. 実行順とリリース線（2026-09-24 決定）
 
-**S4 → S2.5 → S2.5b → S3 → S2 → S5 → リリース。** 残り **1.5〜2 日**（S4・S2.5・S2.5b・S3・S2 完了、2026-09-24）。
+**S4 → S2.5 → S2.5b → S3 → S2 → S5 → リリース。** **全段完了（2026-09-24）。次はリリース。**
 
 一度は「S2 を後回しにして早期リリース」も検討したが、**論理レーン層を規格として完結させてから
 1 度で出す**ことにした。段ごとの根拠は次のとおり。
@@ -1343,6 +1343,85 @@ multi_intersections の内訳は接続 480 件（`LaneConnection` = id + bool、
    隣接する 2 レーンは 166/286 組で境界 id を共有しており、残り 120 組も XY が一致する。
    つまり隣接は境界から再構成できる（§8-α で S2 を最後に置いた理由そのもの）。
    OSI の中に代替の手がかりが無いのは前後接続だけである。
+
+#### S5（2026-09-24）— 常設化
+
+置いたもの（3 コミットに分けた。KG の lint と回帰ゲートは別々に落ちうるため）:
+
+| コミット | 追加/変更 | 何 |
+| :-- | :-- | :-- |
+| ② | `signal_catalog.yaml` | `logical_lane_topology` / `logical_lane_assignment` / `ego_route_lane_segments` を exposure / state 付きで収載 |
+| ② | `namespaces.yaml` | `matcher` の列挙 `id_pattern` に `route_matches_plan`、`count: 35 → 36` |
+| ② | `vd_metrics.py` | matcher `route_matches_plan` 本体 |
+| ② | `gt_sim_test.py` | 静的 scene キーに `logical_lanes` を追加（前方充填）、VirtualDriver 側でも osi capture 時に HVD を取る |
+| ② | 新規 `test_route_matches_plan.py` | 単体両極性 17 ケース（緑 11・赤 6） |
+| ③ | `route_lane_batch.yaml` | `osi: false → true` |
+| ③ | `06_route_lane/*.expectations.yaml` | `route_matches_plan` の must を 6 本へ配分（うち 1 本は負の対照） |
+| ③ | `route_lane_expected.yaml` | ベースライン再凍結（15 matcher 追加） |
+| ③ | `gate_catalog.yaml` | `gate:route-lane-regression` の covers / not_covers / requires / 昇格手順 |
+| ③ | `run_odr_conformance.py` | OSI 抽出の拡張 C（`osi_dump_logical_lanes`、opt-in） |
+| ④ | `graph.yaml` | 縦串 5 辺（observes ×3 / sustained-by / verifies） |
+| ④ | `capability_model.md` | §2.2a **W4 の `route` 行を解消**、`spine-work:osi-logical-lane` の進捗 |
+
+**設計との差分（コードが正、本書をコードに合わせた）**:
+
+1. **matcher は 1 本だが、読む signal は 3 つになった。** §9 は
+   「HVD の `route` と telemetry の `route_lane` が同じ経路を指していること」とだけ書いていたが、
+   それだけでは**参照先が実在するか**を見ていない。`route` は論理レーン id の列なので、
+   id が実在しなくても well-formed な message になる。`signal:logical_lane_topology` を
+   同時に読んで閉包と連結を見ないと、S2 で入れた連結性は常設で 1 バイトも踏まれない。
+2. **ハーネスに配線が 2 本要った。** §9 はこれを見積もっていなかった。
+   - `GroundTruth.logical_lane[]` は**静的 GT の第 1 レコードにしか出ない**ので、
+     `gt_sim_test.py` の `_STATIC_SCENE_KEYS` に入れて前方充填しないと matcher は常に空を見る。
+   - `HostVehicleData` は **ManualDrive 経路でしか取っていなかった**。VirtualDriver 側でも
+     osi capture 時に取るようにした（`route` は HVD にしか載らないため）。
+3. **ODR 適合の拡張 C は入れたが、どのフィクスチャでも有効にしていない**（§9 の注を参照）。
+   有効化＝そのフィクスチャのゴールデンの書き直しで、いま 13 件が本作業と無関係に stale なため。
+   そもそも OSI 層は `--profile full` でしか走らず、回帰ゲート Step 1.5 は quick・CI は schema 層
+   だけなので、**有効化しても常設ゲートにはならない**。常設で踏むのは ③ の matcher のほう。
+
+**実測（受入基準ごと）**:
+
+| 受入基準 | 実測 |
+| :-- | :-- |
+| 新 matcher が ON で緑 | 6 シナリオ 15 must すべて pass。実データで 53 論理レーン・経路 4 セグメント（road0 lane-4 ×2 セクション → road4 接続路 → road2）、閉包は最大 3,320 id / run、連結は最大 2,480 seam / run |
+| **意図的な違反データで赤になる** | `test_route_matches_plan.py` に 6 赤。中核は **「経路はそのまま・トポロジから `succ`/`pred` を抜く」**で、経路の形も長さも変わらないのに fail になる＝件数型の判定が見逃す欠陥を捕まえている。ほかに dangling id・セクション飛ばし・両面のレーン集合不一致・経路が出ない・`expect_route_present: false` の逆向き |
+| vacuous pass の封じ | 4 ケースが skip（`must` が何も指定しない／`scene.logical_lanes` が無い＝`osi: false`／`hvd.route` が無い／セグメントが 1 本しかなく継ぎ目を 1 つも見ていない）。**いずれも pass にしない** |
+| 負の対照が実バッチにあること | `merge_required_for_exit_ramp` が `expect_route_present: false`。実測 **0/840 フレーム**が経路を持たず、兄弟 5 本は 533〜840 フレームで持つ。esmini が粗い 2 WP 経路を無効と判定するため |
+| ベースライン凍結の前提（自己決定論性） | バッチを **3 回連続実行**し、6 シナリオ × 全 matcher の `(event, status, detail)` が**完全一致**（`detail` はフレーム数を含む文字列なので、数が 1 つでも動けば差が出る） |
+| ベースライン凍結の前提（比較器の発火） | 凍結前に 15 件の `matcher_added` を検出（exit 1）。凍結後、**別 run** に対して deviations=0。そのうえで記録済み `route_matches_plan` の status を 1 つ反転させて **deviations=1 / exit 1**（`regression (expected=pass actual=fail)`） |
+| ODR 拡張 C の両極性 | fabriksgatan で OFF＝鍵が 1 つも増えない（抽出はバイト同一）、ON＝`logical_lane_count=44 / logical_lane_boundary_count=72 / reference_line_count=16`（連結性プローブの実測と一致） |
+| `--spine-report` の動き | ④観測欠 (b) が **19 → 20**（総数 118 → 119）。**予想と逆に増えた**。下の「台帳の数え方」を参照 |
+| lint / `--render` | 両方グリーン |
+| 既定 ON で `/gates` | **PASS**（unit 35/35 / ODR quick / behavioral 67/67 deviation 0、route_lane 6/6 を含む） |
+
+**台帳の数え方を取り違えた（実測して直した）**:
+
+`--spine-report` の ④(b) は **`signal_catalog.yaml` の `state` 欄だけで数えている**。
+`observes` 辺の有無は見ていない（見ているのは「`state` が (b) なのに配線がある」の側だけ）。
+当初 3 signal をすべて `state: "●"` で収載したため、**どれ 1 つとして台帳に現れず**、
+辺を 5 本張っても件数は 19 のまま動かなかった。
+
+そこで `logical_lane_assignment` を **`(b)` へ直した**。emit はされているが読む matcher が
+無いのは事実で、`"●"` と書くのは穴を台帳から消す行為だった。結果 19 → 20。
+**増えたのが正しい動き**である。残り 2 本（`logical_lane_topology` /
+`ego_route_lane_segments`）は matcher と gate まで届いているので `"●"` のままで、
+台帳には元々現れない。
+
+> **検知器の非対称**: 台帳は「`(a)` なのに観測する matcher がある」（楽観の逆向き）は検査するが、
+> **「`"●"` なのに誰も読んでいない」は検査しない**。実測すると `"●"` 31 本のうち 10 本に
+> `observes` 辺が無く（`ego_orientation` のように `_ego_state` 経由で判定へ届いている正当な例を含む）、
+> 一律の lint にすると警報疲れを招く。**今回は lint を足さず、記帳を正した。**
+> ただし「`"●"` は自己申告であり、台帳はそれを検査していない」ことは覚えておくこと。
+
+**常設ゲートが踏まないもの（`gate_catalog.yaml` の `not_covers` と同じ内容。ここに書いておく）**:
+
+- 境界（`logical_lane_boundary[]` の被覆・共有・5cm 整合）と `at_begin_of_other_lane` の両極性は
+  **手動プローブだけ**が持つ（`probe_osi_logical_lane_{boundary,connectivity}.py`、5 資産）。
+- 横隣接と向きの正しさはユニット（傘バイナリ＝Step 1 で常設）が持つ。
+- 常設ゲートが踏む道路は `highway_example_with_merge_and_split.xodr` **1 資産だけ**。
+  multi_intersections 規模の交差点連結は常設では守られていない。
+- `signal:logical_lane_assignment`（L1）は読む matcher が無く ④(b) のまま。
 
 ### 8-1. 依存関係 — 逐次なのは S0 → S1 までで、その先は扇形に開く
 
