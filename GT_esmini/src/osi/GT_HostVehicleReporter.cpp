@@ -515,12 +515,27 @@ void GT_HostVehicleReporter::FillRoute(osi3::HostVehicleData& hv_data, const sce
         route_cache_->route_id  = ++route_cache_->next_route_id;
     }
 
+    // The route is clipped at the ego's OSI REFERENCE POINT (bounding-box centre),
+    // the same point base.position and LogicalLaneAssignment.s_position report
+    // (design 2-6-1). Clipping at the entity origin instead would start the first
+    // segment one centre offset -- 1.4 m for the shipped catalogue car -- BEHIND the
+    // point L1 reports the vehicle at, so composing route x L1 to get a
+    // route-relative position would step by that much at every segment seam.
+    roadmanager::Position ref_pos;
+    osi::ResolveOsiReferencePoint(egoObj->pos_,
+                                  {egoObj->boundingbox_.dimensions_.length_,
+                                   egoObj->boundingbox_.dimensions_.width_,
+                                   egoObj->boundingbox_.center_.x_,
+                                   egoObj->boundingbox_.center_.y_,
+                                   egoObj->boundingbox_.center_.z_},
+                                  &ref_pos);  // falls back to a copy of pos_ when it cannot resolve
+
     // Re-expanded every frame, on purpose: the expansion is clipped to the ego's
     // current s, so unlike the plan it is not constant while the route is. It is also
     // where the logical-lane ids are resolved, which keeps the published ids valid
     // across a scenario reload that renumbered them.
     const std::vector<osi::RouteSectionSegment> segments =
-        osi::ExpandRouteLanePlan(*route, egoObj->pos_, route_cache_->plan, osi::RouteExpansionStart::EgoPosition);
+        osi::ExpandRouteLanePlan(*route, ref_pos, route_cache_->plan, osi::RouteExpansionStart::EgoPosition);
 
     const osi::LogicalLaneIndex& index = osi::GetLogicalLaneIndex();
 

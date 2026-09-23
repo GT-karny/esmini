@@ -5,7 +5,8 @@
  * the ScenarioEngine swap zone rather than in GT_esminiLib, and why the pass runs
  * last in the static ground-truth build.
  *
- * STAGE: S2.5 -- adds LogicalLaneAssignment (design 2-6-1) on top of S1.
+ * STAGE: S2.5b -- LogicalLaneAssignment (design 2-6-1) on top of S1, reported at
+ * the OSI reference point (bounding-box centre) rather than the entity origin.
  *
  * S1 -- reference lines (design 2-1), logical lane bodies (2-2) and the
  * (road, lane section, lane) -> logical lane id index (3). Connectivity
@@ -448,6 +449,57 @@ void BuildOsiLogicalLanes(roadmanager::OpenDrive* opendrive)
 // L1 / L1-b -- LogicalLaneAssignment (design 2-6-1)
 // ---------------------------------------------------------------------------
 
+bool ResolveOsiReferencePoint(const roadmanager::Position& pos, const ObjectBox& box, roadmanager::Position* out)
+{
+    if (out == nullptr)
+    {
+        return false;
+    }
+
+    // Duplicate first, unconditionally: the caller's fallback contract is "use pos",
+    // and handing back a copy of pos in the short-circuit below means the caller can
+    // read `out` the same way in every branch.
+    //
+    // Duplicate copies the road caches (track_idx_ / lane_section_idx_ / osi_point_idx_)
+    // and deliberately does NOT copy route_, so the copy neither owns nor frees the
+    // caller's route -- Position's destructor deletes route_, and a copy that shared it
+    // would delete the simulation's own route when it went out of scope.
+    out->Duplicate(pos);
+
+    double dx = 0.0, dy = 0.0, dz = 0.0;
+    RotateVec3d(pos.GetH(), pos.GetP(), pos.GetR(), box.center_x, box.center_y, box.center_z, dx, dy, dz);
+    if (std::fabs(dx) < SMALL_NUMBER && std::fabs(dy) < SMALL_NUMBER)
+    {
+        // Origin IS the box centre (pedestrians, and any catalogue entry authored that
+        // way). Returning pos's own s/t bit for bit is both cheaper and exact; a
+        // round-trip through XYZ2TrackPos would re-derive them and could land a ULP off.
+        return true;
+    }
+
+    // Pinned to the entity's own road (design 2-6-1): s/t have to be on the reference
+    // line of the lane the assignment names. With a roadId given, XYZ2TrackPos looks at
+    // that one road only, so this is also the cheapest form of the call.
+    //
+    // Z_ABS is forced rather than inherited: the mode the entity carries may be Z_REL,
+    // under which XYZ2TrackPos reads the z argument as GetZ() + z and would double the
+    // elevation. z only ever breaks ties between vertically stacked roads (the search
+    // ignores differences below 2 m), and there is exactly one road in the search here,
+    // so it cannot change the answer -- but a doubled z can, on a steep grade.
+    const int mode = (pos.GetMode(roadmanager::Position::PosModeType::SET) & ~roadmanager::Position::PosMode::Z_MASK) |
+                     roadmanager::Position::PosMode::Z_ABS;
+
+    const roadmanager::Position::ReturnCode rc =
+        out->XYZ2TrackPos(pos.GetX() + dx, pos.GetY() + dy, pos.GetZ() + dz, mode, false, pos.GetTrackId());
+    if (static_cast<int>(rc) < 0 || out->GetTrackId() != pos.GetTrackId())
+    {
+        // Could not be placed on the entity's road at all. Restore the origin rather
+        // than report ST from some other road's reference line.
+        out->Duplicate(pos);
+        return false;
+    }
+    return true;
+}
+
 std::vector<LogicalLaneAssignmentEntry> ComputeLogicalLaneAssignments(const roadmanager::Position& pos,
                                                                      const ObjectBox&             box,
                                                                      const LogicalLaneIndex&      index)
@@ -505,6 +557,17 @@ std::vector<LogicalLaneAssignmentEntry> ComputeLogicalLaneAssignments(const road
     const int    anchor_lane_id  = pos.GetLaneId();
     bool         anchor_resolved = false;
 
+    // WHAT IS EMITTED is measured at the OSI reference point -- the bounding-box
+    // centre, which is what base.position carries and what the proto calls "the
+    // object reference point". WHICH LANES ARE OVERLAPPED, and the lane section they
+    // are looked up in, stay anchored on the entity ORIGIN above: that is where the
+    // physical assigned_lane_id comes from, so keeping both faces on the same
+    // Position is what makes entry [0] agree with it. Design 2-6-1.
+    roadmanager::Position ref_pos;
+    const bool            ref_ok = ResolveOsiReferencePoint(pos, box, &ref_pos);
+    const double          ref_s  = ref_pos.GetS();
+    const double          ref_t  = ref_pos.GetT();
+
     for (idx_t k = 0; k < lsec->GetNumberOfLanes(); k++)
     {
         roadmanager::Lane* lane = lsec->GetLaneByIdx(k);
@@ -535,15 +598,18 @@ std::vector<LogicalLaneAssignmentEntry> ComputeLogicalLaneAssignments(const road
         LogicalLaneAssignmentEntry e;
         e.assigned_lane_id = it->second;
         // Same s/t/angle on every entry: one reference line per road (design 2-1),
-        // and every overlapped lane is in this one lane section. The proto expects
-        // exactly that -- s_position "might be outside [s_start,s_end] of the lane
-        // ... if the reference point is outside the lane, but the object overlaps".
-        e.s_position    = s;
-        e.t_position    = t;
+        // and every overlapped lane is in this one lane section. The reference point
+        // may well sit outside the lane named here, and outside its [start_s, end_s]
+        // -- the proto says so in as many words: s_position "might be outside
+        // [s_start,s_end] of the lane ... if the reference point is outside the lane,
+        // but the object overlaps".
+        e.s_position    = ref_s;
+        e.t_position    = ref_t;
         e.angle_to_lane = h_rel;
         e.lane_id       = lane_id;
         e.overlap_m     = overlap;
         e.is_anchor     = is_anchor;
+        e.ref_point_ok  = ref_ok;
         out.push_back(e);
         anchor_resolved = anchor_resolved || is_anchor;
     }

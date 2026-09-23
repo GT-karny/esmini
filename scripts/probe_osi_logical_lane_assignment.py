@@ -4,11 +4,32 @@
 Everything here is measured against a running binary; nothing is taken from the
 design document. What only a real run can answer:
 
-  1. ST VERBATIM. moving_object_classification.logical_lane_assignment[].s_position
-     / t_position must be the object's own Position s / t, for EVERY object and
-     EVERY frame. The cross-check comes from SE_GetObjectState, a completely
-     different code path out of the DLL, so this measures agreement between two
-     faces rather than a value against itself.
+  1. THE REFERENCE POINT (S2.5b). osi_common.proto puts BaseMoving.position at
+     "the center (x,y,z) of the bounding box" and LogicalLaneAssignment.s_position
+     at "the object reference point", so the assignment's ST must be the ST of the
+     BOX CENTRE -- not of the entity origin, which esmini places at the rear axle,
+     1.4 m behind it for the shipped catalogue car.
+
+     Measured as a round trip through a SECOND DLL: esminiRMLib, its own RoadManager
+     instance, converts (roadId, s_position, t_position) back to world XY, and the
+     result is compared against moving_object.base.position, which the reporter
+     wrote from a different code path (Position::GetOsiX/Y). Three numbers come out
+     of the same loop:
+
+       rt_floor   the INSTRUMENT'S OWN residual at the very same point: esminiRMLib
+                  forward-maps base.position to road coordinates and converts that
+                  straight back to XY. ST->XY is exact geometry while XY->ST walks
+                  the OSI polyline, so the two do not close perfectly, and the gap
+                  has to be measured rather than assumed to be zero. (The obvious
+                  alternative floor -- round-tripping the entity origin's own s/t --
+                  is a tautology: the origin's XY was DERIVED from that s/t, so it
+                  closes at 0 and measures nothing.)
+       rt_centre  the claim. Must be no worse than rt_floor.
+       rt_cross   the NEGATIVE CONTROL: the origin's s/t against the box centre's
+                  XY. Must come out at roughly centerOffsetX, i.e. the check has to
+                  be able to tell the two points apart at all.
+       rt_ds      esminiRMLib's OWN s for the box centre against s_position. Two
+                  RoadManager instances resolving the same world point.
 
   2. THE JUNCTION CLAIM, BOTH FACES AT ONCE. On an OSI-intersection connecting
      road the PHYSICAL assigned_lane_id is the fused junction id -- that is why
@@ -69,6 +90,11 @@ FIXTURES = [
     ("highway_driver", "resources/xosc/highway_driver.xosc", 20.0),
 ]
 
+# The independent instrument for check 1. A different DLL with its own RoadManager,
+# so nothing in the comparison shares state with the reporter that produced the
+# message. Built by the same Protocol A run as GT_esminiLib.
+DEFAULT_RM_DLL = os.path.join(_REPO_ROOT, "build", "GT_esmini", "Release", "esminiRMLib.dll")
+
 # Entities of cut-in.xosc, and what each one must do. Named explicitly: "some
 # entity straddled somewhere" is not the claim -- the one that changes lanes must,
 # and the one that does not must not.
@@ -76,7 +102,7 @@ CUT_IN_EXPECT = {"OverTaker": "straddles", "Ego": "never straddles"}
 
 
 _WORKER = r'''
-import sys, os, json, ctypes
+import sys, os, json, math, ctypes
 REPO_ROOT = %(repo)r
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))          # esmini osi3 bindings
 sys.path.insert(0, os.path.join(REPO_ROOT, "GT_esmini", "scripts", "verification"))
@@ -85,6 +111,7 @@ out      = %(out)r
 osi_file = %(osi_file)r
 runs     = %(runs)r      # [[label, xosc, max_time], ...] -- each in ONE process
 dll      = %(dll)r
+rm_dll   = %(rm_dll)r
 
 
 class SE_ScenarioObjectState(ctypes.Structure):
@@ -123,7 +150,11 @@ try:
     import osi3.osi_lane_pb2 as lanepb
     from gt_lib import GtLib
 
+    sys.path.insert(0, os.path.join(REPO_ROOT, "GT_esmini", "scripts"))
+    from rm_lib import EsminiRMLib
+
     gt = GtLib(dll_path=dll)
+    gt.lib.SE_GetODRFilename.restype = ctypes.c_char_p
     gt.lib.SE_GetObjectState.argtypes = [ctypes.c_int, ctypes.POINTER(SE_ScenarioObjectState)]
     gt.lib.SE_GetObjectState.restype = ctypes.c_int
     gt.lib.SE_GetNumberOfObjects.restype = ctypes.c_int
@@ -137,6 +168,12 @@ try:
              "osi_intersection_lanes": 0,
              "assignments": 0, "dangling": 0,
              "st_compared": 0, "st_max_ds": 0.0, "st_max_dt": 0.0,
+             "rt_compared": 0, "rt_skipped_no_rm": 0,
+             "rt_centre_max": 0.0, "rt_floor_max": 0.0, "rt_cross_min": None,
+             "rt_clamped_frames": 0, "rt_clamped_max": 0.0,
+             "rt_centre_max_unclamped": 0.0, "rt_negative_control_frames": 0,
+             "rt_ds_compared": 0, "rt_ds_max": 0.0, "rt_worst": [],
+             "odr": None, "rm_init_rc": None,
              "angle_min": None, "angle_max": None,
              "jct_object_frames": 0, "jct_logical_is_junction_id": 0,
              "jct_logical_road_matches": 0, "jct_logical_resolved": 0,
@@ -149,6 +186,61 @@ try:
             res["runs"].append(r)
             continue
         gt.set_osi_frequency(1)
+
+        # The second RoadManager. Init'd from the scenario's own xodr, resolved out
+        # of the running DLL rather than hard-coded per fixture.
+        rm = None
+        rm_handle = -1
+        road_len = {}
+        try:
+            odr = gt.lib.SE_GetODRFilename()
+            r["odr"] = odr.decode("utf-8") if odr else None
+            if r["odr"]:
+                rm = EsminiRMLib(rm_dll)
+                r["rm_init_rc"] = rm.Init(r["odr"])
+                if r["rm_init_rc"] == 0:
+                    rm_handle = rm.CreatePosition()
+                    for ri in range(rm.GetNumberOfRoads()):
+                        rid = rm.GetIdOfRoadFromIndex(ri)
+                        road_len[rid] = rm.GetRoadLength(rid)
+                else:
+                    rm = None
+        except Exception as exc:                      # noqa: BLE001
+            r["error"] = "rm init failed: %%s" %% exc
+            rm = None
+
+        def round_trip(road_id, s_val, t_val):
+            """(road, s, t) -> world XY through the OTHER DLL. None when unusable."""
+            if rm is None or rm_handle < 0:
+                return None
+            if rm.SetRoadPosition(rm_handle, road_id, s_val, t_val) != 0:
+                return None
+            rc, data = rm.GetPositionData(rm_handle)
+            if rc != 0:
+                return None
+            return (data.x, data.y)
+
+        def forward(x, y, z, hdg):
+            """world XY -> road coords -> world XY, both legs inside the OTHER DLL.
+
+            The return trip goes through the LANE form (road, lane, laneOffset, s),
+            which is the complete road-frame description RM_GetPositionData hands
+            back -- RM_PositionData carries no t, so the (road, s, t) form cannot be
+            used to close this particular loop.
+            """
+            if rm is None or rm_handle < 0:
+                return None, None
+            if rm.SetWorldXYZHPosition(rm_handle, x, y, z, hdg) != 0:
+                return None, None
+            rc, fwd = rm.GetPositionData(rm_handle)
+            if rc != 0:
+                return None, None
+            if rm.SetLanePosition(rm_handle, fwd.roadId, fwd.laneId, fwd.laneOffset, fwd.s) != 0:
+                return None, fwd
+            rc2, back = rm.GetPositionData(rm_handle)
+            if rc2 != 0:
+                return None, fwd
+            return (back.x, back.y), fwd
 
         # The static GroundTruth lives in exactly one place: the FIRST record of the
         # .osi file (S0 hand-off 4 -- SE_GetOSIGroundTruth returns dynamic_gt only).
@@ -234,8 +326,56 @@ try:
                     st = se.get(ent_id)
                     if st is not None:
                         r["st_compared"] += 1
+                        # No longer an equality: this is the measured shift from the
+                        # entity origin to the reference point.
                         r["st_max_ds"] = max(r["st_max_ds"], abs(a.s_position - st.s))
                         r["st_max_dt"] = max(r["st_max_dt"], abs(a.t_position - st.t))
+
+                # ROUND TRIP -- once per object-frame, on the anchor entry (every
+                # entry of a frame carries the same s/t by construction).
+                st = se.get(ent_id)
+                if assigns and st is not None:
+                    a0 = assigns[0]
+                    if rm is None:
+                        r["rt_skipped_no_rm"] += 1
+                    else:
+                        bx, by, bz = mo.base.position.x, mo.base.position.y, mo.base.position.z
+                        centre = round_trip(st.roadId, a0.s_position, a0.t_position)
+                        origin = round_trip(st.roadId, st.s, st.t)
+                        floor_xy, fwd = forward(bx, by, bz, st.h)
+                        if centre is not None and origin is not None and floor_xy is not None:
+                            r["rt_compared"] += 1
+                            e_centre = math.hypot(centre[0] - bx, centre[1] - by)
+                            e_floor = math.hypot(floor_xy[0] - bx, floor_xy[1] - by)
+                            e_cross = math.hypot(origin[0] - bx, origin[1] - by)
+                            r["rt_centre_max"] = max(r["rt_centre_max"], e_centre)
+                            r["rt_floor_max"] = max(r["rt_floor_max"], e_floor)
+                            # Saturation at a road end is the one place the reference
+                            # point is deliberately NOT where the box centre is
+                            # (design 10-15). Counted, never quietly excluded.
+                            rl = road_len.get(st.roadId)
+                            clamped = rl is not None and (a0.s_position >= rl - 1e-6 or a0.s_position <= 1e-6)
+                            if clamped:
+                                r["rt_clamped_frames"] += 1
+                                r["rt_clamped_max"] = max(r["rt_clamped_max"], e_centre)
+                            else:
+                                r["rt_centre_max_unclamped"] = max(r["rt_centre_max_unclamped"], e_centre)
+                                # Keep the worst handful with enough context to
+                                # attribute them, rather than only a maximum.
+                                r["rt_worst"].append(
+                                    [round(e_centre, 6), round(e_floor, 6), int(st.roadId),
+                                     round(a0.s_position, 3), round(rl, 3) if rl else None,
+                                     round(t, 2)])
+                                r["rt_worst"] = sorted(r["rt_worst"], reverse=True)[:5]
+                            # Two RoadManagers resolving the same world point.
+                            if fwd is not None and fwd.roadId == st.roadId:
+                                r["rt_ds_compared"] += 1
+                                r["rt_ds_max"] = max(r["rt_ds_max"], abs(fwd.s - a0.s_position))
+                            # Negative control only where the two points differ at all.
+                            if abs(st.centerOffsetX) >= 1.0:
+                                r["rt_negative_control_frames"] += 1
+                                r["rt_cross_min"] = e_cross if r["rt_cross_min"] is None \
+                                    else min(r["rt_cross_min"], e_cross)
 
                 if in_junction and assigns:
                     lid = assigns[0].assigned_lane_id.value
@@ -250,6 +390,11 @@ try:
         for k, v in counts.items():
             r["per_entity"][k] = {"frames": len(v), "min": min(v) if v else 0,
                                   "max": max(v) if v else 0, "rle": rle(v)[:40]}
+        if rm is not None:
+            try:
+                rm.Close()
+            except Exception:                         # noqa: BLE001
+                pass
         gt.close()
         res["runs"].append(r)
 except Exception as exc:                              # noqa: BLE001
@@ -261,7 +406,7 @@ with open(out, "w") as fh:
 '''
 
 
-def _run_worker(dll, runs, flag_on):
+def _run_worker(dll, runs, flag_on, rm_dll=DEFAULT_RM_DLL):
     """One subprocess per polarity, so the GT_OSI_LOGICAL_LANE latch is fresh."""
     out_fd, out_path = tempfile.mkstemp(suffix=".json")
     os.close(out_fd)
@@ -272,6 +417,7 @@ def _run_worker(dll, runs, flag_on):
         "osi_file": osi_path,
         "runs": runs,
         "dll": dll,
+        "rm_dll": rm_dll,
     }
     py_fd, py_path = tempfile.mkstemp(suffix=".py")
     with os.fdopen(py_fd, "w") as fh:
@@ -351,10 +497,40 @@ def main():
               "%d/%d assigned_lane_id resolve in logical_lane[]"
               % (r["assignments"] - r["dangling"], r["assignments"]))
 
-        # 1. ST verbatim -- against SE_GetObjectState, not against itself.
-        check("%s.st_verbatim" % label, r["st_max_ds"] == 0.0 and r["st_max_dt"] == 0.0,
-              "max |s_position - SE.s| = %.3g m, max |t_position - SE.t| = %.3g m over %d comparisons"
-              % (r["st_max_ds"], r["st_max_dt"], r["st_compared"]))
+        # 1. The reference point, measured through esminiRMLib against base.position.
+        if r["rt_compared"] == 0:
+            check("%s.reference_point" % label, False,
+                  "no round trips completed (rm_init_rc=%s odr=%s skipped=%d)"
+                  % (r["rm_init_rc"], r["odr"], r["rt_skipped_no_rm"]))
+        else:
+            # The claim: resolving the BOX CENTRE costs no more than the instrument's
+            # own XY -> ST -> XY residual at the same point.
+            budget = r["rt_floor_max"] + 1e-3
+            check("%s.reference_point_is_the_box_centre" % label,
+                  r["rt_centre_max_unclamped"] <= budget,
+                  "round trip (roadId, s_position, t_position) -> XY vs base.position: "
+                  "max %.4g m over %d comparisons (instrument's own XY->ST->XY residual at the "
+                  "same point: %.4g m; budget %.4g m); %d frames saturated at a road end, "
+                  "max %.3g m there; worst unclamped [err, floor, road, s, road_len, t]: %s"
+                  % (r["rt_centre_max_unclamped"], r["rt_compared"], r["rt_floor_max"],
+                     budget, r["rt_clamped_frames"], r["rt_clamped_max"], r["rt_worst"][:3]))
+            check("%s.two_roadmanagers_agree_on_s" % label,
+                  r["rt_ds_compared"] > 0 and r["rt_ds_max"] <= 1e-6,
+                  "max |esminiRMLib.s(base.position) - s_position| = %.3g m over %d frames"
+                  % (r["rt_ds_max"], r["rt_ds_compared"]))
+            # The negative control, in the same units, from the same loop.
+            if r["rt_negative_control_frames"] == 0:
+                check("%s.origin_would_fail" % label, False,
+                      "no entity with a non-zero centerOffsetX -- the check cannot "
+                      "distinguish the two points on this fixture")
+            else:
+                check("%s.origin_would_fail" % label,
+                      r["rt_cross_min"] is not None and r["rt_cross_min"] > 10.0 * budget,
+                      "same round trip fed the ORIGIN's s/t misses base.position by "
+                      "at least %.4g m over %d frames (must exceed 10x the budget, %.4g m)"
+                      % (r["rt_cross_min"] or 0.0, r["rt_negative_control_frames"], 10.0 * budget))
+            print("     shift origin -> reference point: max |ds| = %.3f m, max |dt| = %.3f m over %d assignments"
+                  % (r["st_max_ds"], r["st_max_dt"], r["st_compared"]))
 
         # angle_to_lane must be wrapped; an unwrapped Position value would show up
         # here as a maximum near 2*pi.

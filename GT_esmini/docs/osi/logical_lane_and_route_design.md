@@ -1,6 +1,7 @@
 # OSI 論理レーンと HostVehicleData.route — 実装設計
 
-> ステータス: **T / S0 / S1 完了（2026-09-24）、S2 以降は未着手**。現状と規格の突き合わせは
+> ステータス: **T / S0 / S1 / S4 / S2.5 / S2.5b 完了（2026-09-24）。残り S3 / S2 / S5**。
+> 現状と規格の突き合わせは
 > [`logical_lane_and_route.md`](logical_lane_and_route.md)。本書はそれを前提に、
 > 何をどこへどう書くかを決める。
 > 知識グラフ: `capability_model.md` §2.2a **W4** の `route` 行を閉じる作業。
@@ -281,7 +282,9 @@ s の向きは §2-4-1 とは逆に**走行方向で決める**。
 進行が s 減少方向:  start_s = セクション終端,  end_s = セクション始端   ← start_s > end_s
 ```
 
-最初のセグメントの `start_s` は自車の現在 s、最後のセグメントの `end_s` は終点 WP の s に詰める。
+最初のセグメントの `start_s` は**自車の参照点（bbox 中心）の s**、最後のセグメントの `end_s` は
+終点 WP の s に詰める。参照点であって entity origin ではないのは §2-6-1 注 2 のとおりで、
+**ここを揃えないと `route` × L1 の合成が継ぎ目で車長分（カタログ車で 1.4 m）跳ねる**。
 
 ### 2-6. 自車が経路のどこにいるか — 3 層に分けて扱う
 
@@ -314,15 +317,37 @@ gt_esmini::osi::EmitLogicalLaneAssignment(obj_osi_internal.mobj->mutable_moving_
                                            objectState.boundingbox_.center_.y_});
 ```
 
-値は追加の幾何計算なしで揃う。**論理レーンの参照線 s を road s と同一にした（§2-1）ことの
-直接の見返り**である。
+`angle_to_lane` と `assigned_lane_id` は追加の幾何計算なしで揃う — **論理レーンの参照線 s を
+road s と同一にした（§2-1）ことの直接の見返り**である。`s_position` / `t_position` だけは
+参照点（bbox 中心）を road 座標へ落とす 1 回の解決が要る（注 2）。
 
 | OSI | GT 側 |
 | :-- | :-- |
-| `s_position` | `pos.GetS()` |
-| `t_position` | `pos.GetT()` |
-| `angle_to_lane` | `GetAngleInIntervalMinusPIPlusPI(pos.GetHRelative())`（下の注） |
-| `assigned_lane_id` | 索引 `(pos.GetTrackId(), road->GetLaneSectionIdxByS(pos.GetS()), pos.GetLaneId())` |
+| `s_position` | **参照点（bbox 中心）の s**。`ResolveOsiReferencePoint()`（下の注 2） |
+| `t_position` | **参照点の t**。同上 |
+| `angle_to_lane` | `GetAngleInIntervalMinusPIPlusPI(pos.GetHRelative())`（下の注 1） |
+| `assigned_lane_id` | 索引 `(pos.GetTrackId(), road->GetLaneSectionIdxByS(pos.GetS()), pos.GetLaneId())` ＝ **entity origin 基準**（下の注 2） |
+
+> **注 2 — 2026-09-24（S2.5b で是正）: 出すのは entity origin ではなく参照点である。**
+> `osi_common.proto` は `BaseMoving.position` を「the center (x,y,z) of the bounding box」、
+> `LogicalLaneAssignment.s_position` を「S position of **the object reference point** on the
+> lane」と定義している。MovingObject ではこの 2 つは同じ点なので、**`pos.GetS()` / `pos.GetT()`
+> を入れるのは誤り**だった（カタログ車で車長方向に 1.4 m ずれる）。同じ規約は
+> `signal_catalog.yaml` の `ego_planned_path` で既に決着しており（「base.position と同じ bbox
+> 中心 = `Position::GetOsiX/Y/Z` = 原点 + R(h,p,r)·bbox center」）、新しい判断はしていない。
+>
+> 解決は `ResolveOsiReferencePoint()`（`GT_OsiLogicalLane.hpp`）。`Position` を複製し
+> （road キャッシュを引き継ぐので探索が局所で済む）、bbox 中心のワールド座標を
+> **自車の road に固定して** `XYZ2TrackPos` する。1 次近似は使わない — 曲路では足りない
+> （R=100 の弧、レーン中心 t=-1.535 で実測: 参照点の road s は origin+1.4 ではなく
+> **origin+1.37875**、t は **-0.00965 m** 動く）。
+>
+> **どちらの点を使うかは欄ごとに違う。** 出力（`s_position` / `t_position`、`route` の先頭
+> `start_s`、L2 の `s_along_route`）は参照点。**どのレーンに割り当てるか**（`assigned_lane_id`、
+> レーンセクションの選択、L1-b の 5cm 重なり判定）は entity origin のまま — 物理
+> `assigned_lane_id` が同じ origin から出ているので、そこを揃えておかないと 2 つの面の
+> 先頭が食い違う。規格はこの乖離を明示的に想定している（`s_position` は「might be outside
+> [s_start,s_end] of the lane ... if the reference point is outside the lane」）。
 
 > **2026-09-24（S2.5 実装時に是正）**: ここは当初 `pos.GetHRelative()` を素で書いていたが、
 > **`Position` はこれを `[0, 2pi)` で持っている**。素のまま出すと、レーン方向からわずかに
@@ -380,6 +405,7 @@ gt_esmini::osi::EmitLogicalLaneAssignment(obj_osi_internal.mobj->mutable_moving_
 （現状記録 §4-3）。**観測が対象を変えてはいけない。**
 
 代わりにレーンセクション展開の副産物として積み上げる。区間長は全セグメントで既に持っている。
+自車の突き合わせは **`route` と同じ参照点（bbox 中心）** で行う（§2-6-1 注 2）。
 
 > **2026-09-24（S4 実装時に是正）**: ここは当初「`BuildOsiRoute()` の副産物」と書いていたが、
 > **同じ展開は使えない**。`route` が載せるのは自車から先の区間で、最初のセグメントは必ず
@@ -505,6 +531,7 @@ BuildOsiLogicalLanes(opendrive, static_gt):
 // GT_esmini/src/osi/RouteToOsiRoute.{hpp,cpp}   純関数・ログを出さない・roadmanager を書き換えない
 //
 // (1) バンド（道路単位）→ セグメント（レーンセクション単位）。protobuf 非依存
+// `ego` には ORIGIN ではなく参照点を渡す（ResolveOsiReferencePoint、§2-6-1 注 2）
 std::vector<RouteSectionSegment> ExpandRouteLanePlan(const roadmanager::Route&, const roadmanager::Position& ego,
                                                     const RouteLanePlan&, RouteExpansionStart);
 // (2) L2。同じく protobuf 非依存なので VD telemetry から直接呼べる
@@ -1009,6 +1036,76 @@ L1 `LogicalLaneAssignment` と L1-b（車線跨ぎの複数割り当て）。置
 5. **重なり判定は物体のレーンセクション内に閉じている**（§10-14）。S3 の境界はセクション
    境界で切れるので、同じ制約を共有する。
 
+#### S2.5b（2026-09-24）— 参照点の是正
+
+`LogicalLaneAssignment` / `route` 先頭 / L2 の基準点を entity origin から **bbox 中心**へ揃えた。
+**設計書が誤っていた側**（§2-6-1 の表がこの 3 つとも origin を指定していた）。置いたもの:
+
+| 追加/変更 | 何 |
+| :-- | :-- |
+| 変更 `GT_OsiLogicalLane.hpp` | `ResolveOsiReferencePoint()` の宣言、`ObjectBox` に `center_z`、`LogicalLaneAssignmentEntry::ref_point_ok` |
+| 変更 `GT_OSIReporter_LogicalLane.cpp` | `ResolveOsiReferencePoint()` 実装（複製 + road 固定 `XYZ2TrackPos`）、`ComputeLogicalLaneAssignments` の出力だけを参照点へ |
+| 変更 `GT_OSIReporter_Moving.cpp` | 呼び出しに `center_z` を 1 行追加（フォーク差分はこれだけ） |
+| 変更 `GT_HostVehicleReporter.cpp` | `ExpandRouteLanePlan` に参照点を渡す |
+| 変更 `ControllerVirtualDriver.cpp` | L2 の突き合わせを参照点で |
+| 変更 `test_OsiLogicalLane.cpp` | S2.5 の `AssignmentCarriesPositionStVerbatim` を廃し 5 本を新設（直線の量、bbox 中心＝原点の縮退、ヨー、曲路の閉形式、road 固定）。傘バイナリで **OsiLogicalLane 25/25 緑** |
+| 変更 `scripts/probe_osi_logical_lane_assignment.py` | ST 検証を **esminiRMLib 経由の往復**へ（下の実測） |
+| 変更 `scripts/probe_hvd_route.py` | 先頭 `start_s` の突き合わせ相手を telemetry `ego.s` から**同一フレームの L1 `s_position`** へ |
+
+**計測器（S2.5 のときと同じ規律で、対象と別経路）**: `esminiRMLib.dll` — **別 DLL・別
+RoadManager インスタンス**を同一プロセスに載せ、`(roadId, s_position, t_position)` を
+`RM_SetRoadPosition` でワールド XY に戻して `moving_object.base.position`（リポータが
+`Position::GetOsiX/Y` から別経路で書いた値）と突き合わせる。
+
+> **床（noise floor）を取り違えかけた。** 最初は「同じ往復を entity origin の s/t で回した残差」
+> を床にしたが、これは **恒等式**だった — origin の XY は s/t から導かれているので必ず 0 に
+> なり、何も測っていない。実際 3 資産中 2 つで床が 0.000 と出て、床より大きい主張値が
+> 不合格になった。正しい床は**同じ点における計測器自身の XY→ST→XY 残差**である
+> （ST→XY は厳密幾何、XY→ST は OSI ポリライン上の歩行なので構造的に閉じない）。
+
+**実測（受入基準ごと）**:
+
+| 受入基準 | 実測 |
+| :-- | :-- |
+| `s_position` / `t_position` が bbox 中心 | 往復誤差 vs `base.position`: cut-in **1.616 mm** / routing-test **51.58 mm** / highway_driver **2.362 mm**。**いずれも計測器自身の床と小数 6 桁まで同値**（cut-in 1.616 mm / routing-test 77.23 mm / highway 2.362 mm）＝残差は全部 OSI ポリライン近似で、こちらが足した誤差は 0。最悪は multi_intersections の road 205（長さ 17.7 m の接続路）で 51.6 mm |
+| 同じ点を 2 つの RoadManager が解く | `\|esminiRMLib の s(base.position) − s_position\| = 0` （4,743 フレーム全部、3 資産） |
+| **負の対照** | 同じ往復に **origin の s/t** を食わせると `base.position` を最小でも **1.301〜1.401 m** 外す（`centerOffsetX ≥ 1.0` の 4,747 フレーム）。判定が 2 点を区別できることを同じループで実証 |
+| 曲路で 1 次近似では足りない | 単体（`curve_r100.xodr`、R=100 の弧、レーン中心 t=−1.535）: 参照点は origin+1.4 ではなく **origin+1.37875**（ずれ 21.25 mm）、t は **−9.65 mm** 動く。閉形式 `R·atan(d/r)` / `R−√(r²+d²)` と 5e-4 m 以内で一致 |
+| route 先頭と L1 が同一フレームで一致 | `route_lane_exit_ramp` の on-route 104 フレームで `\|first_start_s − s_position\| = 0 m`。**負の対照**: 同じフレームを telemetry の `ego.s`（entity origin）と比べると最小 **1.395 m** 外れる |
+| 既存の受入が維持されている | 交差点の論理 id 0/23 が junction id・23/23 が実在の road、L1-b が 1→2→1（`OverTaker`）/ 全 239 フレーム 1（`Ego`）、参照の閉包 4,825/4,825、OFF で割り当て 0、毎フレーム増分 34.00 B/割り当て（S2.5 と同値） |
+| 参照点が自車の road から出ない | 単体で multi_intersections の長さ 10 m 超の全 road（`checked > 5`）の終端 0.5 m 手前を掃き、`ref.GetTrackId() == road` かつ `pos.GetS() ≤ ref.GetS() ≤ road.GetLength()` |
+| 回帰ゲート | **PASS**（unit 緑 / ODR quick 緑 / behavioral 67 シナリオ 0 deviation） |
+
+**探索が局所で済むか（実測）**: 済む。`roadId` を渡した `XYZ2TrackPos` は `nrOfRoads = 0` に
+落として `current_road` 1 本しか見ない（`GT_RoadManager.cpp` の `if (roadId == ID_UNDEFINED)`
+分岐）ので、これは構造で保証されている。裏付けの計測（ON/OFF の 1 ステップあたり差、
+論理レーン層まるごと＝割り当て計算＋emit＋直列化を含む）:
+
+| 資産 | 道路数 | 台数 | OFF | ON | 差 | 1 台あたり |
+| :-- | --: | --: | --: | --: | --: | --: |
+| routing-test (multi_intersections) | 63 | 1 | 0.0684 ms | 0.0902 ms | +0.0218 ms | 21.8 us |
+| highway_driver (e6mini) | 1 | 10 | 0.0698 ms | 0.1613 ms | +0.0915 ms | 9.2 us |
+
+道路数 63 倍に対して 1 台あたりのコストは **2.4 倍**にしかならない。全探索なら 63 倍側に
+乗るので、局所探索であることの傍証になっている。
+
+**S3 へ引き継ぐ発見**:
+
+1. **計測器の「床」は、対象と同じ向きの変換で取らなければ床にならない。** 逆向きの往復は
+   恒等式になりうる。S3 の境界偏差も同じ罠がある — **構築に使った s で測ると自己確認**に
+   なるので、独立した細かい s グリッドで測ること。
+2. **`RM_PositionData` に t が無い。** 往復は `RM_SetRoadPosition`（road, s, t）か
+   `RM_SetLanePosition`（road, lane, offset, s）で閉じる。前者は GT 側の s/t をそのまま
+   食わせられるので主張の検証に、後者は計測器自身の往復（床）に使う。
+3. **esmini は roadmark ライン の OSI 点を「レーンの外側端」に置く**（`SetRoadMarkOSIPoints` が
+   `SetRoadMarkPos(..., offset=0, ...)` を呼び、`SetRoadMarkPos` は
+   `offset_ = SIGN(lane_id)*width/2 + offset`）。つまり `LaneRoadMarkTypeLine::GetTOffset()` は
+   OSI 出力には効いていない。S3 の `physical_boundary_id` で「その t 位置に物理境界があるか」
+   を判定するとき、**esmini のモデルでは roadmark ラインは常にそのレーンの外側端にある**。
+4. **`LaneBoundaryOSI` もレーンの外側端にある**（`SetLaneBoundaryPos` が
+   `offset_ = SIGN(lane_id)*GetWidth(s,lane_id)/2`）。ただし作られるのは
+   `n_roadmarks == 0` のレーンだけ（§2-3）。
+
 ### 8-1. 依存関係 — 逐次なのは S0 → S1 までで、その先は扇形に開く
 
 ```
@@ -1221,23 +1318,25 @@ L2（経路進捗）は**新しい signal を起こさない**。既存の `sign
     （§8-0 S4 差分 6）。`GT_HostVehicleReporter` が一度だけ `LOG_WARN` を出すが、
     設定で解くほうが筋なら S5 で見直す。
 
-13. **L1 の `s_position` / `t_position` は OSI の「オブジェクト参照点」ではない。**（S2.5 実測）
-    OSI は `BaseMoving` / `BaseStationary` の参照点を**バウンディングボックスの中心**と定義して
-    おり（`osi_common.proto`「The reference point for position and orientation, i.e. the center
-    (x,y,z) of the bounding box」）、`base.position` はその中心を出している。一方
-    `LogicalLaneAssignment.s_position` / `t_position` に入れているのは `Position` の s / t、
-    つまり esmini の **entity origin**（カタログ車で box 中心の 1.4 m 後ろ）のものである。
-    **物理 `assigned_lane_id` も同じ origin から導いているので 2 つの面は互いに整合している**が、
-    `base.position` と `s_position` の間には車長方向に `center_x` ぶんのずれが残る。
-    揃えるには BB 中心を road 座標へ落とす追加の幾何計算が要り、§2-1 の「追加の幾何計算なしで
-    揃う」と引き換えになるうえ、曲路では 1 次近似では足りない。**消費側から「どちらの点か」を
-    問われた時点で決める**。重なり判定（L1-b）のほうは BB 中心を使っている（§2-6-1）。
+13. ~~**L1 の `s_position` / `t_position` は OSI の「オブジェクト参照点」ではない。**~~
+    **解消（S2.5b、2026-09-24）。** 出力は参照点（bbox 中心）へ揃えた。§2-6-1 注 2 と
+    §8-0 S2.5b。§2-1 の「追加の幾何計算なしで揃う」という主張はこの欄については失効し、
+    代わりに `ResolveOsiReferencePoint()` が 1 道路に固定した `XYZ2TrackPos` を 1 回回す。
 
 14. **重なり判定は物体のいるレーンセクション内に閉じている。**（S2.5）長い車両がレーンセクション
     の継ぎ目を跨いでいても、隣のセクションのレーンには割り当てない。規格は面積の重なりで
     定義しているので厳密には不足だが、継ぎ目でのみ、かつ車長の一部でのみ起きる。
 
-15. **単一道路だけの経路は進行方向を +s と決め打ちする。** `RouteLanePlan` は道路が 1 本の
+15. **参照点は道路の端で飽和する。**（S2.5b 実測）参照点は**自車がいる road に固定して**
+    解いている — `s_position` は `assigned_lane_id` が指すレーンの参照線上の値でなければ
+    ならず、自由探索させると bbox 中心が次の road に載った瞬間に座標系ごと入れ替わって
+    しまうからである。代償として、中心が road の端を越えている間は `s_position` がその
+    road の長さで頭打ちになる。誤差の上限は `center_x`（カタログ車 1.4 m）、発生するのは
+    road 遷移の 1〜2 フレームだけ。実測: `routing-test.xosc`（multi_intersections、
+    交差点を 4 つ通過）279 オブジェクトフレーム中 **4 フレーム**、そこでの最大ずれ
+    **1.08 m**。残り 275 フレームは後述の計測器の分解能内で一致する。
+
+16. **単一道路だけの経路は進行方向を +s と決め打ちする。** `RouteLanePlan` は道路が 1 本の
     プランで `exit_at_road_end = true` を固定するため（`RouteLanePlan.cpp` の `skeleton.size()==1`
     分岐）、-s 方向へ進む 1 道路経路は逆向きに展開される。ホップが 1 つでもあれば方向は
     トポロジから決まるので、この穴は 1 道路経路に限られる。

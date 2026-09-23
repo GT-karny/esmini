@@ -1,10 +1,10 @@
 # OSI 論理レーンと HostVehicleData.route — 規格モデルと GT の現状
 
-> ステータス: **T / S0 / S1 / S4 完了。S2 / S2.5 / S3 / S5 が未実装**（2026-09-24）。
-> したがって §3-1 の表は S1 / S4 より前の姿である — `reference_line[]` と `logical_lane[]` は
-> `GT_OSI_LOGICAL_LANE=1` で出るようになり、`HostVehicleData.route`（§3-3）も埋まる。
-> まだ出ていないのは `logical_lane_boundary[]`（S3）・連結性（S2）・
-> `logical_lane_assignment[]`（S2.5）で、既定は OFF のまま（設計書 §7-3）。
+> ステータス: **T / S0 / S1 / S4 / S2.5 / S2.5b 完了。S3 / S2 / S5 が未実装**（2026-09-24）。
+> したがって §3-1 の表はそれより前の姿である — `reference_line[]` / `logical_lane[]` /
+> `logical_lane_assignment[]` は `GT_OSI_LOGICAL_LANE=1` で出るようになり、
+> `HostVehicleData.route`（§3-3）も埋まる。まだ出ていないのは
+> `logical_lane_boundary[]`（S3）と連結性（S2）で、既定は OFF のまま（設計書 §7-3）。
 > 本書は「規格が何を要求しているか」と「GT が今どこまで
 > 出しているか」を突き合わせた現状記録であり、実装方針は
 > [`logical_lane_and_route_design.md`](logical_lane_and_route_design.md) にある。
@@ -171,6 +171,16 @@ MovingObject.moving_object_classification.logical_lane_assignment[]   (osi_objec
   ├ t_position         横
   └ angle_to_lane      レーンに対する向き [rad]
 ```
+
+**この s / t がどの点のものかは規格が決めている。** `osi_common.proto` は `s_position` を
+「S position of **the object reference point** on the lane」と書き、`BaseMoving.position` を
+「The reference point for position and orientation: the center (x,y,z) of the bounding box」と
+定義している。つまり MovingObject の参照点は **bounding box の中心**であり、`base.position` と
+`logical_lane_assignment.s_position` は同じ点を別の座標系で述べたものでなければならない。
+
+esmini はエンティティを **origin**（出荷カタログ車では後軸）で置き、box は `center_x` だけ前に
+ある。両者を混同すると**車長方向に丸ごと 1 つぶんずれた値が、形としては完全に正しく見える**。
+同じ規約は `signal_catalog.yaml` の `ego_planned_path` で先に決着しており、GT はそれに従う。
 
 経路相対はこの 2 つの**合成**で出す — `assigned_lane_id` が `route` のどの `RouteSegment` に属し、
 `s_position` がその `[start_s, end_s]` のどこにあるか。`osi_logicallane.proto` も

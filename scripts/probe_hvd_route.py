@@ -16,8 +16,15 @@ taken from a design document:
      ascending s would pass any single-polarity check, so the probe requires
      BOTH orderings to occur in real data and reports the counts.
 
-  3. ENDPOINTS. The first segment starts at the ego's own s and the last ends at
-     the route's destination waypoint s.
+  3. ENDPOINTS. The first segment starts at the ego's OSI REFERENCE POINT -- the
+     bounding-box centre, which is the point LogicalLaneAssignment.s_position also
+     reports (S2.5b) -- and the last ends at the route's destination waypoint s.
+     The two are checked against each other IN THE SAME FRAME, because composing
+     route x L1 into a route-relative position is the whole reason both exist; a
+     build that measured one at the box centre and the other at the entity origin
+     would put a constant 1.4 m step between them and still look well formed on
+     either side alone. The entity origin's own s is carried alongside as the
+     negative control.
 
   4. route_id STABILITY. The id is bumped in the same branch that rebuilds the
      RouteLanePlan, so a constant route_id across a run IS the evidence that the
@@ -259,6 +266,10 @@ try:
             # 48199 from GT_Step regardless; this just makes the run representative of
             # a live streaming session.
             gt.open_osi_socket()
+        else:
+            # Every frame, so SE_GetOSIGroundTruth below is this frame's -- the L1
+            # assignment read out of it is compared against the same frame's route.
+            gt.set_osi_frequency(1)
 
         # The static GroundTruth exists in exactly one place: the FIRST record of the
         # .osi file. SE_GetOSIGroundTruth returns dynamic_gt only after init, so
@@ -296,6 +307,25 @@ try:
             rl = tel.get("route_lane", {})
             ego = tel.get("ego", {})
 
+            # The ego's L1 assignment, from the GroundTruth of THIS frame. This is the
+            # reference point the route is supposed to start at; tel["ego"]["s"] is the
+            # entity origin and serves as the negative control.
+            ego_l1_s = None
+            ego_l1_road = None
+            gt_blob = gt.get_osi_ground_truth()
+            if gt_blob:
+                g2 = gtpb.GroundTruth()
+                g2.ParseFromString(gt_blob)
+                host_id = g2.host_vehicle_id.value if g2.HasField("host_vehicle_id") else None
+                for mo in g2.moving_object:
+                    if host_id is not None and mo.id.value != host_id:
+                        continue
+                    assigns = mo.moving_object_classification.logical_lane_assignment
+                    if assigns:
+                        ego_l1_s = assigns[0].s_position
+                        ego_l1_road = assigns[0].assigned_lane_id.value
+                    break
+
             f = {"t": round(t, 3), "hvd_bytes": len(blob),
                  "has_route": hv.HasField("route"),
                  "route_id": hv.route.route_id.value if hv.HasField("route") else None,
@@ -303,6 +333,7 @@ try:
                  "n_lane_segments": 0, "dangling": 0, "asc": 0, "desc": 0,
                  "first_start_s": None, "last_end_s": None,
                  "ego_track": ego.get("track"), "ego_s": ego.get("s"),
+                 "ego_l1_s": ego_l1_s, "ego_l1_lane": ego_l1_road,
                  "tel_valid": rl.get("valid"), "tel_reason": rl.get("reason"),
                  "tel_on_route": rl.get("on_route"),
                  "tel_s_along_route": rl.get("s_along_route"),
@@ -616,19 +647,32 @@ def main():
         report.setdefault("polarity", {})[label] = {"asc": asc, "desc": desc}
         print("      polarity: start_s<end_s %d / start_s>end_s %d" % (asc, desc))
 
-        # First segment starts at the ego's own s. Scoped to frames where the ego is
-        # actually ON a road of the plan: route_lane.valid is exactly that predicate, and
-        # for an ego that has left the plan the expansion deliberately falls back to the
-        # route's own first waypoint instead (route_valid_off_target_lane_for_exit_ramp
+        # First segment starts at the ego's OSI reference point, which is also where
+        # the same frame's LogicalLaneAssignment puts it. Scoped to frames where the ego
+        # is actually ON a road of the plan: route_lane.valid is exactly that predicate,
+        # and for an ego that has left the plan the expansion deliberately falls back to
+        # the route's own first waypoint instead (route_valid_off_target_lane_for_exit_ramp
         # drives off the plan on purpose, so an unscoped check measures the fallback).
         # A DefaultController ego publishes no telemetry at all, hence the None guard.
         endpoint_frames = [f for f in frames
-                           if f["ego_s"] is not None and f["first_start_s"] is not None
+                           if f["ego_l1_s"] is not None and f["first_start_s"] is not None
                            and f["tel_on_route"] is True]
         if endpoint_frames:
-            worst = max(abs(f["first_start_s"] - f["ego_s"]) for f in endpoint_frames)
-            check("%s.first_segment_at_ego_s" % label, worst < 1e-6,
-                  "max |first_start_s - ego_s| = %.3g m over %d on-route frames" % (worst, len(endpoint_frames)))
+            worst = max(abs(f["first_start_s"] - f["ego_l1_s"]) for f in endpoint_frames)
+            check("%s.first_segment_at_L1_reference_point" % label, worst < 1e-6,
+                  "max |first_start_s - logical_lane_assignment.s_position| = %.3g m over %d "
+                  "on-route frames (same frame, two messages)" % (worst, len(endpoint_frames)))
+            # The negative control, from the same frames: against the ENTITY ORIGIN the
+            # very same comparison has to come out at roughly one centre offset. Without
+            # it, a build that reverted both sides to the origin would pass the check
+            # above -- the two would still agree, just about the wrong point.
+            origin_frames = [f for f in endpoint_frames if f["ego_s"] is not None]
+            if origin_frames:
+                closest = min(abs(f["first_start_s"] - f["ego_s"]) for f in origin_frames)
+                check("%s.first_segment_is_not_the_entity_origin" % label, closest > 1.0,
+                      "min |first_start_s - telemetry ego.s| = %.3f m over %d frames "
+                      "(the box centre sits 1.4 m ahead of the origin for the catalogue car)"
+                      % (closest, len(origin_frames)))
         # ... and the measured reason the scope is on_route and not simply "on a plan
         # road": where the route's own lane does not EXIST yet, the route legitimately
         # starts downstream of the ego. Reported, not asserted -- it is a property of the

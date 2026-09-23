@@ -987,7 +987,8 @@ int OSIReporter::UpdateOSIMovingObject(const scenarioengine::Object &objectState
                                               {objectState.boundingbox_.dimensions_.length_,
                                                objectState.boundingbox_.dimensions_.width_,
                                                objectState.boundingbox_.center_.x_,
-                                               objectState.boundingbox_.center_.y_});
+                                               objectState.boundingbox_.center_.y_,
+                                               objectState.boundingbox_.center_.z_});
 
     // simplified wheel info, set nr wheels based on object type
     // can be improved by considering axels and actual wheel configuration

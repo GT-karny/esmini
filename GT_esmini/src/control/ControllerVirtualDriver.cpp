@@ -782,12 +782,28 @@ void ControllerVirtualDriver::Step(double timeStep)
             // RouteStart, not EgoPosition: L2 measures progress from the route's own
             // beginning. An ego-anchored expansion would put the ego on the first
             // segment's start every frame, i.e. s_along_route == 0 forever.
+            //
+            // Matched at the OSI REFERENCE POINT (bounding-box centre), the same point
+            // base.position and LogicalLaneAssignment.s_position report. L2 and L1 are
+            // meant to compose into "where on the route is the vehicle"; measuring one
+            // at the rear axle and the other at the box centre would put a constant
+            // 1.4 m (shipped catalogue car) between them. ResolveOsiReferencePoint
+            // leaves ref_pos a copy of pos_ when it cannot resolve, so the fallback is
+            // the previous behaviour rather than a hole.
+            roadmanager::Position ref_pos;
+            gt_esmini::osi::ResolveOsiReferencePoint(object_->pos_,
+                                                     {object_->boundingbox_.dimensions_.length_,
+                                                      object_->boundingbox_.dimensions_.width_,
+                                                      object_->boundingbox_.center_.x_,
+                                                      object_->boundingbox_.center_.y_,
+                                                      object_->boundingbox_.center_.z_},
+                                                     &ref_pos);
             route_progress = gt_esmini::osi::ComputeRouteProgress(
                 gt_esmini::osi::ExpandRouteLanePlan(*shared_route,
-                                                    object_->pos_,
+                                                    ref_pos,
                                                     route_lane_plan_,
                                                     gt_esmini::osi::RouteExpansionStart::RouteStart),
-                object_->pos_);
+                ref_pos);
         }
     }
 

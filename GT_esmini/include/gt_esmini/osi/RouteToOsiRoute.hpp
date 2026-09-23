@@ -148,6 +148,12 @@ enum class RouteExpansionStart
 
 // Expand a road-level lane plan into the lane-section-level segment list.
 //
+// `ego` IS THE CALLER'S CHOICE OF REFERENCE POINT, and both shipped call sites hand in
+// the OSI one -- ResolveOsiReferencePoint's bounding-box centre, not the entity origin
+// (design 2-6-1). This function only reads GetTrackId()/GetS() from it, so it cannot
+// tell the two apart; getting it wrong costs one centre offset (1.4 m for the shipped
+// catalogue car) of route that the vehicle has in fact already driven.
+//
 // - The first emitted segment starts at the ego's current s (EgoPosition; at the route's
 //   own first waypoint s when the ego is not on any road of the plan) or at the route's
 //   first waypoint s (RouteStart).
@@ -165,7 +171,9 @@ std::vector<RouteSectionSegment> ExpandRouteLanePlan(const roadmanager::Route&  
 
 // L2. `ego` is matched against the segment list by road id and s range. Feed it a
 // RouteStart expansion -- an EgoPosition one always puts the ego on the first segment's
-// own start, i.e. s_along_route == 0 forever.
+// own start, i.e. s_along_route == 0 forever. Same reference-point contract as
+// ExpandRouteLanePlan: hand in the OSI reference point, so that L2 and the
+// LogicalLaneAssignment L1 that composes with it measure the same physical point.
 RouteProgress ComputeRouteProgress(const std::vector<RouteSectionSegment>& segments, const roadmanager::Position& ego);
 
 // segments + (road, section, lane) -> logical lane id index  ->  osi3::Route.

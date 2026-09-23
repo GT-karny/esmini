@@ -124,31 +124,62 @@ const LogicalLaneIndex& GetLogicalLaneIndex();
 // typedef, so it can be neither forward declared nor named here without pulling
 // ScenarioEngine into a header that GT_esminiLib and the unit gate both include.
 //
-//   length / width   extents along the entity's own x / y axes [m]
-//   center_x/_y      offset from the entity ORIGIN to the box centre, entity
-//                    frame [m]. esmini positions a vehicle by its origin (rear
-//                    axle for the shipped catalogue), while the box -- and hence
-//                    the area that overlaps a lane -- sits center_x ahead of it.
+//   length / width     extents along the entity's own x / y axes [m]
+//   center_x/_y/_z     offset from the entity ORIGIN to the box centre, entity
+//                      frame [m]. esmini positions a vehicle by its origin (rear
+//                      axle for the shipped catalogue), while the box -- and hence
+//                      both the lane area it overlaps and the OSI reference point
+//                      -- sits center_x ahead of it.
 struct ObjectBox
 {
     double length   = 0.0;
     double width    = 0.0;
     double center_x = 0.0;
     double center_y = 0.0;
+    double center_z = 0.0;
 };
 
-// One osi3::LogicalLaneAssignment, plus three numbers that are NOT emitted and
+// THE OSI REFERENCE POINT, RESOLVED ONTO THE ROAD
+// -----------------------------------------------
+// osi_common.proto defines BaseMoving.position as "the center (x,y,z) of the
+// bounding box", and LogicalLaneAssignment.s_position / t_position as the ST
+// coordinates of "the object reference point". For a MovingObject those are the
+// same point, so everything GT reports about where an entity is along a lane or a
+// route has to be measured at the box centre -- not at the entity origin, which is
+// the rear axle for the shipped catalogue and sits 1.4 m behind it. The same
+// convention is already pinned for ego_planned_path (signal_catalog.yaml: "base.position
+// と同じ bbox 中心", i.e. Position::GetOsiX/Y/Z = origin + R(h,p,r) * bbox centre).
+//
+// `out` is overwritten with a Position at that point. It is a DUPLICATE of `pos`,
+// which is what keeps the XY -> road search local (the copy carries track_idx_ /
+// lane_section_idx_ / osi_point_idx_), and the search is additionally pinned to
+// pos.GetTrackId(): the reference point must be expressed on the reference line of
+// the lane it is reported against, so letting it snap freely to the next road would
+// silently change coordinate frames mid-message. A centre that has already passed
+// the end of the road therefore reads as that road's end s rather than as a
+// negative s on the next one -- bounded by the centre offset, and only for the
+// frame or two a road transition lasts (design 10-15).
+//
+// Position::Duplicate does not copy route_, so `out` never owns or frees the
+// caller's route. Returns false when the point could not be resolved, in which case
+// the caller should fall back to `pos` itself.
+bool ResolveOsiReferencePoint(const roadmanager::Position& pos, const ObjectBox& box, roadmanager::Position* out);
+
+// One osi3::LogicalLaneAssignment, plus four numbers that are NOT emitted and
 // exist so tests and probes can say why an entry is present.
 struct LogicalLaneAssignmentEntry
 {
     std::uint64_t assigned_lane_id = 0;
-    double        s_position       = 0.0;
-    double        t_position       = 0.0;
-    double        angle_to_lane    = 0.0;
+    // ST of the OSI REFERENCE POINT (bounding-box centre), not of the entity
+    // origin -- see ResolveOsiReferencePoint above.
+    double s_position    = 0.0;
+    double t_position    = 0.0;
+    double angle_to_lane = 0.0;
     // diagnostics ------------------------------------------------------------
-    int    lane_id   = 0;      // OpenDRIVE lane id this entry resolved from
-    double overlap_m = 0.0;    // lateral overlap between box and lane [m]
-    bool   is_anchor = false;  // lane that Position itself reports the object on
+    int    lane_id       = 0;      // OpenDRIVE lane id this entry resolved from
+    double overlap_m     = 0.0;    // lateral overlap between box and lane [m]
+    bool   is_anchor     = false;  // lane that Position itself reports the object on
+    bool   ref_point_ok  = false;  // false -> s/t fell back to the entity origin
 };
 
 // osi_common.proto: "any object overlapping the lane more than 5cm has to be
@@ -167,6 +198,15 @@ constexpr double kLogicalLaneOverlapThresholdM = 0.05;
 //
 // Every entry carries the SAME s/t/angle, because every lane of a road shares one
 // reference line (design 2-1) and all overlapped lanes live in one lane section.
+//
+// TWO POINTS, ON PURPOSE. The emitted s/t are the OSI reference point's
+// (ResolveOsiReferencePoint), because that is what the proto asks for. Which lanes
+// are overlapped, and which lane section they are looked up in, are still decided
+// from the entity ORIGIN's s/t: that keeps entry [0] and the lane section in
+// agreement with the physical assigned_lane_id, which is derived from the same
+// Position, and it leaves the 5 cm overlap predicate exactly as S2.5 validated it.
+// The proto anticipates the two diverging -- s_position "might be outside
+// [s_start,s_end] of the lane ... if the reference point is outside the lane".
 //
 // Returns empty when the object is off-road, when the index is empty (feature
 // OFF), or when the lane section is degenerate.

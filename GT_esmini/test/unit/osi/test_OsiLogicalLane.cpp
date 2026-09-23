@@ -797,36 +797,201 @@ std::set<std::uint64_t> LogicalLaneIdSet(const osi3::GroundTruth& gt)
 }
 }  // namespace
 
-// The invariant behind the design decision of section 2-1: because the logical
-// reference line IS the OpenDRIVE road reference line, the assignment's ST
-// coordinates are the Position's own s / t with no conversion. If this ever needs
-// arithmetic, the reference line stopped being the road's.
-TEST(OsiLogicalLane, AssignmentCarriesPositionStVerbatim)
+// S2.5b. osi_common.proto defines BaseMoving.position as "the center (x,y,z) of the
+// bounding box" and LogicalLaneAssignment.s_position as the S of "the object
+// reference point", so the two are the same point and neither is the entity origin.
+// esmini places a vehicle by its origin -- the rear axle for the shipped catalogue --
+// so reporting pos.GetS() put the assignment 1.4 m behind the box whose position the
+// same message carries. Design 2-6-1 specified the origin; corrected here, doc updated.
+//
+// The straight-road case fixes the magnitude exactly: heading along the lane, the
+// reference point is center_x further along s and at the same t.
+TEST(OsiLogicalLane, AssignmentStIsMeasuredAtTheBoundingBoxCentre)
 {
     osi3::GroundTruth                gt;
     gt_esmini::osi::LogicalLaneIndex index;
-    ASSERT_TRUE(BuildFor(Xodr("e6mini.xodr"), &gt, &index));
+    ASSERT_TRUE(BuildFor(Xodr("straight_500m.xodr"), &gt, &index));
 
     roadmanager::Position pos;
-    for (double s : {5.0, 120.0, 700.0, 1400.0})
+    const id_t            road_id = roadmanager::Position::GetOpenDrive()->GetRoadByIdx(0)->GetId();
+    for (double s : {5.0, 120.0, 300.0, 450.0})
     {
         for (double offset : {-0.4, 0.0, 0.3})
         {
-            ASSERT_EQ(pos.SetLanePos(0, -3, s, offset), kPosOk) << "s=" << s;
+            ASSERT_EQ(pos.SetLanePos(road_id, -1, s, offset), kPosOk) << "s=" << s;
             const std::vector<LogicalLaneAssignmentEntry> a = Assign(pos, index);
             ASSERT_FALSE(a.empty()) << "s=" << s << " offset=" << offset;
             for (const LogicalLaneAssignmentEntry& e : a)
             {
-                EXPECT_DOUBLE_EQ(e.s_position, pos.GetS());
-                EXPECT_DOUBLE_EQ(e.t_position, pos.GetT());
+                EXPECT_TRUE(e.ref_point_ok);
+                EXPECT_NEAR(e.s_position, pos.GetS() + kCarBox.center_x, 1e-6) << "s=" << s;
+                EXPECT_NEAR(e.t_position, pos.GetT(), 1e-6) << "s=" << s;
+                // The negative control, stated as its own expectation rather than left
+                // implied by the tolerance above: the ORIGIN value must not be what
+                // comes out. A build that ignored the box passes every other
+                // assignment test in this file.
+                EXPECT_GT(std::fabs(e.s_position - pos.GetS()), 1.0) << "s=" << s;
             }
             EXPECT_TRUE(a.front().is_anchor) << "entry [0] must be the lane Position reports";
             EXPECT_EQ(a.front().lane_id, pos.GetLaneId());
-            const auto it = index.find(gt_esmini::osi::LogicalLaneKey{0u, 0u, -3});
+            const auto it = index.find(gt_esmini::osi::LogicalLaneKey{road_id, 0u, -1});
             ASSERT_NE(it, index.end());
             EXPECT_EQ(a.front().assigned_lane_id, it->second);
         }
     }
+}
+
+// A box whose centre IS the origin (pedestrians, and any catalogue entry authored
+// that way) must reproduce the Position bit for bit -- this is the short-circuit that
+// keeps the common degenerate case off the XY -> road search, and it is also what
+// makes "the reported point moved" attributable to the box rather than to a round
+// trip through the road solver.
+TEST(OsiLogicalLane, AssignmentStCollapsesToTheOriginWhenTheBoxIsCentredOnIt)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("straight_500m.xodr"), &gt, &index));
+
+    constexpr ObjectBox   kCentredBox{0.6, 0.6, 0.0, 0.0, 0.9};  // a pedestrian
+    const id_t            road_id = roadmanager::Position::GetOpenDrive()->GetRoadByIdx(0)->GetId();
+    roadmanager::Position pos;
+    ASSERT_EQ(pos.SetLanePos(road_id, -1, 200.0, 0.2), kPosOk);
+    pos.SetHeadingRelative(0.3);
+
+    const std::vector<LogicalLaneAssignmentEntry> a = Assign(pos, index, kCentredBox);
+    ASSERT_FALSE(a.empty());
+    EXPECT_DOUBLE_EQ(a.front().s_position, pos.GetS());
+    EXPECT_DOUBLE_EQ(a.front().t_position, pos.GetT());
+}
+
+// Yaw moves the reference point sideways: the centre offset is in the ENTITY frame,
+// so a vehicle angled across the lane has its box centre off to one side of its
+// origin. This is the component a straight-ahead test cannot see, and it is largest
+// during a lane change -- the same frames where the second assignment of L1-b
+// appears.
+TEST(OsiLogicalLane, AssignmentStFollowsTheBoxCentreThroughYaw)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("straight_500m.xodr"), &gt, &index));
+
+    const id_t            road_id = roadmanager::Position::GetOpenDrive()->GetRoadByIdx(0)->GetId();
+    roadmanager::Position pos;
+    for (double h_rel : {-0.35, -0.10, 0.10, 0.35})
+    {
+        ASSERT_EQ(pos.SetLanePos(road_id, -1, 250.0, 0.0), kPosOk);
+        pos.SetHeadingRelative(h_rel);
+
+        const std::vector<LogicalLaneAssignmentEntry> a = Assign(pos, index);
+        ASSERT_FALSE(a.empty()) << "h_rel=" << h_rel;
+        // Exact on a straight road, where the road frame and the world frame differ by
+        // a constant rotation only.
+        EXPECT_NEAR(a.front().s_position, pos.GetS() + kCarBox.center_x * std::cos(h_rel), 1e-6) << "h_rel=" << h_rel;
+        EXPECT_NEAR(a.front().t_position, pos.GetT() + kCarBox.center_x * std::sin(h_rel), 1e-6) << "h_rel=" << h_rel;
+        // Both signs, because a build that dropped the sign of the lateral term still
+        // matches one of them.
+        EXPECT_EQ(a.front().t_position > pos.GetT(), h_rel > 0.0) << "h_rel=" << h_rel;
+    }
+}
+
+// On a curve the reference point is NOT "origin s plus center_x": stepping along the
+// vehicle own tangent leaves the reference line, so t moves even at zero yaw and s
+// advances by slightly less than the offset. curve_r100.xodr road 0 runs straight to
+// s=500 and then bends on an R=100 arc.
+//
+// The cross-check is an independently constructed Position driven from the world
+// coordinates of the box centre, and the linear prediction is asserted to be WRONG by
+// a measurable margin in the same test, so "close enough on a curve" cannot pass.
+TEST(OsiLogicalLane, AssignmentStOnACurveIsNotALinearExtrapolation)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("curve_r100.xodr"), &gt, &index));
+
+    const id_t            road_id = roadmanager::Position::GetOpenDrive()->GetRoadByIdx(0)->GetId();
+    roadmanager::Position pos;
+    ASSERT_EQ(pos.SetLanePos(road_id, -1, 560.0, 0.0), kPosOk) << "s=560 must be inside the arc";
+
+    const std::vector<LogicalLaneAssignmentEntry> a = Assign(pos, index);
+    ASSERT_FALSE(a.empty());
+
+    // Independent resolve: the box centre in world coordinates, put on the road by a
+    // Position this test builds itself.
+    roadmanager::Position probe;
+    ASSERT_EQ(probe.SetInertiaPos(pos.GetX() + kCarBox.center_x * std::cos(pos.GetH()),
+                                  pos.GetY() + kCarBox.center_x * std::sin(pos.GetH()),
+                                  pos.GetH()),
+              0);
+    EXPECT_EQ(probe.GetTrackId(), pos.GetTrackId());
+    EXPECT_NEAR(a.front().s_position, probe.GetS(), 1e-6);
+    EXPECT_NEAR(a.front().t_position, probe.GetT(), 1e-6);
+
+    // Closed form, from the fixture's own geometry rather than from the code under
+    // test: curve_r100.xodr declares curvature=1.0e-2 over [500, 657.08], so the
+    // reference line is a circle of R = 100 m. A vehicle sitting at offset t rides a
+    // concentric circle of radius r = R - t (the centre of curvature is on the +t
+    // side), and stepping d along ITS OWN TANGENT lands on radius sqrt(r^2 + d^2),
+    // having swept atan(d/r) -- which is R*atan(d/r) of ROAD s, not d.
+    constexpr double kRefRadius = 100.0;
+    const double     d          = kCarBox.center_x;
+    const double     r          = kRefRadius - pos.GetT();
+    const double     expect_s   = pos.GetS() + kRefRadius * std::atan(d / r);
+    const double     expect_t   = kRefRadius - std::sqrt(r * r + d * d);
+    EXPECT_NEAR(a.front().s_position, expect_s, 5e-4);
+    EXPECT_NEAR(a.front().t_position, expect_t, 5e-4);
+
+    // And the linear prediction -- "s plus center_x, t unchanged" -- is wrong by far
+    // more than that tolerance in both coordinates. Without this pair the test above
+    // would also pass a build that approximated, because 5e-4 m is not a number a
+    // reader can weigh on sight.
+    EXPECT_GT(std::fabs(a.front().t_position - pos.GetT()), 5e-3) << "t must move on a curve at zero yaw";
+    EXPECT_GT(std::fabs(a.front().s_position - (pos.GetS() + d)), 5e-3) << "s advance is not the raw offset";
+}
+
+// The reference point is pinned to the entity OWN road, because s/t have to be on the
+// reference line of the lane the assignment names. Past the end of a road the point
+// therefore saturates at that road length instead of reappearing as a small s on
+// whatever road comes next -- a frame or two per road transition, bounded by the
+// centre offset, against a coordinate-frame switch that would look perfectly valid on
+// the wire (design 10-15).
+TEST(OsiLogicalLane, ReferencePointStaysOnTheEntitysOwnRoad)
+{
+    osi3::GroundTruth                gt;
+    gt_esmini::osi::LogicalLaneIndex index;
+    ASSERT_TRUE(BuildFor(Xodr("multi_intersections.xodr"), &gt, &index));
+
+    roadmanager::OpenDrive* odr = roadmanager::Position::GetOpenDrive();
+    ASSERT_NE(odr, nullptr);
+
+    unsigned checked = 0;
+    for (unsigned i = 0; i < odr->GetNumOfRoads(); i++)
+    {
+        roadmanager::Road* road = odr->GetRoadByIdx(i);
+        if (road == nullptr || road->GetLength() < 10.0 || road->GetNumberOfLaneSections() == 0)
+        {
+            continue;
+        }
+        roadmanager::LaneSection* lsec = road->GetLaneSectionByIdx(road->GetNumberOfLaneSections() - 1);
+        roadmanager::Lane*        lane = (lsec == nullptr) ? nullptr : lsec->GetLaneById(-1);
+        if (lane == nullptr || !lane->IsDriving())
+        {
+            continue;
+        }
+
+        roadmanager::Position pos;
+        // Half a metre from the end, so the box centre lands 0.9 m past it.
+        if (pos.SetLanePos(road->GetId(), -1, road->GetLength() - 0.5, 0.0) != kPosOk)
+        {
+            continue;
+        }
+        roadmanager::Position ref;
+        ASSERT_TRUE(gt_esmini::osi::ResolveOsiReferencePoint(pos, kCarBox, &ref)) << "road " << road->GetId();
+        EXPECT_EQ(ref.GetTrackId(), road->GetId()) << "road " << road->GetId();
+        EXPECT_LE(ref.GetS(), road->GetLength() + 1e-6) << "road " << road->GetId();
+        EXPECT_GE(ref.GetS(), pos.GetS() - 1e-6) << "road " << road->GetId();
+        checked++;
+    }
+    EXPECT_GT(checked, 5u) << "fixture stopped providing roads long enough to test";
 }
 
 // angle_to_lane. Design 2-6-1 specified GetHRelative() raw; Position keeps that in
