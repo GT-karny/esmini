@@ -382,11 +382,15 @@ def _run_worker(dll, runs, flag_on, send_udp=False):
     with os.fdopen(py_fd, "w") as fh:
         fh.write(src)
 
+    # The two polarities are "unset" and "0", NOT "1" and "unset": since S3 the
+    # variable is an OPT-OUT, so leaving it unset is what exercises the default and
+    # setting it to 0 is what exercises the escape hatch. Written the other way round,
+    # both runs would come out ON and every OFF assertion below would pass vacuously.
     env = dict(os.environ)
     if flag_on:
-        env[ENV_FLAG] = "1"
-    else:
         env.pop(ENV_FLAG, None)
+    else:
+        env[ENV_FLAG] = "0"
 
     proc = subprocess.run(
         [sys.executable, py_path],

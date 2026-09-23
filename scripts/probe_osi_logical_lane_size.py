@@ -293,10 +293,13 @@ def _run(xosc_path, dll, flag_on, workdir):
     with open(script, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(body)
     env = dict(os.environ)
+    # The two polarities are "unset" and "0", NOT "1" and "unset": since S3 the
+    # variable is an OPT-OUT, so leaving it unset is what exercises the default and
+    # setting it to 0 is what exercises the escape hatch.
     if flag_on:
-        env[ENV_FLAG] = "1"
-    else:
         env.pop(ENV_FLAG, None)
+    else:
+        env[ENV_FLAG] = "0"
     try:
         # stdout captured, NOT discarded: the enabled-marker log line is the
         # evidence that the ON run actually entered the post-pass.
@@ -449,12 +452,12 @@ def main():
         # (2) the gate demonstrably fired -- without this, (1) is also true of a dead flag
         if off.get("post_pass_log_seen"):
             fail(
-                "%s: post-pass reported ENABLED with %s unset -- the default is not OFF"
+                "%s: post-pass reported ENABLED with %s=0 -- the opt-out does not work"
                 % (name, ENV_FLAG)
             )
         if not on.get("post_pass_log_seen"):
             fail(
-                "%s: post-pass did not report enabled with %s=1 -- the flag is not wired"
+                "%s: post-pass did not report enabled with %s unset -- the default is not ON"
                 % (name, ENV_FLAG)
             )
 

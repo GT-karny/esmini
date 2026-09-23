@@ -1,10 +1,10 @@
 # OSI 論理レーンと HostVehicleData.route — 規格モデルと GT の現状
 
-> ステータス: **T / S0 / S1 / S4 / S2.5 / S2.5b 完了。S3 / S2 / S5 が未実装**（2026-09-24）。
+> ステータス: **T / S0 / S1 / S4 / S2.5 / S2.5b / S3 完了。S2 / S5 が未実装**（2026-09-24）。
 > したがって §3-1 の表はそれより前の姿である — `reference_line[]` / `logical_lane[]` /
-> `logical_lane_assignment[]` は `GT_OSI_LOGICAL_LANE=1` で出るようになり、
-> `HostVehicleData.route`（§3-3）も埋まる。まだ出ていないのは
-> `logical_lane_boundary[]`（S3）と連結性（S2）で、既定は OFF のまま（設計書 §7-3）。
+> `logical_lane_boundary[]` / `logical_lane_assignment[]` と `HostVehicleData.route`（§3-3）は
+> **既定で出る**（`GT_OSI_LOGICAL_LANE=0` で opt-out、設計書 §7-3）。
+> まだ出ていないのは連結性（`predecessor/successor/adjacent`、S2）だけ。
 > 本書は「規格が何を要求しているか」と「GT が今どこまで
 > 出しているか」を突き合わせた現状記録であり、実装方針は
 > [`logical_lane_and_route_design.md`](logical_lane_and_route_design.md) にある。
@@ -490,6 +490,12 @@ OpenDRIVE レーンと 1:1 なので、論理面は物理面の m = 論理レー
 | multi_intersections | 1.42 | 227,967 | 293,687 | **2.12x** | 2.29x |
 | soderleden | 1.00 | 48,596 | 40,964 | **1.84x** | 1.84x |
 | highway_merge_split | 1.23 | 45,555 | 50,721 | **2.11x** | 2.11x |
+
+> **2026-09-24（S3 実測）**: 投影は 1.26x〜2.73x、**実測は 1.26x〜2.85x**
+> （e6mini 1.26 / fabriksgatan 2.85 / multi_intersections 2.48 / soderleden 2.04 /
+> highway_merge_split 1.96）。3 倍に届く資産は無く、既定 ON で確定した（設計書 §7-3）。
+> 投影が最も外れたのは multi_intersections（+0.36）で、**向きは予想と逆**だった —
+> 接続路は短いが曲率半径が 2.2 m まで落ちるので、偏差で刻む境界はそこで本線より密になる。
 
 **静的 GroundTruth は 1.3〜2.7 倍になる見込みで、3 倍に届く資産は無い。** 2 つの比を併記したのは
 別の問いに答えるからで、消費側のペイロード全体が問題なら左、道路網の表現コストが問題なら右を見る。

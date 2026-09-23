@@ -65,18 +65,23 @@ using LogicalLaneKey = std::tuple<std::uint32_t, unsigned, int>;
 // had to skip has no entry either -- callers must treat "not found" as normal.
 using LogicalLaneIndex = std::map<LogicalLaneKey, std::uint64_t>;
 
-// Flag gate for the logical-lane post-pass. Default OFF. Read ONCE from env
-// GT_OSI_LOGICAL_LANE on first query ("1"/"true", case-insensitive -> ON;
-// anything else / unset -> OFF). Same idiom as
-// gt_esmini::odr::GetUseAuthoredJunctionBoundary(); the setter overrides the env
+// Flag gate for the logical-lane post-pass. DEFAULT ON since S3. Read ONCE from
+// env GT_OSI_LOGICAL_LANE on first query: UNSET means on, and a set value is
+// parsed as "1"/"true"/"yes"/"on" -> ON, anything else -> OFF. So the variable is
+// an OPT-OUT (`GT_OSI_LOGICAL_LANE=0`), not an opt-in. The setter overrides the env
 // read so unit tests are deterministic.
+//
+// It differs from gt_esmini::odr::GetUseAuthoredJunctionBoundary() in exactly that
+// respect, on purpose: that one is opt-in, so "unset -> off" is right there and
+// wrong here.
 //
 // The flag does NOT exist to protect goldens -- the 7 upstream byte-exact OSI
 // size assertions it would have guarded are already skipped for GT
-// (scripts/run_tests.sh, OSI 3.7.0 explicit presence). It exists to keep the
-// incomplete intermediate model (S1..S2, logical lanes without boundaries) out
-// of the default output, to keep ON/OFF bisectable inside one binary, and to
-// leave the payload a choice. Design 7-2. It flips to default ON at S3.
+// (scripts/run_tests.sh, OSI 3.7.0 explicit presence). What is left of its purpose
+// after S3 is keeping ON/OFF bisectable inside one binary and leaving the payload a
+// choice (measured 1.26x..2.85x of the static ground truth, design 7-3). The third
+// reason it had -- keeping an incomplete intermediate model out of the default
+// output -- expired when the boundaries landed.
 void SetUseOsiLogicalLane(bool on);
 bool GetUseOsiLogicalLane();
 

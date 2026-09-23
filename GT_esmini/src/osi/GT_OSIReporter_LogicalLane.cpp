@@ -39,9 +39,11 @@ namespace osi
 
 namespace
 {
-// ---- feature flag (gt_esmini::odr::GetUseAuthoredJunctionBoundary idiom:
-//      env read once on first query, setter overrides so tests are deterministic) ----
-bool g_use_logical_lane        = false;
+// ---- feature flag: env read once on first query, setter overrides so tests are
+//      deterministic. Same shape as gt_esmini::odr::GetUseAuthoredJunctionBoundary
+//      but the OPPOSITE polarity -- that one is opt-in, this one has been an
+//      opt-out since S3 (design 7-3), so "unset" means ON here. ----
+bool g_use_logical_lane        = true;  // default ON since S3 (design 7-3)
 bool g_use_logical_lane_inited = false;
 
 // Same accepted-token set as the odr-side flag. Deliberately duplicated rather
@@ -383,7 +385,12 @@ bool GetUseOsiLogicalLane()
 {
     if (!g_use_logical_lane_inited)
     {
-        g_use_logical_lane        = EnvIsTruthy(std::getenv("GT_OSI_LOGICAL_LANE"));
+        // DEFAULT ON since S3 (design 7-3). Unset means on; the variable is now an
+        // OPT-OUT, so it is only consulted when it is actually set. Reading it as
+        // "truthy or off" the way the odr-side flags do would silently turn the layer
+        // off for everyone who has the variable set to something unrecognised.
+        const char* v      = std::getenv("GT_OSI_LOGICAL_LANE");
+        g_use_logical_lane = (v == nullptr || v[0] == '\0') ? true : EnvIsTruthy(v);
         g_use_logical_lane_inited = true;
     }
     return g_use_logical_lane;

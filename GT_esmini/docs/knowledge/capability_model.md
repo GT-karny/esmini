@@ -1008,7 +1008,7 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
   段取りは S0（足場・計測）→ S1（参照線＋論理レーン本体）→ S2 / S2.5 / S3 / S4（S1 にのみ依存、
   互いには独立）→ S5（常設化）。設計は `GT_esmini/docs/osi/logical_lane_and_route_design.md`、
   規格との突き合わせは同 `logical_lane_and_route.md`。
-  **S0 完了（2026-09-24）**: env ゲート `GT_OSI_LOGICAL_LANE`（既定 OFF）と空の後段パス
+  **S0 完了（2026-09-24）**: env ゲート `GT_OSI_LOGICAL_LANE`（S3 で既定 ON へ反転、`=0` で opt-out）と空の後段パス
   `BuildOsiLogicalLanes()` を置き、ON/OFF で静的 GroundTruth がバイト同一であることと、
   それが「フラグが読まれていないだけ」ではないことを 5 資産で同時に実測した
   （`scripts/probe_osi_logical_lane_size.py`）。同時に、設計が upstream の assert から逆算していた
