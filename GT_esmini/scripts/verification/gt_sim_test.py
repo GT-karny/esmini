@@ -146,7 +146,12 @@ _CROSSWALK_SYNTH_ID_BASE = 900000000
 
 # scene keys that hold static GroundTruth: emitted on the frame they were first
 # captured and forward-filled by vd_metrics.load_telemetry (they never change).
-_STATIC_SCENE_KEYS = ("traffic_signs", "stationary_objects", "lane_map")
+_STATIC_SCENE_KEYS = (
+    "traffic_signs",
+    "stationary_objects",
+    "lane_map",
+    "logical_lanes",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +331,41 @@ def _gt_to_scene(raw: bytes, _gt_cache=[]) -> dict | None:
         lane_map[str(ln.id.value)] = entry
     if lane_map:
         scene["lane_map"] = lane_map
+
+    # --- static GroundTruth: the logical-lane graph (spine-work:osi-logical-lane)
+    # id -> OpenDRIVE address + the four connectivity lists. This is the only place
+    # the topology is observable: logical_lane[] is written once, into the FIRST
+    # GroundTruth record, and never appears again -- so a matcher that looked for it
+    # on a later frame would read nothing and pass vacuously. Forward-filled by
+    # _STATIC_SCENE_KEYS above, exactly like lane_map.
+    logical_lanes = {}
+    for ll in gt.logical_lane:
+        road_id = lane_id = None
+        for ref in ll.source_reference:
+            if ref.type != "net.asam.opendrive":
+                continue
+            for ident in ref.identifier:
+                if ident.startswith("road_id:"):
+                    road_id = ident[len("road_id:") :]
+                elif ident.startswith("lane_id:"):
+                    lane_id = ident[len("lane_id:") :]
+        try:
+            entry = {
+                "road_id": int(road_id) if road_id is not None else None,
+                "lane_id": int(lane_id) if lane_id is not None else None,
+            }
+        except ValueError:
+            continue
+        # Only the ids: at_begin_of_other_lane and the LaneRelation s values are what
+        # the C++ unit gate pins, and carrying them here would put four doubles per
+        # relation into every telemetry file for no consumer.
+        entry["pred"] = [c.other_lane_id.value for c in ll.predecessor_lane]
+        entry["succ"] = [c.other_lane_id.value for c in ll.successor_lane]
+        entry["left"] = [r.other_lane_id.value for r in ll.left_adjacent_lane]
+        entry["right"] = [r.other_lane_id.value for r in ll.right_adjacent_lane]
+        logical_lanes[str(ll.id.value)] = entry
+    if logical_lanes:
+        scene["logical_lanes"] = logical_lanes
 
     # --- static GroundTruth: signs / stationary objects ---------------------
     traffic_signs = []
@@ -548,7 +588,29 @@ def _hvd_to_dict(raw: bytes, _hvd_cache=[]) -> dict | None:
             "custom_state": func.custom_state,
         }
 
-    return {
+    # route: HostVehicleData.route, the ego's planned path as a list of logical-lane
+    # segments (spine-work:osi-logical-lane S4). Absent -> the key is omitted, which
+    # the consumer must read as "not reported", never as "the route is empty": the
+    # producer clears the field whenever the layer is off, the ego has no route, or
+    # the logical-lane index has not been built (GT_HostVehicleReporter::FillRoute).
+    route = None
+    if hvd.HasField("route"):
+        route = {
+            "route_id": hvd.route.route_id.value,
+            "segments": [
+                [
+                    {
+                        "logical_lane_id": seg.logical_lane_id.value,
+                        "start_s": seg.start_s,
+                        "end_s": seg.end_s,
+                    }
+                    for seg in rs.lane_segment
+                ]
+                for rs in hvd.route.route_segment
+            ],
+        }
+
+    out = {
         "inputs": {
             "throttle": throttle,
             "brake": brake,
@@ -557,6 +619,9 @@ def _hvd_to_dict(raw: bytes, _hvd_cache=[]) -> dict | None:
         },
         "adas": adas,
     }
+    if route is not None:
+        out["route"] = route
+    return out
 
 
 def run(
@@ -622,6 +687,11 @@ def run(
     # treatment as osi_misses above, for the HVD channel.
     hvd_misses = 0
     hvd_steps = 0
+    # Same two counters for the virtualdriver branch, where HVD capture is new and
+    # opt-in (capture_osi). Kept separate from the manualdrive pair so the loud
+    # manualdrive raise below keeps meaning exactly what it meant.
+    vd_hvd_misses = 0
+    vd_hvd_steps = 0
 
     with lib, open(jsonl_path, "w", encoding="utf-8") as f:
         rc = lib.init_with_args(args)
@@ -722,6 +792,22 @@ def run(
                 # world" (test_results/f7_foundation_progress.md). None is
                 # falsy and takes the existing skip path correctly.
                 tel["scene"] = last_scene
+                # HostVehicleData alongside the scene, for the same reason the
+                # manualdrive branch above takes it: HVD carries quantities the VD
+                # telemetry channel does not (here, the planned route as logical-lane
+                # segments). Tied to capture_osi rather than taken unconditionally
+                # because HVD.route is only populated once the static GroundTruth
+                # post-pass has run, and that only happens when OSI GroundTruth is
+                # actually being consumed (GT_HostVehicleReporter::FillRoute says so
+                # in a warning). Absence stays absence: a miss omits the key, and a
+                # matcher must read that as "not reported", never as "empty".
+                vd_hvd_steps += 1
+                vd_hvd_raw = lib.get_osi_host_vehicle_data(-1)
+                vd_hvd = _hvd_to_dict(vd_hvd_raw) if vd_hvd_raw is not None else None
+                if vd_hvd is None:
+                    vd_hvd_misses += 1
+                else:
+                    tel["hvd"] = vd_hvd
             f.write(json.dumps(tel, separators=(",", ":")) + "\n")
             frames.append(tel)
 
@@ -753,6 +839,19 @@ def run(
             "hvd_misses checks above."
         )
 
+    if not is_manualdrive and vd_hvd_steps and vd_hvd_misses == vd_hvd_steps:
+        # NOT a raise: a virtualdriver scenario whose HostVehicleData reporter is
+        # switched off in config is a legitimate configuration, and no matcher that
+        # predates this capture reads hvd. But an HVD-reading matcher would then see
+        # the key missing on every frame and report skip -> needs-review, and the
+        # only place that is explainable is here.
+        print(
+            f"[run] WARNING: HostVehicleData was never captured for {scenario.name} "
+            f"({vd_hvd_misses}/{vd_hvd_steps} steps) although osi capture is on -- "
+            "any hvd-reading matcher will report skip",
+            file=sys.stderr,
+        )
+
     duration = frames[-1]["sim_time"] if frames else 0.0
     meta = {
         "scenario": (
@@ -765,6 +864,11 @@ def run(
         "frames": len(frames),
         "sim_duration_s": round(duration, 3),
         "osi": bool(capture_osi),
+        "hvd_captured": (
+            (vd_hvd_steps - vd_hvd_misses)
+            if not is_manualdrive
+            else (hvd_steps - hvd_misses)
+        ),
         "commit": _git_commit(),
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")

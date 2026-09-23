@@ -944,3 +944,61 @@ signals:
       戻った理由は blocked_reason 側へ分離してある。
       検知器の両極性は2本の刺激（完遂側と中断側）が**同じフィールドの逆極性**を主張することで
       実証してある — 定数のフィールドは何も判別しない。
+
+  # ---- OSI 論理レーン面（spine-work:osi-logical-lane） ----
+  - id: logical_lane_topology
+    title: 論理レーンの網（id / 型 / 前後・隣接）
+    exposure: [osi]
+    state: "●"
+    emit: GT_OSIReporter_LogicalLane.cpp:418（参照線）/:806（本体）/:977（前後接続）/:1245（横隣接）→ osi3 GroundTruth の reference_line[] / logical_lane_boundary[] / logical_lane[]
+    note: >-
+      matcher:route_matches_plan が読む。**観測できる口は .osi の第 1 レコードだけ**である。
+      静的 GroundTruth の後段パスが OpenDRIVE ロード後に 1 度だけ走り、以後のフレームには
+      一切現れない。ハーネス側は gt_sim_test.py の `_STATIC_SCENE_KEYS` に
+      `logical_lanes` を加えて前方充填しており、これが無いと matcher は常に空を見て
+      **vacuous に緑**になる（lane_map と同じ扱い）。
+      **件数を判定基準にしてはいけない。** predecessor_lane / successor_lane /
+      left_adjacent_lane / right_adjacent_lane はどれも `repeated` なので、全部空でも
+      message は well-formed である。閾値を「> 0」に置くと片側だけ壊れた実装が通る。
+      分母は被検査フィールドの外から取ること（logical_lane_and_route_design.md §8-0 S2）。
+      **向きは参照線方向で、走行方向ではない**（規格 `"End" is relative to the reference
+      line`）。RHT の負レーンでは successor が車両の後方になる。right/left も参照線方向
+      （t の小さい側が right）で、**LHT でも反転しない** — 同じ .proto ファイルの
+      `centerline_is_driving_direction` は反転するので混同しやすい。
+      レーン端ごとの詳細（at_begin の両極性・5cm 整合・ゼロ幅端）は
+      scripts/probe_osi_logical_lane_connectivity.py が 5 資産で実測する。
+
+  - id: logical_lane_assignment
+    title: オブジェクトの論理レーン相対 s / t / 向き（L1）
+    exposure: [osi]
+    state: "●"
+    emit: GT_OSIReporter_LogicalLane.cpp:1574（EmitLogicalLaneAssignment）→ osi3 MovingObject.moving_object_classification.logical_lane_assignment[]
+    note: >-
+      **交差点の中でも車線が個別に引ける**のがこの signal の存在理由。物理面の
+      `assigned_lane_id` は OSI 交差点をひとつの TYPE_INTERSECTION レーンへ融合するので、
+      接続路を走行中は junction id しか返さない（signal:ego_lane の join 欠け）。
+      s / t は **OSI 参照点＝バウンディングボックス中心**で測る（entity origin ではない。
+      出荷カタログ車で 1.4 m 違う）。`route` 側も同じ点で切っており、揃っていないと
+      route × L1 の合成がセグメントの継ぎ目で車長ぶん跳ねる。
+      車線を跨ぐ間は両方のレーンに割り当たる（L1-b）。ただし**アンカーレーン
+      （Position が報告するレーン）は重なり量によらず常に先頭に入る**ので、
+      「割り当てが 1 本」は L1-b が死んでいる証拠にならない — 跨ぐはずのエンティティを
+      名指しで 2 本要求する検査が要る（probe_osi_logical_lane_assignment.py）。
+
+  - id: ego_route_lane_segments
+    title: 自車の経路（論理レーン区間の列）
+    exposure: [hvd]
+    state: "●"
+    emit: GT_HostVehicleReporter.cpp:478-559（FillRoute → RouteToOsiRoute.cpp:347 BuildOsiRouteInto）→ osi3 HostVehicleData.route
+    note: >-
+      matcher:route_matches_plan が読む。signal:route_lane_conformance（telemetry 面）と
+      **同じ量ではない**: あちらは「VD が内部でどう見ているか」、こちらは「外へ何を
+      宣言しているか」。この 2 つが食い違うことこそ検出したい事象なので統合しない
+      （logical_lane_and_route_design.md §9）。
+      **空であることが 3 通りの意味を持つ**: 機能 OFF / 自車に route が無い /
+      静的 GT の後段パスがまだ走っていない。3 つ目は HostVehicleData だけを消費する
+      セッションで起きる（後段パスは OSI GroundTruth を出力・配信・API 取得したときに
+      初めて走る）ので、ハーネスは **osi capture と同時にしか HVD.route を読まない**。
+      C++ 側は 3 つ目のときだけ 1 度 WARN を出す。
+      s の向きは走行方向で決まるので、s 減少方向へ進む区間では `start_s > end_s` になる
+      （規格が明示的に許している。前後接続の s 方向とは別基準）。
