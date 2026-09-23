@@ -999,6 +999,20 @@ VD は自前で絶対 pitch/roll を `SetInertiaPos` する（`ControllerVirtual
     §7 `vertical-wiring` 参照）。規模はドメイン別スタックの拡張＋
     `AebSafety` の VD からの切り出しで、別プログラム規模。
 - **`spine-work:empty-spine-stitching`**: 空スパインの主張（pitch/roll 等）を1列ずつ縫う（signal露出→matcher→gate）。
+- **`spine-work:osi-logical-lane`**（2026-09-24 着手）: §2.2a **W4** の `route` 行を閉じる。
+  OSI の論理レーン面（`GroundTruth.reference_line` / `logical_lane_boundary` / `logical_lane`、
+  いずれも core esmini / GT とも未 emit）を新設し、その上に
+  `HostVehicleData.route` と `MovingObject.logical_lane_assignment` を載せる。
+  `route` は点列ではなく**論理レーンへの参照の列**なので、論理レーンを出さずに `route` だけ埋めると
+  値は入っているのに参照が実在しない出力になる — 順序を入れ替えられない依存である。
+  段取りは S0（足場・計測）→ S1（参照線＋論理レーン本体）→ S2 / S2.5 / S3 / S4（S1 にのみ依存、
+  互いには独立）→ S5（常設化）。設計は `GT_esmini/docs/osi/logical_lane_and_route_design.md`、
+  規格との突き合わせは同 `logical_lane_and_route.md`。
+  **S0 完了（2026-09-24）**: env ゲート `GT_OSI_LOGICAL_LANE`（既定 OFF）と空の後段パス
+  `BuildOsiLogicalLanes()` を置き、ON/OFF で静的 GroundTruth がバイト同一であることと、
+  それが「フラグが読まれていないだけ」ではないことを 5 資産で同時に実測した
+  （`scripts/probe_osi_logical_lane_size.py`）。同時に、設計が upstream の assert から逆算していた
+  「静的 GT が 2〜3 倍」を実測値へ置き換えた。
 
 ### 7.1 命名規約（2026-07-20 制定・`spine-work:derived-report-lint` で機械化）
 

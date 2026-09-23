@@ -364,11 +364,16 @@ namespaces:
     id_pattern: "[a-z][a-z0-9]*(-[a-z0-9]+)+"
     source_of_truth: GT_esmini/docs/knowledge/capability_model.md
     status: active
-    count: 5
+    count: 10  # 2026-09-24: 宣言値 5 は陳腐化していた（実体は §7 に 9 件）。実数に合わせ直したうえで osi-logical-lane を足した
     notes: >-
-      capability_model.md §7（spine-definition / signal-gate-registration / vertical-wiring /
-      derived-report-lint / empty-spine-stitching）。**順序は ID でなく §7 の並びと
-      depends-on 辺で表す**。
+      capability_model.md §7（spine-definition / signal-gate-registration / aeb-gate-wiring /
+      ego-anchor-face1-migration / anticipation-gate-wiring / vertical-wiring /
+      derived-report-lint / empty-spine-stitching / osi-assigned-lane-driving /
+      osi-logical-lane）。**順序は ID でなく §7 の並びと depends-on 辺で表す**。
+      **face タグは "3" だが face-1 の作業も収容している**（ego-anchor-face1-migration /
+      osi-assigned-lane-driving / osi-logical-lane はいずれも OSI emit 側）。face 別に
+      名前空間を割らないのは、work-item を分ける軸が「どの面を触るか」ではなく
+      「スパインのどの列を縫うか」だからで、面は作業ではなくノード側が持つ。
       **2026-07-20 に2度直した**: 当初は所属の無い裸の序数「フェーズ0-4」で
       `vd-phase:Phase0-4` / `odr-plan:P0-P10` と衝突 → 一次対応で `spine-phase:Phase<n>` に
       修飾したが、**それは序数を延命しただけ**という指摘を受け内容 slug へ作り直した。

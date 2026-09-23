@@ -69,6 +69,9 @@ set(UNIT_TEST_SOURCES
     # OSI planned-path hand-off (VirtualDriver preview -> future_trajectory).
     # Storage lives in GT_OSIReporter_Moving.cpp, which arrives via ScenarioEngine below.
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/osi/test_PlannedPathRegistry.cpp
+    # OSI logical lanes (spine-work:osi-logical-lane). Same arrival route as the
+    # registry above: GT_OSIReporter_LogicalLane.cpp is compiled into ScenarioEngine.
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/osi/test_OsiLogicalLane.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)
