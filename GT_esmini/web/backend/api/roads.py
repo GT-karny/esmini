@@ -10,6 +10,7 @@ from GT_esmini.web.backend.services import road_geometry_service, road_service
 from GT_esmini.web.backend.services.route_planner_service import (
     RoutePlanError,
     plan_route,
+    snap_points,
 )
 
 router = APIRouter(prefix="/api/roads", tags=["roads"])
@@ -44,6 +45,40 @@ async def road_geometry(road_id: str):
     if xodr_path is None:
         raise HTTPException(status_code=404, detail=f"Road '{road_id}' not found")
     return road_geometry_service.extract_road_geometry(xodr_path)
+
+
+class SnapRequest(BaseModel):
+    road_id: str
+    points: list[RoutePoint] = Field(min_length=1)
+
+
+@router.post("/snap")
+async def snap(req: SnapRequest):
+    """Snap world points onto lanes, one status per point.
+
+    Separate from /route-plan on purpose. The map must be able to show where a
+    click landed the moment it happens -- before there is a second point, and even
+    when no route connects the points. Folding this into route planning made the
+    snap invisible until a route succeeded, so a lone first point rendered at the
+    raw click position, off the road.
+
+    A point that missed is NOT an error here: it comes back with on_road=false so
+    the marker can show it while the rest stay usable.
+    """
+    xodr_path = road_service.resolve_road_path(req.road_id)
+    if xodr_path is None:
+        raise HTTPException(status_code=404, detail=f"Road '{req.road_id}' not found")
+    try:
+        return {
+            "snapped": snap_points(
+                xodr_path, [{"x": p.x, "y": p.y} for p in req.points]
+            )
+        }
+    except RoutePlanError as exc:
+        raise HTTPException(
+            status_code=503 if exc.code == "library_unavailable" else 422,
+            detail={"code": exc.code, "message": str(exc), **exc.detail},
+        ) from exc
 
 
 @router.post("/route-plan")

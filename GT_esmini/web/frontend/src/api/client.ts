@@ -1011,8 +1011,22 @@ export interface RouteLaneChange {
   to_lane_id: number;
 }
 
+export interface SnapResultDto {
+  on_road: boolean;
+  reason?: 'off_road' | 'not_routable';
+  road_id?: number;
+  lane_id?: number;
+  s?: number;
+  x?: number;
+  y?: number;
+  h?: number;
+}
+
 export interface RoutePlan {
   waypoints: RouteWaypoint[];
+  /** Route sampled along lane centres. Absent on a backend that predates it, in
+   *  which case callers fall back to joining waypoints directly. */
+  path?: Array<{ x: number; y: number }>;
   lane_changes: RouteLaneChange[];
   length: number;
   diagnostic: string;
@@ -1121,6 +1135,12 @@ export const api = {
     request<{
       boundaries: Array<{ road_id: number; type: string; points: [number, number][] }>;
     }>(`/api/roads/${encodeURIComponent(roadId)}/geometry`),
+
+  snapPoints: (roadId: string, points: RoutePoint[]) =>
+    request<{ snapped: SnapResultDto[] }>(`/api/roads/snap`, {
+      method: 'POST',
+      body: JSON.stringify({ road_id: roadId, points }),
+    }),
 
   planRoute: (roadId: string, points: RoutePoint[], strategy = 'shortest') =>
     request<RoutePlan>(`/api/roads/route-plan`, {
