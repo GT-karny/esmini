@@ -32,6 +32,14 @@ namespace roadmanager
     class OpenDrive;
 }
 
+// Forward declaration only: this header is included by GT_esminiLib-side consumers
+// and by the unit gate binary, and neither should have to pull in protobuf just to
+// name the output of the post-pass.
+namespace osi3
+{
+    class GroundTruth;
+}
+
 namespace gt_esmini
 {
 namespace osi
@@ -48,8 +56,8 @@ using LogicalLaneKey = std::tuple<std::uint32_t, unsigned, int>;
 // (road, lane section, lane) -> osi3 LogicalLane global id.
 //
 // Populated by BuildOsiLogicalLanes() and rebuilt from scratch on every static
-// ground-truth build. Empty while the feature is OFF, and empty in S0 (the
-// post-pass emits nothing yet) -- callers must treat "not found" as normal.
+// ground-truth build. Empty while the feature is OFF, and a road the post-pass
+// had to skip has no entry either -- callers must treat "not found" as normal.
 using LogicalLaneIndex = std::map<LogicalLaneKey, std::uint64_t>;
 
 // Flag gate for the logical-lane post-pass. Default OFF. Read ONCE from env
@@ -79,15 +87,46 @@ bool GetUseOsiLogicalLane();
 // load instead would renumber every lane and break both the ODR conformance OSI
 // goldens and the lane_map join behind signal:ego_lane.
 //
-// Hard no-op when the flag is OFF, and in S0 a no-op even when it is ON: the
-// emit lands in S1 (reference lines + lane bodies), S2 (connectivity) and S3
-// (boundaries).
+// Hard no-op when the flag is OFF. As of S1 it emits reference_line[] and
+// logical_lane[]; connectivity is S2 and logical_lane_boundary[] is S3.
 void BuildOsiLogicalLanes(roadmanager::OpenDrive* opendrive);
+
+// The pass itself, with both outputs passed in explicitly.
+//
+// BuildOsiLogicalLanes() is the wiring: it resolves the reporter's static
+// GroundTruth and the module-level index and calls this. Tests call this
+// directly with their own GroundTruth, which is the only way to exercise the
+// emit without standing up an OSIReporter (the reporter allocates
+// obj_osi_internal.static_gt in its constructor -- see the null guard in the
+// wrapper).
+//
+// Does NOT check the feature flag: the flag is a property of the call site, and
+// a test that has asked for a build wants one. Both arguments are required.
+void BuildOsiLogicalLanesInto(roadmanager::OpenDrive* opendrive, osi3::GroundTruth* gt, LogicalLaneIndex* index);
 
 // Read-only view of the index built by the last BuildOsiLogicalLanes() call.
 // Lives in the same translation unit as the post-pass so nothing else has to
-// own it. Empty until S1 populates it.
+// own it. This is the ONLY coupling between the static logical-lane layer and
+// the per-frame consumers (S2.5 assignment, S4 route).
 const LogicalLaneIndex& GetLogicalLaneIndex();
+
+// ---- pure field mappings (design 2-2-1 / 2-2-2) ----
+//
+// Both return the numeric value of an osi3 enumerator rather than the enum type,
+// so that this header stays protobuf-free. Call sites that care compare against
+// static_cast<int>(osi3::LogicalLane_Type_TYPE_...).
+
+// roadmanager::Lane::LaneType (a bit flag) -> osi3::LogicalLane::Type.
+// Unmapped / unknown types collapse to TYPE_OTHER; the centre lane never reaches
+// here because it is not emitted at all.
+int MapLaneTypeToLogicalLaneType(int rm_lane_type);
+
+// -> osi3::LogicalLane::MoveDirection, from the lane's OpenDRIVE side and the
+// road's traffic hand. Non-driving lanes (sidewalk, median, curb, ...) and
+// bidirectional lanes are BOTH_ALLOWED; driving lanes get INCREASING_S when the
+// lane's driving direction follows the reference line. Same predicate the
+// physical lane's centerline_is_driving_direction uses.
+int MapMoveDirection(int rm_lane_type, int lane_id, bool right_hand_traffic);
 
 }  // namespace osi
 }  // namespace gt_esmini

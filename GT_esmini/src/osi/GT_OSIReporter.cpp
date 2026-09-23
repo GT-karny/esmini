@@ -555,7 +555,7 @@ int OSIReporter::CreateOSIStaticGroundTruthFromODR()
     // OSI logical lanes (reference_line / logical_lane_boundary / logical_lane). Flagged post-pass,
     // default OFF. Runs LAST so every RM/OSI global id is already assigned and the ids it draws from
     // GetNewGlobalId() cannot move an existing one (logical_lane_and_route_design.md section 3).
-    // S0: emits nothing even when enabled.
+    // S1: reference lines + logical lane bodies + the lane index. Boundaries arrive in S3.
     gt_esmini::osi::BuildOsiLogicalLanes(opendrive);
     UpdateStaticTrafficSignals();
 

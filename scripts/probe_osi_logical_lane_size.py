@@ -1,34 +1,38 @@
 #!/usr/bin/env python3
-"""S0 probe for the OSI logical-lane work (spine-work:osi-logical-lane).
+"""Size and flag-neutrality probe for the OSI logical-lane layer (spine-work:osi-logical-lane).
 
 Two jobs, both measured -- nothing here is taken from a design document:
 
-  1. SIZE BASELINE. For each fixture, load it in-process through GT_esminiLib and
-     decode the OSI GroundTruth (SE_GetOSIGroundTruth), then break the serialized
-     bytes down per GroundTruth field by re-serializing each field on its own. The
-     static-network subtotal is the number the design's "static GT becomes 2-3x"
-     claim was a guess at; that claim was back-computed from the upstream
-     `st_size == 185928` assertion and had never been measured on a GT build.
-     The .osi file that assertion stats is reproduced here too, so the GT number
-     is directly comparable to the upstream one.
+  1. SIZE. For each fixture, load it in-process through GT_esminiLib and decode
+     the static OSI GroundTruth, then break the serialized bytes down per
+     GroundTruth field by re-serializing each field on its own. Since S1 the
+     logical layer's own cost (reference_line + logical_lane, with the
+     boundaries still to come in S3) is reported as a MEASURED increment; the S0
+     run of this probe could only project it, and the projection bundled the
+     boundaries -- the bulk of the layer -- with the lane bodies. Design section
+     7-3 flips the default to ON at S3 on the strength of these numbers.
 
   2. FLAG NEUTRALITY, WITH BOTH POLARITIES. Every fixture is loaded twice in
      separate processes, once with GT_OSI_LOGICAL_LANE unset and once with it
-     set to 1, and the serialized GroundTruth bytes must match EXACTLY. That
-     check is vacuous on its own -- bytes also match when the flag is never read
-     -- so the probe additionally requires the post-pass's enabled log line to
-     appear in the ON run and to be absent from the OFF run. Identical bytes plus
-     a gate that demonstrably fired is the claim; either half alone is not.
+     set to 1. With the flag ON the record legitimately grows, so the invariant
+     is not "identical bytes" any more but "nothing that already existed moved":
+     each pre-existing static field is compared by its own digest, and the lane
+     and lane_boundary ID SETS are compared element by element. That is the
+     acceptance criterion for the id-numbering discipline of design section 3 --
+     a renumbered lane silently breaks the ODR conformance goldens and the
+     lane_map join behind signal:ego_lane, and nothing else would report it.
+     The comparison is vacuous on its own (it also holds for a flag that is
+     never read), so the probe additionally requires the post-pass's enabled log
+     line to appear in the ON run and to be absent from the OFF run.
 
-Also reported, as the drivers S1/S3 will be sized from: OSI lane and boundary
-counts, total polyline points, and -- from the xodr itself -- the road /
-laneSection / lane counts that fix how many logical lanes there will be. The
-projection at the end is labelled as a projection and states its model.
+Also checked against the xodr itself: one reference line per road, one logical
+lane per non-centre OpenDRIVE lane -- junction connecting roads included, which
+is where the logical layer carries strictly more than osi_lane does.
 
     DriverScript/.venv/Scripts/python.exe scripts/probe_osi_logical_lane_size.py
 
 Exit 0 = PASS. Requires a completed Release build (GT_esminiLib.dll).
-Output: test_results/osi_logical_lane/s0_size_probe.json (+ a table on stdout).
+Output: test_results/osi_logical_lane/size_probe.json (+ a table on stdout).
 """
 import argparse
 import json
@@ -43,8 +47,8 @@ DEFAULT_DLL = os.path.join(_REPO_ROOT, "build", "GT_esmini", "Release", "GT_esmi
 OUT_DIR = os.path.join(_REPO_ROOT, "test_results", "osi_logical_lane")
 
 ENV_FLAG = "GT_OSI_LOGICAL_LANE"
-# Emitted by BuildOsiLogicalLanes() when the flag is ON. The ONLY observable
-# difference between the two runs in S0; see the module docstring.
+# Emitted by BuildOsiLogicalLanes() when the flag is ON. The negative control for
+# "the flag is wired at all" rather than merely inert; see the module docstring.
 ENABLED_MARK = "[GT_OSI:logical-lane] post-pass enabled"
 
 # Fixtures. e6mini is the anchor: cut-in.xosc drives it and it is what upstream's
@@ -180,15 +184,28 @@ try:
         getattr(m, name).extend(getattr(g, name))
         return len(m.SerializeToString())
 
-    STATIC_FIELDS = ["lane", "lane_boundary", "traffic_sign", "traffic_light",
-                     "road_marking", "stationary_object",
-                     "reference_line", "logical_lane_boundary", "logical_lane"]
+    def field_sha(name):
+        m = gtpb.GroundTruth()
+        getattr(m, name).extend(getattr(g, name))
+        return hashlib.sha256(m.SerializeToString()).hexdigest()
+
+    LOGICAL_FIELDS = ["reference_line", "logical_lane_boundary", "logical_lane"]
+    PREEXISTING_STATIC_FIELDS = ["lane", "lane_boundary", "traffic_sign", "traffic_light",
+                                 "road_marking", "stationary_object"]
+    STATIC_FIELDS = PREEXISTING_STATIC_FIELDS + LOGICAL_FIELDS
     DYNAMIC_FIELDS = ["moving_object"]
     per_field = {n: field_bytes(n) for n in STATIC_FIELDS + DYNAMIC_FIELDS}
     counts = {n: len(getattr(g, n)) for n in STATIC_FIELDS + DYNAMIC_FIELDS}
+    # Per-field digests of everything that existed BEFORE the logical layer. Once
+    # the layer emits, the whole-record digest necessarily differs between OFF and
+    # ON, so "nothing else moved" has to be asserted field by field. These digests
+    # are what make the id-stability claim (design 3) measurable end to end: a
+    # renumbered lane changes lane's bytes even though its count is unchanged.
+    pre_sha = {n: field_sha(n) for n in PREEXISTING_STATIC_FIELDS}
 
     centerline_points = sum(len(L.classification.centerline) for L in g.lane)
     boundary_points = sum(len(b.boundary_line) for b in g.lane_boundary)
+    reference_line_points = sum(len(r.poly_line) for r in g.reference_line)
 
     res = {
         "init_ok": True,
@@ -198,9 +215,19 @@ try:
         "record_bytes": rec_len,
         "counts": counts,
         "per_field_bytes": per_field,
+        "pre_existing_field_sha256": pre_sha,
         "static_subtotal_bytes": sum(per_field[n] for n in STATIC_FIELDS),
+        "logical_layer_bytes": sum(per_field[n] for n in LOGICAL_FIELDS),
         "centerline_points": centerline_points,
         "lane_boundary_points": boundary_points,
+        "reference_line_points": reference_line_points,
+        # The id sets the ODR conformance goldens and the lane_map join are keyed
+        # on. Compared OFF vs ON directly, because a shifted id is the one failure
+        # mode of this feature that nothing downstream would report out loud.
+        "lane_ids": sorted(L.id.value for L in g.lane),
+        "lane_boundary_ids": sorted(b.id.value for b in g.lane_boundary),
+        "logical_lane_ids": sorted(L.id.value for L in g.logical_lane),
+        "reference_line_ids": sorted(r.id.value for r in g.reference_line),
         # the byte-identity check compares this, not just the length
         "gt_sha256": hashlib.sha256(data).hexdigest(),
         "frame_sha256": hashlib.sha256(frame_data).hexdigest(),
@@ -343,26 +370,33 @@ def main():
             fail("%s: ON run did not init: %s" % (name, on))
             continue
 
-        # (1) byte identity -- the acceptance criterion
-        if off["gt_sha256"] != on["gt_sha256"]:
-            fail(
-                "%s: STATIC GroundTruth record differs OFF vs ON (%d vs %d bytes)"
-                % (name, off["gt_serialized_bytes"], on["gt_serialized_bytes"])
-            )
-        # A record with no lanes in it would make the comparison above vacuous.
+        # A record with no lanes in it would make every comparison below vacuous.
         if off["counts"]["lane"] == 0:
             fail("%s: the measured record carries 0 lanes -- the probe is not "
                  "looking at the static network" % name)
+
+        # (1) NOTHING THAT ALREADY EXISTED MOVED. From S1 on the whole-record
+        # digest differs by construction (the logical layer is new bytes), so the
+        # invariant is asserted field by field instead -- including the two id
+        # sets that the ODR conformance goldens and the lane_map join are keyed
+        # on. This is the acceptance criterion for design section 3.
+        for f, sha in off["pre_existing_field_sha256"].items():
+            if on["pre_existing_field_sha256"].get(f) != sha:
+                fail(
+                    "%s: pre-existing static field '%s' changed OFF vs ON (%d vs %d bytes)"
+                    % (name, f, off["per_field_bytes"][f], on["per_field_bytes"][f])
+                )
+        for f in ("lane_ids", "lane_boundary_ids"):
+            if off[f] != on[f]:
+                moved = sorted(set(off[f]) ^ set(on[f]))
+                fail("%s: %s differ OFF vs ON (%d symmetric-difference entries, e.g. %s)"
+                     % (name, f, len(moved), moved[:8]))
         if off["frame_sha256"] != on["frame_sha256"]:
             fail(
                 "%s: per-frame GroundTruth payload differs OFF vs ON (%d vs %d bytes)"
                 % (name, off["frame_payload_bytes"], on["frame_payload_bytes"])
             )
-        if off["osi_file_bytes"] != on["osi_file_bytes"]:
-            fail(
-                "%s: .osi file size differs OFF=%d ON=%d"
-                % (name, off["osi_file_bytes"], on["osi_file_bytes"])
-            )
+
         # (2) the gate demonstrably fired -- without this, (1) is also true of a dead flag
         if off.get("post_pass_log_seen"):
             fail(
@@ -374,14 +408,47 @@ def main():
                 "%s: post-pass did not report enabled with %s=1 -- the flag is not wired"
                 % (name, ENV_FLAG)
             )
-        # (3) S0 emits nothing
+
+        # (3) OFF is inert
         for f in ("reference_line", "logical_lane_boundary", "logical_lane"):
-            if on["counts"][f] != 0:
-                fail("%s: S0 emitted %d %s (S0 must emit nothing)" % (name, on["counts"][f], f))
+            if off["counts"][f] != 0:
+                fail("%s: flag OFF still emitted %d %s" % (name, off["counts"][f], f))
+        if off["logical_layer_bytes"] != 0:
+            fail("%s: flag OFF still spent %d bytes on the logical layer" % (name, off["logical_layer_bytes"]))
+
+        # (4) ON emits exactly the S1 model: one reference line per road, one
+        # logical lane per non-centre OpenDRIVE lane (junction connecting roads
+        # included -- that is the whole point of the layer), and NO boundaries,
+        # which arrive in S3.
+        want_lanes = entry["shape"]["lanes_excl_center"]
+        if on["counts"]["logical_lane"] != want_lanes:
+            fail(
+                "%s: logical_lane=%d but the xodr has %d non-centre lanes"
+                % (name, on["counts"]["logical_lane"], want_lanes)
+            )
+        if on["counts"]["logical_lane"] <= on["counts"]["lane"] and entry["shape"]["junction_lanes_excl_center"] > 0:
+            fail(
+                "%s: logical_lane=%d does not exceed osi lane=%d although the network has "
+                "%d connecting-road lanes -- junction lanes are not individually emitted"
+                % (name, on["counts"]["logical_lane"], on["counts"]["lane"], entry["shape"]["junction_lanes_excl_center"])
+            )
+        if on["counts"]["reference_line"] != entry["shape"]["roads"]:
+            fail(
+                "%s: reference_line=%d but the xodr has %d roads"
+                % (name, on["counts"]["reference_line"], entry["shape"]["roads"])
+            )
+        if on["counts"]["logical_lane_boundary"] != 0:
+            fail("%s: S1 emitted %d logical_lane_boundary (boundaries are S3)" % (name, on["counts"]["logical_lane_boundary"]))
+        # Freshly drawn ids, disjoint from every id that already existed.
+        existing = set(off["lane_ids"]) | set(off["lane_boundary_ids"])
+        clash = existing & (set(on["logical_lane_ids"]) | set(on["reference_line_ids"]))
+        if clash:
+            fail("%s: %d logical-layer ids collide with existing lane/boundary ids, e.g. %s"
+                 % (name, len(clash), sorted(clash)[:8]))
 
     # ---------------- report ----------------
     print()
-    print("=== S0 size baseline (flag OFF; byte-identical with flag ON) ===")
+    print("=== size baseline, flag OFF (every pre-existing field byte-identical with flag ON) ===")
     hdr = (
         "fixture", "record_B", "static_B", "frame_B", "lane", "laneB",
         "clPts", "bPts", "roads", "sects", "lanes*", "juncLanes*",
@@ -415,48 +482,38 @@ def main():
     print("  junctions -- the ones osi_lane fuses into a single TYPE_INTERSECTION lane today.")
 
     print()
-    print("=== projection for S1/S3 (a projection, not a measurement) ===")
-    print("  model: logical lanes are 1:1 with OpenDRIVE lanes, so the logical layer covers")
-    print("  m = lanes_excl_center / osi_lane_count times as much road as the physical one.")
-    print("  LogicalLaneBoundary carries 5 doubles per point (Vector3d + s + t) against the")
-    print("  physical BoundaryPoint's 5 (Vector3d + width + height), so bytes/point is the")
-    print("  same to within the tag widths; the driver is the point count, scaled by m.")
-    print("  Two ratios are given because they answer different questions: 'static x' is what")
-    print("  a consumer's whole static payload does, and 'roadnet x' is what the ROAD NETWORK")
-    print("  part does. They diverge a lot -- on e6mini two thirds of the static bytes are")
-    print("  stationary_object (guard rails), which logical lanes do not touch at all, so the")
-    print("  same added bytes read as 1.3x against the total and 1.8x against the network.")
-    hdr2 = ("fixture", "m", "roadnet_B", "added_B", "static x", "roadnet x")
-    print("  %-22s %6s %11s %11s %9s %10s" % hdr2)
+    print("=== S1 measured increment: reference_line + logical_lane only (NO boundaries) ===")
+    print("  This is the middle value design section 7-3 asks for before flipping the default")
+    print("  ON at S3: the S0 table could only project the whole layer, and the projection")
+    print("  bundled the boundaries -- which are the bulk of it -- with the lane bodies.")
+    print("  'static x' is measured against the consumer's whole static payload, 'roadnet x'")
+    print("  against the road-network part alone (lane + lane_boundary). They diverge wherever")
+    print("  a fixture carries many stationary objects, which the logical layer never touches.")
+    hdr2 = ("fixture", "logLanes", "refLines", "refPts", "refLine_B", "logLane_B", "added_B", "static x", "roadnet x")
+    print("  %-22s %8s %8s %7s %10s %10s %9s %9s %10s" % hdr2)
     for name, e in results.items():
-        o = e["off"]
-        if not o.get("init_ok") or o["counts"]["lane"] == 0:
+        o, n = e["off"], e["on"]
+        if not o.get("init_ok") or not n.get("init_ok") or o["counts"]["lane"] == 0:
             continue
-        m = e["shape"]["lanes_excl_center"] / float(o["counts"]["lane"])
-        phys_bnd = o["per_field_bytes"]["lane_boundary"]
-        proj_logbnd = phys_bnd * m
-        # reference_line: one polyline per road, point density taken from the measured
-        # mean centerline; logical_lane metadata ~200 B each (design 5-5).
-        mean_cl = o["centerline_points"] / float(max(o["counts"]["lane"], 1))
-        proj_refline = mean_cl * e["shape"]["roads"] * 46.0  # 5 doubles + tags per point
-        proj_meta = e["shape"]["lanes_excl_center"] * 200.0
-        added = proj_logbnd + proj_refline + proj_meta
-        roadnet = o["per_field_bytes"]["lane"] + phys_bnd
-        proj_static = o["static_subtotal_bytes"] + added
+        added = n["logical_layer_bytes"]
+        roadnet = o["per_field_bytes"]["lane"] + o["per_field_bytes"]["lane_boundary"]
         print(
-            "  %-22s %6.2f %11d %11d %8.2fx %9.2fx"
+            "  %-22s %8d %8d %7d %10d %10d %9d %8.2fx %9.2fx"
             % (
                 name,
-                m,
-                int(roadnet),
-                int(added),
-                proj_static / float(o["static_subtotal_bytes"]),
+                n["counts"]["logical_lane"],
+                n["counts"]["reference_line"],
+                n["reference_line_points"],
+                n["per_field_bytes"]["reference_line"],
+                n["per_field_bytes"]["logical_lane"],
+                added,
+                (o["static_subtotal_bytes"] + added) / float(o["static_subtotal_bytes"]),
                 (roadnet + added) / float(roadnet),
             )
         )
 
     os.makedirs(args.out_dir, exist_ok=True)
-    out_json = os.path.join(args.out_dir, "s0_size_probe.json")
+    out_json = os.path.join(args.out_dir, "size_probe.json")
     with open(out_json, "w", encoding="utf-8") as fh:
         json.dump({"dll": args.dll, "fixtures": results, "pass": ok}, fh, indent=2)
     print()

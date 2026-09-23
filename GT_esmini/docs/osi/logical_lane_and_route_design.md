@@ -1,6 +1,6 @@
 # OSI 論理レーンと HostVehicleData.route — 実装設計
 
-> ステータス: **S0 完了（2026-09-24）、S1 以降は未着手**。現状と規格の突き合わせは
+> ステータス: **T / S0 / S1 完了（2026-09-24）、S2 以降は未着手**。現状と規格の突き合わせは
 > [`logical_lane_and_route.md`](logical_lane_and_route.md)。本書はそれを前提に、
 > 何をどこへどう書くかを決める。
 > 知識グラフ: `capability_model.md` §2.2a **W4** の `route` 行を閉じる作業。
@@ -101,7 +101,19 @@ GT_HostVehicleReporter::UpdateFromObjectState()
 | `source_reference` | `type = "net.asam.opendrive"`, `identifier = ["road_id:<id>", "road_s:<s>", "lane_id:<id>"]` |
 | `physical_lane_reference` | §2-2-3 |
 | `street_name` | `Road::GetName()`（空なら省略） |
-| `traffic_rule[].speed_limit` | `Road::GetSpeedByS(start_s)`（道路単位。レーン単位は未パース） |
+| `traffic_rule[].speed_limit` | `Road::GetSpeedByS(start_s) * 3.6`（**km/h へ変換**）。`value_unit = UNIT_KILOMETER_PER_HOUR`。走行系レーンにのみ出す |
+| `traffic_rule[].traffic_rule_validity` | 走行方向に沿って `start_s → end_s`。`DECREASING_S` のレーンでは両者が入れ替わる。`BOTH_ALLOWED` では出さない |
+
+> **単位（2026-09-24、S1 実装時に追記）**: OSI の `TrafficSignValue.Unit` に**速度の m/s は無い**
+> （速度は km/h と mph の 2 つだけ）。一方 `Road::GetSpeedByS()` は m/s を返す — パーサが
+> `<speed @unit>` の km/h も mph も m/s へ正規化してしまうためである
+> （[`GT_RoadManager.cpp:3990-3999`](../../src/road/GT_RoadManager.cpp#L3990)）。
+> 変換せずに km/h タグで出すと**全ての制限速度が 3.6 分の 1 になり、しかも速度制限として
+> 成立して見える**。`virtual_junction_23.xodr`（`<speed max="50" unit="km/h"/>`）を
+> 単体テストの固定値に使い、出てくる数が 13.9 ではなく 50 であることを直接押さえてある。
+
+> **走行系レーンに限る理由**: 道路単位の制限速度を歩道や中央分離帯に付けても意味が無い。
+> 判定は `move_direction` と同じ `LANE_TYPE_ANY_DRIVING` ビットで行う。
 
 `source_reference` は規格本文だと `identifier[0]` が素の road id だが、**GT の既存 `osi_lane` と
 同じ接頭辞付き形式に揃える**（[`GT_OSIReporter_Geometry.cpp:1335-1344`](../../src/osi/GT_OSIReporter_Geometry.cpp#L1335-L1344)）。
@@ -615,7 +627,7 @@ bool GetUseOsiLogicalLane()
 | :-- | :-- | :-- | :-- |
 | ~~**T**~~ **✅ 完了 2026-09-24** | HVD の UDP 分割送信（§6）。**何にも依存しない独立タスク** | 0.5 日 | 8192 B を超える HostVehicleData が落ちなくなる。論理レーンとは無関係に単体で価値がある |
 | ~~**S0**~~ **✅ 完了 2026-09-24** | サイズ・レーン数・境界点数の実測プローブ、env ゲート（既定 OFF）、空の後段パス、CMake の R1 承認 | 0.5 日 | **ON/OFF で 1 バイトも変わらないことが実証できる**。§7-3 の既定値判断に使う実測値が出る → §8-3 |
-| **S1** | 参照線 + 論理レーン本体（境界・接続なし） | 2〜3 日 | `GroundTruth.logical_lane[]` が出る。xodr のレーンと 1:1 対応していることを OSI 直読で確認できる。**交差点内レーンが初めて個別に見える** |
+| ~~**S1**~~ **✅ 完了 2026-09-24** | 参照線 + 論理レーン本体（境界・接続なし） | 2〜3 日 | `GroundTruth.logical_lane[]` が出る。xodr のレーンと 1:1 対応していることを OSI 直読で確認できる。**交差点内レーンが初めて個別に見える** |
 | **S2** | 連結性（pred / succ / adjacent） | 2〜3 日 | **論理レーンの列として経路をたどれる**。`route` の参照先が実在し連結していることが保証される |
 | **S2.5** | L1 `LogicalLaneAssignment`（§2-6-1） | 0.5 日 | **全オブジェクトの論理レーン相対 s / t / 向きが出る**。交差点内でも車線が個別に引ける（`signal:ego_lane` の join 欠けが論理レーン面で埋まる） |
 | **S3** | 論理境界（ST 化・合成・`passing_rule`）＋ 既定 ON へ反転 | 2〜3 日 | **規格の必須参照が全部埋まる**。外部の OSI 準拠チェッカを通せる。サイズはここで最大になる |
@@ -629,7 +641,9 @@ bool GetUseOsiLogicalLane()
 参照が無言で壊れている状態にはならない。目的を最短で出すなら **S0(+T)→S1→S4** で
 6〜7 日、その後 S2 → S2.5 → S3 → S5。S3 までは既定 OFF を維持する（§7-3）。
 
-### 8-0. S0 の結果（2026-09-24）
+### 8-0. 各段の実測結果
+
+#### S0（2026-09-24）
 
 置いたもの:
 
@@ -640,7 +654,7 @@ bool GetUseOsiLogicalLane()
 | 変更 `GT_esmini/src/osi/GT_OSIReporter.cpp` | `CreateOSIStaticGroundTruthFromODR()` の `ApplyAuthoredJunctionBoundaries()` 直後で呼ぶ（§1 の注） |
 | 変更 `EnvironmentSimulator/Modules/ScenarioEngine/CMakeLists.txt` | 既存スワップブロックへ 4 行（R1、承認済み） |
 | 新規 `GT_esmini/test/unit/osi/test_OsiLogicalLane.cpp` | 傘バイナリへ登録。フラグ両極性と S0 不変量（索引が空） |
-| 新規 `scripts/probe_osi_logical_lane_size.py` | 実測プローブ。出力 `test_results/osi_logical_lane/s0_size_probe.json` |
+| 新規 `scripts/probe_osi_logical_lane_size.py` | 実測プローブ。出力 `test_results/osi_logical_lane/size_probe.json`（S1 で `s0_` 接頭辞を外した — 恒久資産に工程名を残さない） |
 
 実測（5 資産、それぞれ OFF / ON を別プロセスで 2 回ロード）:
 
@@ -656,10 +670,31 @@ bool GetUseOsiLogicalLane()
 
 1. **後段パスの置き場は `CreateOSIStaticGroundTruthFromODR()`**（§1 の注）。`UpdateOSIStaticGroundTruth()`
    は毎フレーム走る別物で、そこに吊ると `GetNewGlobalId()` がフレームごとに消費される。
-2. **交差点が実装量の主な塊であることが数で裏付いた。** osi lane → 論理レーン相当は
-   fabriksgatan 25 → 44、multi_intersections 171 → 242。**増えた分はすべて接続路レーン**で、
-   これらには今 `lane_boundary` も centerline も無い（融合されているため）。つまり S1 で
-   交差点内の論理レーンを出すとき、**流用できる既存 OSI 点が 1 つも無い**。
+2. **交差点の増分が数で裏付いた。** osi lane → 論理レーン相当は fabriksgatan 25 → 44、
+   multi_intersections 171 → 242。**増えた分はすべて接続路レーン**である。
+
+   > **2026-09-24 訂正（S1 プロンプト作成時）**: S0 報告はここに「流用できる既存 OSI 点が
+   > 1 つも無い」と書いていたが、**面を取り違えている**。無いのは **OSI メッセージ面**だけで、
+   > **RoadManager の `OSIPoints` は接続路レーンにも全部ある**。
+   >
+   > - `OpenDrive::SetLaneOSIPoints()` は junction road を含む**全道路**を回り、全レーンの点を
+   >   計算したうえで最後に `lane->SetOSIIntersection(...)` で**タグを付けるだけ**である
+   >   （[`GT_RoadManager.cpp:8316-8551`](../../src/road/GT_RoadManager.cpp#L8316) に junction スキップは無い）。
+   > - `SetLaneBoundaryPoints()` も同様で、条件は `n_roadmarks == 0` だけである。
+   > - 落ちているのは出力側。`UpdateOSIRoadLane()` が `IsOSIIntersection()` を除外し
+   >   （[`GT_OSIReporter_Geometry.cpp:1043`](../../src/osi/GT_OSIReporter_Geometry.cpp#L1043)）、
+   >   `UpdateOSIIntersection()` が 1 本の `TYPE_INTERSECTION` へ融合している。
+   >
+   > したがって **S1 と S3 にとって接続路レーンは通常路と同じ扱いでよい**。
+   > `GetRefLineOSIPoints()` も `lane->GetOSIPoints()` も引ける。増えるのは反復回数であって
+   > 機構ではない。**交差点が本当に塊になるのは S2（連結性）** で、そこだけは
+   > `Junction::GetConnectionByIdx()` / `Connection::GetLaneLink()` を辿る別経路が要る。
+   >
+   > **2026-09-24 実測（S1 冒頭、`OsiLogicalLane.ConnectingRoadLanesCarryRoadManagerOsiPoints`）:
+   > 訂正は正しかった。** multi_intersections で接続路レーン 76 本すべてに OSI 点があり
+   > （計 682 点）、接続路のレーンセクション 42 すべてに参照線 OSI 点がある（計 390 点）。
+   > 通常路側も 166 本 / 21 セクションで欠けゼロ。**接続路は通常路と同じ扱いでよい**ことが
+   > コード読みでなく実データで確定した。この測定はコメントではなく assert としてテストに残してある。
 3. **`obj_osi_internal.static_gt` は OSIReporter のコンストラクタで確保される**（静的初期化時ではない）。
    ユニットテストから後段パスを直接叩くと null になりうるので、S1 以降も null ガードを外さないこと。
 4. **`.osi` 第 1 レコードが静的 GroundTruth を読む唯一の口である。** `SE_GetOSIGroundTruth` は
@@ -667,6 +702,72 @@ bool GetUseOsiLogicalLane()
    静的側の回帰をこれで測ろうとすると**約 2 KB の動的ペイロードを比べているだけになる**。
    S0 のプローブは最初これを踏んで、lane 数 0 のまま「一致」を報告した。プローブ側には
    「測ったレコードに lane が 1 本も無ければ FAIL」を入れてある。
+
+#### S1（2026-09-24）
+
+pass 1（参照線）と pass 3（論理レーン本体）＋索引。pass 2（境界）と pass 4（連結性）は未実施なので
+`left_boundary_id` / `right_boundary_id` / `predecessor_lane` / `successor_lane` /
+`left_adjacent_lane` / `right_adjacent_lane` は**空のまま**である。いずれも `repeated` なのでメッセージは
+壊れないが、厳密な OSI バリデータは通らない。既定 OFF はそのため（§7-2 理由 1）。
+
+置いたもの:
+
+| 追加/変更 | 何 |
+| :-- | :-- |
+| 変更 `GT_esmini/src/osi/GT_OSIReporter_LogicalLane.cpp` | 後段パス本体。`BuildOsiLogicalLanesInto(opendrive, gt, index)` に実装し、`BuildOsiLogicalLanes()` はフラグ判定と `obj_osi_internal.static_gt` の解決だけを行う薄い包み |
+| 変更 `GT_esmini/include/gt_esmini/osi/GT_OsiLogicalLane.hpp` | `BuildOsiLogicalLanesInto()` と純写像 2 本（`MapLaneTypeToLogicalLaneType` / `MapMoveDirection`）の宣言。`osi3::GroundTruth` は**前方宣言のみ**でヘッダに protobuf を持ち込まない |
+| 変更 `GT_esmini/test/unit/osi/test_OsiLogicalLane.cpp` | 14 テスト（下記） |
+| 変更 `scripts/probe_osi_logical_lane_size.py` | 受入判定を「全バイト一致」から「**既存フィールドが 1 つも動いていない**」へ。出力名から `s0_` を外した |
+
+**なぜ `BuildOsiLogicalLanesInto()` を分けたか**: 出力先を引数で受けると、`OSIReporter` を立てずに
+実 xodr で emit を検証できる。引継ぎ 3（`static_gt` は reporter のコンストラクタで確保される）が
+効いているのはここで、ユニットテストのプロセスでは `static_gt` が常に null だから、
+包みの側だけをテストしても**中身は 1 行も踏めない**。
+
+実測（`test_ScenarioReaderParsing --gtest_filter=OsiLogicalLane.*`、14/14 緑）:
+
+| 受入基準 | 実測 |
+| :-- | :-- |
+| xodr レーンと 1:1（中央レーン除く） | 5 資産すべてで一致。multi_intersections **242 = 242**、e6mini 14、fabriksgatan 44、soderleden 33、highway_merge_split 53 |
+| 接続路レーンが個別に出る | multi_intersections **論理 242 > osi lane 171**、S0 の 242 と一致。内訳は `171 = 通常路 166 + 融合交差点 5`、`242 = 通常路 166 + 接続路 76`。接続路 76 本は融合物理レーン 5 本を共有して指す（`physical_lane_reference` の多対一が実データで 5 件） |
+| 参照線は道路 1 本に 1 本 | 5 資産すべてで `reference_line == roads`（63 / 1 / 16 / 5 / 9） |
+| 非走行レーンも全部出る | multi_intersections の型内訳 `NORMAL 86 / SIDEWALK 59 / BORDER 59 / OTHER 38`（合計 242）。`TYPE_UNKNOWN` はゼロ |
+| ON にしても既存 `lane[].id` が動かない | 5 資産すべてで `lane` / `lane_boundary` の**id 集合が OFF と完全一致**し、`lane` `lane_boundary` `traffic_sign` `traffic_light` `road_marking` `stationary_object` の**各フィールドが SHA-256 まで一致**。論理層の id は既存 id 集合と互いに素 |
+| OFF で `logical_lane == 0` かつ `reference_line == 0` | 5 資産すべて 0、論理層のバイト数も 0。ON でのみ後段パスのログ行が出ることも 5/5 で確認（死んだフラグとの区別） |
+| `t_axis_yaw` の極性 | e6mini 48 点で `agree=48 / 48`、**符号を反転させた対照は `0 / 48`**。世界座標で `(s, t=+3m)` と突き合わせている |
+| `move_direction` の 4 象限 | (RHT, LHT) × (負, 正) で `INCREASING_S` / `DECREASING_S` が入れ替わることを単体で固定。双方向・非走行は `BOTH_ALLOWED` |
+| 速度制限の単位 | virtual_junction_23（`50 km/h` 記載）で **50 が出る**（内部値 13.889 m/s ではない）。§2-2 の注を参照 |
+| レーンセクション継ぎ目 | soderleden（5 道路 / 7 セクション）で内部継ぎ目 2 に対し**畳まれた点がちょうど 2**。全参照線で s は狭義単調増加 |
+
+**参照線 + 論理レーンだけのサイズ増分（境界抜き・実測、`scripts/probe_osi_logical_lane_size.py`）**:
+
+| 資産 | 論理レーン | 参照線 | 参照線点 | refLine B | logLane B | 増分 B | static x | roadnet x |
+| :-- | --: | --: | --: | --: | --: | --: | --: | --: |
+| e6mini | 14 | 1 | 48 | 2,363 | 1,771 | **4,134** | 1.02x | 1.06x |
+| fabriksgatan | 44 | 16 | 131 | 6,588 | 4,987 | **11,575** | 1.44x | 1.44x |
+| multi_intersections | 242 | 63 | 587 | 29,442 | 28,207 | **57,649** | 1.22x | 1.25x |
+| soderleden | 33 | 5 | 83 | 4,117 | 3,762 | **7,879** | 1.16x | 1.16x |
+| highway_merge_split | 53 | 9 | 98 | 4,899 | 6,069 | **10,968** | 1.24x | 1.24x |
+
+S0 の投影（**層まるごと**で 1.26x〜2.73x）に対し、**本体だけなら 1.02x〜1.44x**。
+差分はすべて S3 の論理境界が持っていく — つまり §7-3 の既定 ON 判断を左右するのは境界であって
+本体ではない、というのがこの中間値の意味である。最大規模の multi_intersections でも
+静的 262 KB → 320 KB（+56 KB）で、ロード時 1 回。毎フレームの動的側は 2.1 KB のまま不変
+（論理レーン面は静的 GT にしか載らない）。
+
+**S4 / S2.5 へ引き継ぐ発見**:
+
+1. **索引の粒度は `(road_id, laneSection idx, lane_id)` で足りている。** 5 資産すべてで
+   `index.size() == logical_lane_size()`、かつ索引の指す先が必ず emit 済みという閉包が成立した。
+   S4 は `RouteLanePlan` のホップを `(road, section, lane)` へ落とせればそのまま引ける。
+2. **接続路も通常路と同じ経路で引ける**（引継ぎ 2 が実データで確定）。S4 の `route` が交差点を
+   跨ぐときも、特別扱いが要るのは連結性（S2）だけで、id 解決は要らない。
+3. **`osi3::GroundTruth` の前方宣言だけでヘッダが書ける。** S4 の `RouteToOsiRoute.hpp` も
+   同じ形にできる（`GT_esminiLib` 側は protobuf を持っているので必須ではないが、
+   ユニットテストから叩ける形が保てる）。
+4. **`road_s` の `source_reference` は `fmt::format("{}", double)` で書かれている**（既存 `osi_lane`
+   と同一）。S4 でこの文字列を突き合わせるなら、**数値へ戻してから比較すること**。
+   同じ s でも書式が一致する保証はない。
 
 ---
 
