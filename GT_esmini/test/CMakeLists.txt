@@ -75,6 +75,10 @@ set(UNIT_TEST_SOURCES
     # HostVehicleData UDP fragmentation. The planner is pure and lives in
     # GT_HostVehicleReporter.cpp, which arrives via GT_esminiLib_static.
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/osi/test_HostVehicleUdpChunks.cpp
+    # HostVehicleData.route + L2 route progress (spine-work:osi-logical-lane S4).
+    # Needs BOTH arrival routes: RouteToOsiRoute.cpp/RouteLanePlan.cpp come in via
+    # GT_esminiLib_static, the logical-lane post-pass via ScenarioEngine.
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/osi/test_RouteToOsiRoute.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)

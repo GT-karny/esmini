@@ -266,7 +266,14 @@ std::string ToJson(const VirtualDriverTelemetry& t)
        << ",\"last_deviation_road_id\":" << t.route_lane.last_deviation_road_id
        << ",\"rerouted\":" << b(t.route_lane.rerouted)
        << ",\"diagnostic\":\"" << t.route_lane.diagnostic << "\""
-       << ",\"reason\":\"" << t.route_lane.reason << "\"}";
+       << ",\"reason\":\"" << t.route_lane.reason << "\""
+       // L2 route progress (osi/RouteToOsiRoute.hpp). on_route is the discriminator:
+       // s_along_route is -1 while it is false, never 0, so "off the route" can never
+       // be read as "back at the start".
+       << ",\"on_route\":" << b(t.route_lane.on_route)
+       << ",\"s_along_route\":" << t.route_lane.s_along_route
+       << ",\"route_length\":" << t.route_lane.route_length
+       << ",\"segment_index\":" << t.route_lane.segment_index << "}";
 
     // vd_intent_layer.md section 3-3: the brake lamp as actually driven (debounced), which is
     // the only externally visible announcement a stop or a slowdown has.

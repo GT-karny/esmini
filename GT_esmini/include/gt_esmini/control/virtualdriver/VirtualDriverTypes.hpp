@@ -272,6 +272,19 @@ struct RouteLanePlanSnapshot
     bool             rerouted               = false;  // plan resolved via the LaneIndependentRouter recovery pass
     std::string      diagnostic;                      // plan-side diagnosis; "" = normal
     std::string      reason;                          // match-side reason; "" = normal
+
+    // L2 route progress (osi/RouteToOsiRoute.hpp, logical_lane_and_route_design.md 2-6-2).
+    // Published here rather than in OSI because OSI has no field for a route-relative
+    // longitudinal offset; signal:route_lane_conformance gains these as extra fields and
+    // no new signal is raised.
+    //
+    // NOT Position::GetRouteS(): that one freezes at route-assignment time for any
+    // physically driven vehicle, and refreshing it would mutate the route being observed
+    // (logical_lane_and_route.md 4-3).
+    bool   on_route      = false;  // ego is inside one of the route's lane-section segments
+    double s_along_route = -1.0;   // [m] from the route start; -1 = off route (NOT 0, which reads as "at the start")
+    double route_length  = 0.0;    // [m] total length of the remaining route
+    int    segment_index = -1;     // which segment the ego is on; -1 = off route
 };
 
 // vd-func:FUNC-055 AD lane-change initiation

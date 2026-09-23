@@ -12,15 +12,42 @@
 #include "gt_esmini/osi/GT_HostVehicleReporter.hpp"
 #include "CommonMini.hpp"
 #include "gt_esmini/common/SimpleJson.hpp"
+#include "gt_esmini/osi/GT_OsiLogicalLane.hpp"
+#include "gt_esmini/osi/RouteToOsiRoute.hpp"
 #include "logger.hpp"
 #include "Entities.hpp"
+#include "RoadManager.hpp"
 #include "osi_hostvehicledata.pb.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace gt_esmini
 {
+
+// HostVehicleData.route cache (design section 5). Keyed by the ROUTE SIGNATURE, never
+// by the Route*: Position::CopyRoute allocates a fresh Route every call, so an
+// address-keyed cache would miss unconditionally and re-run BuildRouteLanePlan -- which
+// on a failed plan goes all the way to a LaneIndependentRouter re-search -- every frame.
+struct GT_HostVehicleReporter::RouteCacheImpl
+{
+    bool                has_route = false;
+    osi::RouteSignature signature;
+    RouteLanePlan       plan;
+
+    // The id published for the current route. Strictly increasing over the process:
+    // osi_route.proto requires route_id to be "unique within all route messages
+    // exchanged with one traffic participant", so an id is never reused, not even for
+    // a route that happens to repeat an earlier signature.
+    std::uint64_t route_id      = 0;
+    std::uint64_t next_route_id = 0;
+
+    // Once-only: the "no logical lanes to point at" warning below is a setup problem,
+    // not a per-frame event.
+    bool warned_empty_index = false;
+};
 
 GT_HostVehicleReporter& GT_HostVehicleReporter::Instance()
 {
@@ -31,6 +58,7 @@ GT_HostVehicleReporter& GT_HostVehicleReporter::Instance()
 GT_HostVehicleReporter::GT_HostVehicleReporter()
     : udp_client_(nullptr)
     , initialized_(false)
+    , route_cache_(new RouteCacheImpl())
 {
 }
 
@@ -52,6 +80,14 @@ void GT_HostVehicleReporter::Close()
     }
     initialized_ = false;
     input_cache_.clear();
+    if (route_cache_)
+    {
+        // Invalidate, but do NOT reset next_route_id: a reloaded scenario must not hand
+        // out an id an earlier route in this process already used.
+        route_cache_->has_route = false;
+        route_cache_->plan      = RouteLanePlan{};
+        route_cache_->signature = osi::RouteSignature{};
+    }
 }
 
 void GT_HostVehicleReporter::Init(int udp_port, const std::string& config_file, const std::string& target_ip)
@@ -428,12 +464,84 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* 
         }
     }
 
-    // 5. Serialize
+    // 5. Planned route (spine-work:osi-logical-lane S4)
+    FillRoute(hv_data, egoState);
+
+    // 6. Serialize
     serialized_data_.data.clear();
     hv_data.SerializeToString(&serialized_data_.data);
     serialized_data_.size = static_cast<unsigned int>(serialized_data_.data.size());
 
     return 0;
+}
+
+void GT_HostVehicleReporter::FillRoute(osi3::HostVehicleData& hv_data, const scenarioengine::Object* egoObj)
+{
+    // Unconditional: base_data handed in by a controller may carry a route from an
+    // earlier frame, and a stale route is worse than none.
+    hv_data.clear_route();
+
+    if (!route_cache_ || egoObj == nullptr)
+    {
+        return;
+    }
+
+    if (!osi::GetUseOsiLogicalLane())
+    {
+        // Every logical_lane_id would dangle -- GroundTruth.logical_lane[] is empty
+        // while the layer is off. See the header's three-outcome contract.
+        route_cache_->has_route = false;
+        return;
+    }
+
+    const roadmanager::Route* route = egoObj->pos_.GetRoute();
+    if (route == nullptr || !route->IsValid())
+    {
+        route_cache_->has_route = false;
+        return;
+    }
+
+    const osi::RouteSignature sig = osi::MakeRouteSignature(*route);
+    if (!route_cache_->has_route || route_cache_->signature != sig)
+    {
+        // Passed by const reference and NOT cloned. BuildRouteLanePlan is documented
+        // (and implemented) never to mutate the route, and this call site is an
+        // OBSERVER -- the one place where quietly moving the simulation's own route
+        // state would be hardest to notice. A defensive CopyRoute would deep-copy every
+        // waypoint without making that any safer.
+        route_cache_->plan      = BuildRouteLanePlan(*route);
+        route_cache_->signature = sig;
+        route_cache_->has_route = true;
+        route_cache_->route_id  = ++route_cache_->next_route_id;
+    }
+
+    // Re-expanded every frame, on purpose: the expansion is clipped to the ego's
+    // current s, so unlike the plan it is not constant while the route is. It is also
+    // where the logical-lane ids are resolved, which keeps the published ids valid
+    // across a scenario reload that renumbered them.
+    const std::vector<osi::RouteSectionSegment> segments =
+        osi::ExpandRouteLanePlan(*route, egoObj->pos_, route_cache_->plan, osi::RouteExpansionStart::EgoPosition);
+
+    const osi::LogicalLaneIndex& index = osi::GetLogicalLaneIndex();
+
+    // The index is filled by the static-ground-truth post-pass, and that pass only runs
+    // the first time OSIReporter::UpdateOSIGroundTruth() is reached -- i.e. when OSI
+    // GroundTruth is being written to a file, streamed over UDP, or pulled through the
+    // API. A session that consumes ONLY HostVehicleData never reaches it, and every
+    // route lookup then misses, producing a route message with no segments. That is
+    // correct (there are no logical lanes to reference), but it is indistinguishable on
+    // the wire from "this route has nothing left", so say it once rather than let the
+    // field be silently empty.
+    if (index.empty() && !segments.empty() && !route_cache_->warned_empty_index)
+    {
+        route_cache_->warned_empty_index = true;
+        LOG_WARN(
+            "GT_HostVehicleReporter: HostVehicleData.route is empty because no OSI logical lanes exist yet -- "
+            "the static GroundTruth post-pass has not run. Enable OSI GroundTruth output (file, UDP or API) "
+            "alongside HostVehicleData.");
+    }
+
+    osi::BuildOsiRouteInto(segments, index, route_cache_->route_id, hv_data.mutable_route());
 }
 
 std::vector<UdpChunk> PlanHostVehicleUdpChunks(unsigned int total_size, unsigned int max_payload)
