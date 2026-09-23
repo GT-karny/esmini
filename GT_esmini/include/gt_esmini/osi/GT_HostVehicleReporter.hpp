@@ -23,6 +23,41 @@ namespace gt_esmini
 {
 
 /**
+ * @brief One UDP packet of a (possibly split) HostVehicleData transmission.
+ *
+ * Wire layout is the one esmini's GroundTruth stream already uses and that both
+ * GT receivers already parse: [int32 counter][uint32 datasize][datasize bytes],
+ * so the datagram is always 8 + datasize long.
+ *
+ * `counter` semantics, which the receivers depend on:
+ *   0            the whole message is in this one packet (today's HVD behaviour)
+ *   1, 2, ... N  split transmission, in order
+ *   -N           the last packet of a split transmission (negated index)
+ *
+ * A single-packet message keeps counter == 0 rather than becoming a one-packet
+ * split with counter == -1. That is deliberate: it is what every existing
+ * consumer sees today, and changing it would make this transport fix a
+ * behaviour change for every HVD reader.
+ */
+struct UdpChunk
+{
+    int          counter  = 0;
+    unsigned int offset   = 0;  // byte offset into the serialized message
+    unsigned int datasize = 0;  // payload bytes carried by this packet
+};
+
+/**
+ * @brief Split a serialized message into UDP packets. Pure -- no sockets, no state.
+ *
+ * Factored out of GT_HostVehicleReporter::Send() so the split can be tested at
+ * both polarities without needing a HostVehicleData large enough to trigger it.
+ * Returns an empty plan for an empty message or a zero payload budget.
+ *
+ * Design: GT_esmini/docs/osi/logical_lane_and_route_design.md section 6.
+ */
+std::vector<UdpChunk> PlanHostVehicleUdpChunks(unsigned int total_size, unsigned int max_payload);
+
+/**
  * @brief One ADAS row's DriverOverride submessage + custom_state
  *        (req-vd-ad:REQ-AD-028 段b, manualdrive_adas_design.md §8-3).
  *

@@ -379,7 +379,7 @@ GT-original の OSI コードは 2 つの置き場に分かれており、**ど�
 
 | 消費側 | 影響 |
 | :-- | :-- |
-| **HVD の UDP 送信** | **フラグメンテーション未実装**。`serialized_data_.size > 8192` で `LOG_WARN` を出し**そのフレームを丸ごと捨てる**（[`GT_HostVehicleReporter.cpp:477-481`](../../src/osi/GT_HostVehicleReporter.cpp#L477-L481)）。`route` は毎フレーム載るので、長い経路で HVD が静かに止まる。**本件で最も危険な箇所** |
+| **HVD の UDP 送信** | ~~**フラグメンテーション未実装**。`serialized_data_.size > 8192` で `LOG_WARN` を出し**そのフレームを丸ごと捨てる**。`route` は毎フレーム載るので、長い経路で HVD が静かに止まる。**本件で最も危険な箇所**~~ → **解消（2026-09-24、設計書 §6-1）**。GroundTruth と同じ counter 規約で分割送信する。収まるメッセージは従来どおり `counter == 0` の単一パケットなので消費側の変更はゼロ |
 | GroundTruth の UDP 送信 | チャンク済み（counter ベース、`OSI_MAX_UDP_DATA_SIZE 8192`）なので動く。パケット数が増える分、`osi_bridge` の再組み立て取りこぼし確率は上がる |
 | `web/backend/api/osi_stream.py` | `_gt_to_json` / `_hvd_to_json` ともホワイトリスト射影。壊れないが、何も見えない |
 | `road_geometry_service.py` | OSI を迂回して xodr を直読しているため影響なし |
@@ -446,7 +446,8 @@ UDP はチャンク済みなのでここは問題にならない。**上限に�
 2. ~~**知識グラフのノード型** — `feature` 名前空間の `id_pattern` は `F[1-9]` で、F10 は正規表現に
    当たらない。例外採番（F8/F9 の前例）か、face-1 の work-item 名前空間新設か。~~
    → **決着（2026-09-24 ユーザー判断）**: `spine-work:osi-logical-lane`。設計書 §11 の表を見よ。
-3. **HVD の UDP 8192 B 上限** — §5-4。`route` を毎フレーム送ると長経路で HVD が静かに落ちる。
+3. ~~**HVD の UDP 8192 B 上限** — §5-4。`route` を毎フレーム送ると長経路で HVD が静かに落ちる。~~
+   → **決着（2026-09-24 実装済み）**。設計書 §6-1。
 4. **`overlapping_lane` をスコープに入れるか** — §4-2 A。唯一 RoadManager から導けない項目。
 5. **車線跨ぎの複数割り当てを初版に入れるか** — §2-5。規格は 5cm 以上重なるレーン全部への
    割り当てを要求している。初版を 1 本に絞ると、車線変更中でも 1 本しか出ない。

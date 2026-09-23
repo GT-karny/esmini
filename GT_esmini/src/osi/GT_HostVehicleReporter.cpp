@@ -436,6 +436,40 @@ int GT_HostVehicleReporter::UpdateFromObjectState(const scenarioengine::Object* 
     return 0;
 }
 
+std::vector<UdpChunk> PlanHostVehicleUdpChunks(unsigned int total_size, unsigned int max_payload)
+{
+    std::vector<UdpChunk> plan;
+    if (total_size == 0 || max_payload == 0)
+    {
+        return plan;
+    }
+
+    if (total_size <= max_payload)
+    {
+        plan.push_back(UdpChunk{0, 0, total_size});
+        return plan;
+    }
+
+    const unsigned int n = (total_size + max_payload - 1) / max_payload;
+    plan.reserve(n);
+    for (unsigned int i = 0; i < n; i++)
+    {
+        const unsigned int offset = i * max_payload;
+        UdpChunk           c;
+        c.offset   = offset;
+        c.datasize = (total_size - offset < max_payload) ? (total_size - offset) : max_payload;
+        // 1-based index, last packet negated -- the convention both GT receivers
+        // (web osi_bridge, DriverScript udp_common) key their reassembly on.
+        c.counter = static_cast<int>(i + 1);
+        if (i + 1 == n)
+        {
+            c.counter = -c.counter;
+        }
+        plan.push_back(c);
+    }
+    return plan;
+}
+
 void GT_HostVehicleReporter::Send()
 {
     if (!udp_client_ || serialized_data_.size == 0)
@@ -448,36 +482,44 @@ void GT_HostVehicleReporter::Send()
         return;
     }
 
-    // Send HostVehicleData via UDP
-    if (serialized_data_.size <= MAX_UDP_DATA_SIZE)
+    // Send HostVehicleData via UDP, splitting messages that do not fit one datagram.
+    // Nothing on the receive side changes: a message that fits still goes out as a
+    // single counter == 0 packet, exactly as before.
+    const std::vector<UdpChunk> plan =
+        PlanHostVehicleUdpChunks(serialized_data_.size, static_cast<unsigned int>(MAX_UDP_DATA_SIZE));
+
+    unsigned int total_sent = 0;
+    for (size_t i = 0; i < plan.size(); i++)
     {
-        // Small message: send in single packet
-        udp_buf_.counter = 0;
-        udp_buf_.datasize = serialized_data_.size;
-        memcpy(udp_buf_.data,
-               serialized_data_.data.data(),
-               serialized_data_.size);
+        const UdpChunk& chunk = plan[i];
+        udp_buf_.counter  = chunk.counter;
+        udp_buf_.datasize = chunk.datasize;
+        memcpy(udp_buf_.data, serialized_data_.data.data() + chunk.offset, chunk.datasize);
 
-        int bytes_sent = udp_client_->Send(
-            reinterpret_cast<char*>(&udp_buf_),
-            sizeof(udp_buf_.counter) + sizeof(udp_buf_.datasize) + serialized_data_.size);
+        const int pack_size = static_cast<int>(sizeof(udp_buf_.counter) + sizeof(udp_buf_.datasize) + chunk.datasize);
+        const int bytes_sent = udp_client_->Send(reinterpret_cast<char*>(&udp_buf_), static_cast<unsigned int>(pack_size));
 
-        if (bytes_sent < 0)
+        if (bytes_sent != pack_size)
         {
-            LOG_ERROR("GT_HostVehicleReporter: Failed to send HostVehicleData via UDP");
+            // Give up on this frame rather than emitting a truncated reassembly: a
+            // receiver that never sees the negative counter simply resyncs on the
+            // next frame, whereas a short packet would be dispatched as a corrupt
+            // HostVehicleData.
+            LOG_ERROR("GT_HostVehicleReporter: Failed to send HostVehicleData packet {}/{} ({} of {} bytes)",
+                      i + 1,
+                      plan.size(),
+                      bytes_sent,
+                      pack_size);
+            return;
         }
-        else
-        {
-             // [DEBUG] Log successful send (maybe throttle this log if too frequent)
-             static int log_counter = 0;
-             if (log_counter++ % 100 == 0) LOG_INFO("GT_HostVehicleReporter: Sent UDP packet bytes={}", bytes_sent);
-        }
+        total_sent += chunk.datasize;
     }
-    else
+
+    // Throttled, and now reporting the whole message rather than one datagram.
+    static int log_counter = 0;
+    if (log_counter++ % 100 == 0)
     {
-        // Large message: would need splitting
-        LOG_WARN("GT_HostVehicleReporter: Data size ({}) exceeds max UDP size ({}), splitting not yet implemented",
-                 serialized_data_.size, MAX_UDP_DATA_SIZE);
+        LOG_INFO("GT_HostVehicleReporter: Sent HostVehicleData bytes={} in {} packet(s)", total_sent, plan.size());
     }
 }
 

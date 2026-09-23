@@ -72,6 +72,9 @@ set(UNIT_TEST_SOURCES
     # OSI logical lanes (spine-work:osi-logical-lane). Same arrival route as the
     # registry above: GT_OSIReporter_LogicalLane.cpp is compiled into ScenarioEngine.
     ${CMAKE_CURRENT_SOURCE_DIR}/unit/osi/test_OsiLogicalLane.cpp
+    # HostVehicleData UDP fragmentation. The planner is pure and lives in
+    # GT_HostVehicleReporter.cpp, which arrives via GT_esminiLib_static.
+    ${CMAKE_CURRENT_SOURCE_DIR}/unit/osi/test_HostVehicleUdpChunks.cpp
 )
 
 set(UNIT_TEST_TARGET test_ScenarioReaderParsing)
