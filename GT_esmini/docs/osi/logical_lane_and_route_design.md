@@ -17,9 +17,9 @@
 
 > **2026-09-24（S0 実装時に是正）**: 当初この節は後段パスの置き場を
 > `UpdateOSIStaticGroundTruth()` と書いていたが、**誤り**だった。道路網を組むのは
-> [`CreateOSIStaticGroundTruthFromODR()`](../../src/osi/GT_OSIReporter.cpp#L502) で、
+> [`CreateOSIStaticGroundTruthFromODR()`](../../src/osi/GT_OSIReporter.cpp#L503) で、
 > `UpdateOSIGroundTruth()` の `!osi_initialized_` 分岐から**1 度だけ**呼ばれる。
-> `UpdateOSIStaticGroundTruth()`（[`:570`](../../src/osi/GT_OSIReporter.cpp#L570)）は別物で、
+> `UpdateOSIStaticGroundTruth()`（[`:576`](../../src/osi/GT_OSIReporter.cpp#L576)）は別物で、
 > OpenSCENARIO 由来の stationary misc object だけを扱い、**毎フレーム**（初期化分岐と通常分岐の
 > 両方から）呼ばれる。後者に吊ると後段パスが毎フレーム走り、`GetNewGlobalId()` を引くように
 > なった S1 以降で id が際限なく増える。
