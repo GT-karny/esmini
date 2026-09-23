@@ -30,7 +30,10 @@ from GT_esmini.web.backend.config import ESMINI_RM_LIB, GT_ESMINI_LIB
 # The SAME lock road_geometry_service takes. ctypes.CDLL hands back one loaded module
 # per path, so both services drive a single process-global OpenDrive; separate locks
 # would let one Init() another's map out from under it mid-request.
-from GT_esmini.web.backend.services.road_geometry_service import ESMINI_RM_LOCK
+from GT_esmini.web.backend.services.road_geometry_service import (
+    ESMINI_RM_LOCK,
+    init_odr_cached,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +167,7 @@ def snap_points(xodr_path, points: list[dict]) -> list[dict]:
 
     with ESMINI_RM_LOCK:
         rm = EsminiRMLib(rm_lib_path)
-        if rm.Init(str(xodr_path)) < 0:
+        if init_odr_cached(rm, xodr_path, "rm") < 0:
             raise RoutePlanError(
                 "xodr_load_failed", f"esminiRMLib failed to load {xodr_path}"
             )
@@ -575,7 +578,7 @@ def plan_route(xodr_path, points: list[dict], strategy: str = "shortest") -> dic
 
     with ESMINI_RM_LOCK:
         rm = EsminiRMLib(rm_lib_path)
-        if rm.Init(str(xodr_path)) < 0:
+        if init_odr_cached(rm, xodr_path, "rm") < 0:
             raise RoutePlanError(
                 "xodr_load_failed", f"esminiRMLib failed to load {xodr_path}"
             )
@@ -600,7 +603,7 @@ def plan_route(xodr_path, points: list[dict], strategy: str = "shortest") -> dic
                 "GT_esminiLib predates GT_RM_CalcRouteH; rebuild it (Protocol A) "
                 "so routes respect each lane's legal driving direction.",
             )
-        if lib.Init(str(xodr_path)) != 0:
+        if init_odr_cached(lib, xodr_path, "gt", ok=lambda rc: rc == 0) != 0:
             raise RoutePlanError(
                 "xodr_load_failed", f"GT_esminiLib failed to load {xodr_path}"
             )

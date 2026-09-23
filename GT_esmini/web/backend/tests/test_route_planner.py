@@ -52,11 +52,18 @@ def _world_point(xodr: Path, road_id: int, lane_id: int, s: float) -> dict:
         sys.path.insert(0, str(GT_SCRIPTS_DIR))
     from rm_lib import EsminiRMLib  # type: ignore[attr-defined]
 
-    from GT_esmini.web.backend.services.road_geometry_service import ESMINI_RM_LOCK
+    from GT_esmini.web.backend.services.road_geometry_service import (
+        ESMINI_RM_LOCK,
+        init_odr_cached,
+    )
 
     with ESMINI_RM_LOCK:
         rm = EsminiRMLib(str(ESMINI_RM_LIB))
-        assert rm.Init(str(xodr)) >= 0
+        # Through the cache, not rm.Init: a raw Init loads a map the cache does
+        # not know about, so the next plan_route skips its own Init and answers
+        # from THIS map. That is the silent wrong-map failure, and this helper
+        # reproduced it across tests before it went through here.
+        assert init_odr_cached(rm, xodr, "rm") >= 0
         handle = rm.CreatePosition()
         try:
             rm.SetLanePosition(handle, road_id, lane_id, 0.0, s, True)
@@ -237,11 +244,14 @@ def test_off_road_detection_flips_at_the_road_edge():
         sys.path.insert(0, str(GT_SCRIPTS_DIR))
     from rm_lib import EsminiRMLib  # type: ignore[attr-defined]
 
-    from GT_esmini.web.backend.services.road_geometry_service import ESMINI_RM_LOCK
+    from GT_esmini.web.backend.services.road_geometry_service import (
+        ESMINI_RM_LOCK,
+        init_odr_cached,
+    )
 
     with ESMINI_RM_LOCK:
         rm = EsminiRMLib(str(ESMINI_RM_LIB))
-        assert rm.Init(str(FABRIKSGATAN)) >= 0
+        assert init_odr_cached(rm, FABRIKSGATAN, "rm") >= 0
         handle = rm.CreatePosition()
         try:
             rm.SetLanePosition(handle, 0, 1, 0.0, 50.0, True)
@@ -304,7 +314,10 @@ def test_snap_moves_an_off_centre_point_to_the_lane_centre():
     import sys
 
     from GT_esmini.web.backend.config import ESMINI_RM_LIB, GT_SCRIPTS_DIR
-    from GT_esmini.web.backend.services.road_geometry_service import ESMINI_RM_LOCK
+    from GT_esmini.web.backend.services.road_geometry_service import (
+        ESMINI_RM_LOCK,
+        init_odr_cached,
+    )
     from GT_esmini.web.backend.services.route_planner_service import snap_points
 
     if str(GT_SCRIPTS_DIR) not in sys.path:
@@ -313,7 +326,7 @@ def test_snap_moves_an_off_centre_point_to_the_lane_centre():
 
     with ESMINI_RM_LOCK:
         rm = EsminiRMLib(str(ESMINI_RM_LIB))
-        assert rm.Init(str(FABRIKSGATAN)) >= 0
+        assert init_odr_cached(rm, FABRIKSGATAN, "rm") >= 0
         handle = rm.CreatePosition()
         try:
             rm.SetLanePosition(handle, 0, 1, 0.0, 50.0, True)
@@ -374,13 +387,16 @@ def _centre_line_hits(xodr: Path, path: list[dict]) -> list[tuple[int, int, floa
         sys.path.insert(0, str(GT_SCRIPTS_DIR))
     from rm_lib import EsminiRMLib  # type: ignore[attr-defined]
 
-    from GT_esmini.web.backend.services.road_geometry_service import ESMINI_RM_LOCK
+    from GT_esmini.web.backend.services.road_geometry_service import (
+        ESMINI_RM_LOCK,
+        init_odr_cached,
+    )
 
     hits: list[tuple[int, int, float]] = []
     twoway: dict[int, bool] = {}
     with ESMINI_RM_LOCK:
         rm = EsminiRMLib(str(ESMINI_RM_LIB))
-        assert rm.Init(str(xodr)) >= 0
+        assert init_odr_cached(rm, xodr, "rm") >= 0
         handle = rm.CreatePosition()
         try:
             for index, point in enumerate(path):
@@ -478,11 +494,14 @@ def test_lane_change_is_drawn_where_the_pocket_opens_not_at_the_road_entry():
         sys.path.insert(0, str(GT_SCRIPTS_DIR))
     from rm_lib import EsminiRMLib  # type: ignore[attr-defined]
 
-    from GT_esmini.web.backend.services.road_geometry_service import ESMINI_RM_LOCK
+    from GT_esmini.web.backend.services.road_geometry_service import (
+        ESMINI_RM_LOCK,
+        init_odr_cached,
+    )
 
     with ESMINI_RM_LOCK:
         rm = EsminiRMLib(str(ESMINI_RM_LIB))
-        assert rm.Init(str(MULTI_INTERSECTIONS)) >= 0
+        assert init_odr_cached(rm, MULTI_INTERSECTIONS, "rm") >= 0
         handle = rm.CreatePosition()
         try:
             # Highest s at which the drawn line is still off lane +2's centre.
@@ -609,3 +628,77 @@ def test_the_other_carriageway_stays_a_candidate_when_nothing_else_reaches():
 
     assert plan["length"] < 200.0, f"expected a short route, got {plan['length']:.1f} m"
     assert [a["opposite_direction"] for a in plan["lane_adjustments"]] == [True]
+
+
+# ---------------------------------------------------------------------------
+# The loaded-map cache: it must never answer from the wrong xodr
+# ---------------------------------------------------------------------------
+
+
+@requires_libs
+def test_alternating_between_maps_answers_from_the_right_one():
+    """Init() is cached per DLL, so the failure mode is silent, not loud.
+
+    Both DLLs hold ONE OpenDrive. Skipping a re-Init when the map has changed
+    would answer road ids from the previous map -- plausible numbers, wrong map,
+    no error anywhere. Alternating catches it; planning each map once does not.
+    """
+    fab = [
+        _world_point(FABRIKSGATAN, 3, -1, 20.0),
+        _world_point(FABRIKSGATAN, 2, -1, 30.0),
+    ]
+    multi = [
+        _world_point(MULTI_INTERSECTIONS, 222, -1, 10.0),
+        _world_point(MULTI_INTERSECTIONS, 196, -1, 31.0),
+    ]
+
+    first_fab = _chain(plan_route(FABRIKSGATAN, fab))
+    first_multi = _chain(plan_route(MULTI_INTERSECTIONS, multi))
+    second_fab = _chain(plan_route(FABRIKSGATAN, fab))
+    second_multi = _chain(plan_route(MULTI_INTERSECTIONS, multi))
+
+    assert first_fab == second_fab
+    assert first_multi == second_multi
+    # And the two maps really are distinguishable, so the assertions above are
+    # not comparing two copies of the same answer.
+    assert first_fab != first_multi
+    assert {road for road, _ in first_multi} & {222, 196}
+
+
+@requires_libs
+def test_a_map_replaced_at_the_same_path_is_re_read(tmp_path):
+    """The cache key is (path, mtime, size), not path.
+
+    A road re-uploaded under its old name is the case a path-only key gets
+    wrong, and the web UI does exactly that.
+    """
+    import shutil
+
+    from GT_esmini.web.backend.services import road_geometry_service
+
+    road = tmp_path / "road.xodr"
+    shutil.copy(FABRIKSGATAN, road)
+    before = _chain(
+        plan_route(
+            road,
+            [
+                _world_point(road, 3, -1, 20.0),
+                _world_point(road, 2, -1, 30.0),
+            ],
+        )
+    )
+
+    shutil.copy(MULTI_INTERSECTIONS, road)
+    after = _chain(
+        plan_route(
+            road,
+            [
+                _world_point(road, 222, -1, 10.0),
+                _world_point(road, 196, -1, 31.0),
+            ],
+        )
+    )
+
+    assert before != after
+    assert {r for r, _ in after} & {222, 196}
+    assert road_geometry_service._ODR_LOADED["rm"] is not None

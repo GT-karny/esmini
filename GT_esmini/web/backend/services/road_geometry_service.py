@@ -24,6 +24,48 @@ logger = logging.getLogger(__name__)
 ESMINI_RM_LOCK = threading.Lock()
 _lock = ESMINI_RM_LOCK  # backward-compatible alias for existing call sites
 
+# Which xodr each DLL currently holds, so a repeat request does not re-parse it.
+#
+# Init() parses the whole map: 115 ms for multi_intersections.xodr against 17 ms
+# for fabriksgatan, and the route screen issues one snap AND one route-plan per
+# edit, so on a large map that alone was ~210 ms of every drag. esminiRMLib.dll
+# and GT_esminiLib.dll carry SEPARATE OpenDrive singletons, hence two slots.
+#
+# Keyed by (path, mtime, size): a road re-uploaded to the same path must not be
+# served from a stale parse. Every entry here is written under ESMINI_RM_LOCK.
+_ODR_LOADED: dict[str, tuple[str, float, int] | None] = {"rm": None, "gt": None}
+
+
+def _odr_stamp(xodr_path) -> tuple[str, float, int]:
+    stat = Path(xodr_path).stat()
+    return (str(Path(xodr_path).resolve()), stat.st_mtime, stat.st_size)
+
+
+def init_odr_cached(handle, xodr_path, slot: str, ok=lambda rc: rc >= 0) -> int:
+    """Init `handle` on `xodr_path` unless that DLL already holds it.
+
+    Caller must hold ESMINI_RM_LOCK. `slot` is "rm" (esminiRMLib) or "gt"
+    (GT_esminiLib). Returns the Init return code, or 0 when the load was reused.
+    """
+    try:
+        stamp = _odr_stamp(xodr_path)
+    except OSError:
+        stamp = None
+    if stamp is not None and _ODR_LOADED.get(slot) == stamp:
+        return 0
+    _ODR_LOADED[slot] = None  # a failed Init must not look like a live load
+    rc = handle.Init(str(xodr_path))
+    if ok(rc) and stamp is not None:
+        _ODR_LOADED[slot] = stamp
+    return rc
+
+
+def invalidate_odr_cache(slot: str | None = None) -> None:
+    """Forget a cached load -- after Close(), or when a map is replaced."""
+    for key in (slot,) if slot else tuple(_ODR_LOADED):
+        _ODR_LOADED[key] = None
+
+
 # Cache: xodr absolute path → geometry dict
 _cache: dict[str, dict] = {}
 
@@ -131,7 +173,7 @@ def extract_road_geometry(xodr_path: str | Path) -> dict:
     with _lock:
         try:
             rm = EsminiRMLib(lib_path)
-            ret = rm.Init(str(xodr_path))
+            ret = init_odr_cached(rm, xodr_path, "rm")
             if ret < 0:
                 logger.error("esminiRMLib.Init failed for %s (ret=%d)", xodr_path, ret)
                 return _empty_geometry()
@@ -151,10 +193,14 @@ def extract_road_geometry(xodr_path: str | Path) -> dict:
                 _extract_road_signs(rm, pos_handle, road_id, signs, stop_lines)
 
             rm.DeletePosition(pos_handle)
-            rm.Close()
+            # Deliberately NOT Close()d: the parse is what costs, and the route
+            # screen asks for geometry and routes over the same map in turn.
+            # `_cache` above already makes a repeat of THIS call free, so the
+            # load is kept for the route planner's sake, not this function's.
 
         except Exception:
             logger.exception("Failed to extract road geometry from %s", xodr_path)
+            invalidate_odr_cache("rm")
             try:
                 rm.Close()
             except Exception:
