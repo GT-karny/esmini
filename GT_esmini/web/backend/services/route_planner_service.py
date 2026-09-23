@@ -302,6 +302,15 @@ def _plan_leg(
         )
 
     # Clicked lane first so an exact tie keeps the user's choice.
+    #
+    # The opposite carriageway stays a candidate. Restricting substitutes to the
+    # clicked lane's own direction was tried and is worse: on fabriksgatan
+    # 3/-1 -> 0/+1 it turns a 134 m route into NO ROUTE, and on
+    # multi_intersections 202/-1 -> 217/+1 it costs 215.7 m -> 1567.6 m. Which
+    # carriageway a click lands on is decided by a few centimetres the user
+    # cannot aim at, so honouring it at that price serves nobody. What the user
+    # genuinely cannot see is WHICH side the route ends up on -- so that is
+    # reported (see lane_adjustments / opposite_direction) rather than legislated.
     candidates = [goal["lane_id"]] + [
         ln
         for ln in _drivable_lanes(rm, goal["road_id"], goal["s"])
@@ -607,13 +616,28 @@ def plan_route(xodr_path, points: list[dict], strategy: str = "shortest") -> dic
             )
             if arrived_lane != leg_goal["lane_id"]:
                 # Report, never hide: the route is shorter but it does not end in
-                # the lane that was clicked.
+                # the lane that was clicked. Whether it ended on the OPPOSITE
+                # carriageway is the part of that a map click cannot express and
+                # the drawn line does not show at map zoom -- an adjacent lane is
+                # a near-miss, the other side of the centre line is a different
+                # destination, and both look like 3.75 m on screen.
+                clicked_direction = lib.GetLaneDrivingDirection(
+                    leg_goal["road_id"], leg_goal["lane_id"], leg_goal["s"]
+                )
+                arrived_direction = lib.GetLaneDrivingDirection(
+                    leg_goal["road_id"], arrived_lane, leg_goal["s"]
+                )
                 lane_adjustments.append(
                     {
                         "index": leg_index + 1,
                         "road_id": leg_goal["road_id"],
                         "clicked_lane": leg_goal["lane_id"],
                         "arrived_lane": arrived_lane,
+                        "opposite_direction": bool(
+                            clicked_direction
+                            and arrived_direction
+                            and clicked_direction != arrived_direction
+                        ),
                     }
                 )
             if waypoints and leg_wps:

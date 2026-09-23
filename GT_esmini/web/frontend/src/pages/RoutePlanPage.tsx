@@ -424,6 +424,7 @@ export function RoutePlanPage() {
                             {adjusted.arrived_lane > 0
                               ? `+${adjusted.arrived_lane}`
                               : adjusted.arrived_lane}
+                            {adjusted.opposite_direction && ' · opposite side'}
                           </span>
                         )}
                       </span>

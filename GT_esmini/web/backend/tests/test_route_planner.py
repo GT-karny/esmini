@@ -532,7 +532,13 @@ def test_turn_is_not_routed_the_long_way_when_the_clicked_goal_lane_is_unreachab
     assert plan["length"] < 300.0, f"route is a detour: {plan['length']:.1f} m"
     assert _chain(plan) == [(197, 1), (206, -1), (209, -2)]
     assert plan["lane_adjustments"] == [
-        {"index": 1, "road_id": 209, "clicked_lane": -1, "arrived_lane": -2}
+        {
+            "index": 1,
+            "road_id": 209,
+            "clicked_lane": -1,
+            "arrived_lane": -2,
+            "opposite_direction": False,
+        }
     ]
 
 
@@ -554,3 +560,52 @@ def test_detour_check_fires_without_goal_lane_relaxation(monkeypatch):
 
     assert plan["length"] > 900.0, f"expected the detour back, got {plan['length']:.1f}"
     assert plan["lane_adjustments"] == []
+
+
+@requires_libs
+def test_arrival_on_the_other_carriageway_is_reported_as_such():
+    """`opposite_direction` separates a near-miss from a different destination.
+
+    Both look like 3.75 m on the map and neither is visible in the drawn line at
+    map zoom, but one ends the route facing the way the user pointed and the
+    other does not. multi_intersections 196/-1 -> 222/+1 can only be reached on
+    the far carriageway; 197/+1 -> 209/-1 lands one lane over on the same one.
+    """
+    across = plan_route(
+        MULTI_INTERSECTIONS,
+        [
+            _world_point(MULTI_INTERSECTIONS, 196, -1, 10.0),
+            _world_point(MULTI_INTERSECTIONS, 222, 1, 40.0),
+        ],
+    )
+    alongside = plan_route(
+        MULTI_INTERSECTIONS,
+        [
+            _world_point(MULTI_INTERSECTIONS, 197, 1, 69.0),
+            _world_point(MULTI_INTERSECTIONS, 209, -1, 83.0),
+        ],
+    )
+
+    assert [a["opposite_direction"] for a in across["lane_adjustments"]] == [True]
+    assert [a["opposite_direction"] for a in alongside["lane_adjustments"]] == [False]
+
+
+@requires_libs
+def test_the_other_carriageway_stays_a_candidate_when_nothing_else_reaches():
+    """Pins the decision NOT to restrict substitutes to the clicked direction.
+
+    Doing so reads as the safe choice and is not: on fabriksgatan 3/-1 -> 0/+1
+    it leaves no route at all, and on multi_intersections 202/-1 -> 217/+1 it
+    costs 215.7 m -> 1567.6 m. Which carriageway a click lands on is decided by
+    a few centimetres, so it is reported (above), not enforced.
+    """
+    plan = plan_route(
+        FABRIKSGATAN,
+        [
+            _world_point(FABRIKSGATAN, 3, -1, 20.0),
+            _world_point(FABRIKSGATAN, 0, 1, 30.0),
+        ],
+    )
+
+    assert plan["length"] < 200.0, f"expected a short route, got {plan['length']:.1f} m"
+    assert [a["opposite_direction"] for a in plan["lane_adjustments"]] == [True]

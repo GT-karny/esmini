@@ -1043,6 +1043,9 @@ export interface RouteLaneAdjustment {
   road_id: number;
   clicked_lane: number;
   arrived_lane: number;
+  /** The route ended on the other carriageway -- a different destination, not a
+   *  neighbouring lane. Both look like 3.75 m on the map. */
+  opposite_direction?: boolean;
 }
 
 export interface BuildFromRouteBody {
