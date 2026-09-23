@@ -235,8 +235,48 @@ def _snap_points(rm, pos_handle, points: list[dict]) -> list[dict]:
     return snapped
 
 
-def _plan_leg(lib, start: dict, goal: dict, strategy: int) -> tuple[list, list, float]:
-    """Route one start->goal leg. Returns (waypoints, lane_changes, length)."""
+def _drivable_lanes(rm, road_id: int, s: float) -> list[int]:
+    """Drivable lane ids on a road at s (empty if the query fails)."""
+    try:
+        n = rm.GetRoadNumberOfDrivableLanes(road_id, s)
+    except Exception:
+        return []
+    lanes: list[int] = []
+    for i in range(n or 0):
+        res = rm.GetDrivableLaneIdByIndex(road_id, i, s)
+        lane_id = res[1] if isinstance(res, tuple) else res
+        if lane_id is not None:
+            lanes.append(int(lane_id))
+    return lanes
+
+
+def _plan_leg(
+    rm, lib, start: dict, goal: dict, strategy: int
+) -> tuple[list, list, float, int]:
+    """Route one start->goal leg. Returns (waypoints, lane_changes, length, goal_lane).
+
+    THE DESTINATION LANE IS NEGOTIABLE; THE START LANE IS NOT.
+    ----------------------------------------------------------
+    LaneIndependentRouter matches the target lane EXACTLY on the final hop: it
+    will not accept "arrive on the destination road in a neighbouring lane and
+    change lanes there". A click that lands one lane off therefore does not give a
+    slightly different route -- it gives a completely different one.
+
+    Measured on multi_intersections, road 197 lane +1 -> road 209:
+        -> lane -2 :   3 roads,  168 m   (the right turn a driver would make;
+                                          junction 146's connector 206 delivers
+                                          197/+1 into 209/-2 and nowhere else)
+        -> lane -1 :  13 roads, 1086 m   (a loop, because nothing connects INTO -1)
+        -> lane +1 :  11 roads,  913 m
+    The user clicked lane -1 and got the 1086 m loop, which reads as a broken
+    router. It is not: it is an exact-match constraint meeting a click whose lane
+    was incidental.
+
+    So each leg's GOAL lane is relaxed to any drivable lane of that road, shortest
+    wins, and the lane actually arrived in is reported back so the UI can say so.
+    The START lane is left alone -- that is where the vehicle physically is, and
+    moving it would put the car somewhere the user did not ask for.
+    """
     same_road = start["road_id"] == goal["road_id"]
     same_lane = start["lane_id"] == goal["lane_id"]
     if same_road and same_lane:
@@ -258,17 +298,40 @@ def _plan_leg(lib, start: dict, goal: dict, strategy: int) -> tuple[list, list, 
             ],
             [],
             abs(goal["s"] - start["s"]),
+            start["lane_id"],
         )
 
-    rc = lib.CalcRouteInDrivingDirection(
-        start["road_id"],
-        start["lane_id"],
-        start["s"],
-        goal["road_id"],
-        goal["lane_id"],
-        goal["s"],
-        strategy,
-    )
+    # Clicked lane first so an exact tie keeps the user's choice.
+    candidates = [goal["lane_id"]] + [
+        ln
+        for ln in _drivable_lanes(rm, goal["road_id"], goal["s"])
+        if ln != goal["lane_id"]
+    ]
+
+    best: tuple[float, int, list, list] | None = None
+    for lane_id in candidates:
+        rc_try = lib.CalcRouteInDrivingDirection(
+            start["road_id"],
+            start["lane_id"],
+            start["s"],
+            goal["road_id"],
+            lane_id,
+            goal["s"],
+            strategy,
+        )
+        if rc_try < 0:
+            continue
+        length = lib.GetRouteLength()
+        if length < 0:
+            continue
+        if best is None or length < best[0] - 1e-6:
+            best = (length, lane_id, lib.GetRouteWaypoints(), lib.GetLaneChanges())
+
+    if best is not None:
+        length, lane_id, wps, lcs = best
+        return wps, lcs, length, lane_id
+
+    rc = -2
     if rc < 0:
         # NOTE: the header documents -1 for bad args and -2 for "no route", but in
         # practice invalid road/lane ids also come back as -2 (only a missing map
@@ -280,13 +343,101 @@ def _plan_leg(lib, start: dict, goal: dict, strategy: int) -> tuple[list, list, 
             f"to road {goal['road_id']} lane {goal['lane_id']}.",
             {"rc": int(rc), "start": start, "goal": goal},
         )
-    return lib.GetRouteWaypoints(), lib.GetLaneChanges(), lib.GetRouteLength()
+    return (
+        lib.GetRouteWaypoints(),
+        lib.GetLaneChanges(),
+        lib.GetRouteLength(),
+        goal["lane_id"],
+    )
 
 
 _PATH_STEP_M = 2.0
+_SEAM_EPS_M = 0.01
+# A lane narrower than this is a taper stub, not somewhere a car sits. Used to
+# decide WHERE along a road a lane change gets drawn (see _lane_change_windows).
+_LANE_MIN_USABLE_M = 2.0
+# How long the drawn lane change takes. Drawing it as an instant sideways jump
+# reads as a glitch; a real change takes a few seconds at road speed.
+_LANE_CHANGE_BLEND_M = 25.0
 
 
-def _sample_route_path(rm, lib, pos_handle, waypoints: list[dict]) -> list[dict]:
+def _lane_width(rm, road_id: int, lane_id: int, s: float) -> float:
+    """Width of one lane at one s, or 0.0 if it cannot be had."""
+    try:
+        res = rm.GetLaneWidthByRoadId(road_id, lane_id, s)
+    except Exception:  # pragma: no cover - defensive, ctypes-level failure
+        return 0.0
+    if not res:
+        return 0.0
+    rc, width = res
+    return float(width) if rc == 0 else 0.0
+
+
+def _lane_chain(road_id: int, exit_lane_id: int, lane_changes: list[dict]) -> list[int]:
+    """The lanes the route occupies on one road, in travel order.
+
+    A waypoint names the lane the route LEAVES a road on. When the route also
+    has to change lanes on that road, the lane it ARRIVES on is only in the
+    lane-change list -- drawing the whole road on the waypoint's lane is what
+    put the line on the centre line (see _sample_route_path).
+    """
+    changes = [lc for lc in lane_changes if int(lc["road_id"]) == int(road_id)]
+    if not changes:
+        return [exit_lane_id]
+    chain = [int(changes[0]["from_lane_id"])]
+    for lc in changes:
+        chain.append(int(lc["to_lane_id"]))
+    if chain[-1] != exit_lane_id:
+        chain.append(exit_lane_id)
+    return chain
+
+
+def _lane_change_windows(rm, road_id, chain, start, end):
+    """Place each lane change of one road along the travelled span.
+
+    A change is drawn where the target lane is actually there to move into: a
+    turn pocket that opens 50 m before a junction is entered where it opens,
+    not at the far end of the road where its width is still zero. Widths are
+    read from the road, so this needs no per-map tuning.
+
+    Returns [(s_from, s_to, from_lane, to_lane), ...] in travel order.
+    """
+    if len(chain) < 2:
+        return []
+    direction = 1.0 if end >= start else -1.0
+    span = abs(end - start)
+    probes = [
+        start + direction * min(k * _PATH_STEP_M, span)
+        for k in range(int(span / _PATH_STEP_M) + 2)
+    ]
+
+    windows = []
+    cursor = start
+    for lane_a, lane_b in zip(chain, chain[1:]):
+        widths = [(s, _lane_width(rm, road_id, lane_b, s)) for s in probes]
+        widest = max((w for _, w in widths), default=0.0)
+        # Half of the lane's own maximum, so a uniform lane opens immediately
+        # and a taper opens halfway up. The floor keeps a lane that is narrow
+        # everywhere from being declared absent.
+        threshold = max(0.5, min(_LANE_MIN_USABLE_M, 0.5 * widest))
+        s_open = cursor
+        for s, w in widths:
+            if (s - cursor) * direction < 0:
+                continue
+            if w >= threshold:
+                s_open = s
+                break
+        s_done = s_open + direction * _LANE_CHANGE_BLEND_M
+        if (s_done - end) * direction > 0:
+            s_done = end
+        windows.append((s_open, s_done, lane_a, lane_b))
+        cursor = s_done
+    return windows
+
+
+def _sample_route_path(
+    rm, lib, pos_handle, waypoints: list[dict], lane_changes: list[dict]
+) -> list[dict]:
     """Sample the route along lane centres so it can be DRAWN as the road runs.
 
     Joining waypoints with straight lines looks fine on a straight road and lies
@@ -299,6 +450,13 @@ def _sample_route_path(rm, lib, pos_handle, waypoints: list[dict]) -> list[dict]
       * the last waypoint ends at its own s, earlier ones at the road's exit
     Entry/exit depend on the lane's legal driving direction, not on lane-id sign
     (which is inverted under left-hand traffic).
+
+    Within a road the route may change lanes, and then the waypoint's lane is
+    only the lane it LEAVES on. Sampling that lane for the whole road draws the
+    line on a lane that is not there yet: a turn pocket has width 0 upstream of
+    its taper, and a zero-width lane's centre IS the road reference line -- the
+    centre line. So the lane chain is followed, and each change is drawn where
+    the target lane opens.
     """
     path: list[dict] = []
     last = len(waypoints) - 1
@@ -314,18 +472,56 @@ def _sample_route_path(rm, lib, pos_handle, waypoints: list[dict]) -> list[dict]
         start = wp["s"] if i == 0 else entry
         end = wp["s"] if i == last else exit_
 
+        chain = _lane_chain(road_id, lane_id, lane_changes)
+        windows = _lane_change_windows(rm, road_id, chain, start, end)
+        travel = 1.0 if end >= start else -1.0
+
         span = abs(end - start)
         steps = max(1, int(span / _PATH_STEP_M))
         for k in range(steps + 1):
             s_val = start + (end - start) * (k / steps)
             # Clamp: s slightly past either end is rejected and would silently
             # drop a sample, leaving a visible notch at every road boundary.
-            s_val = min(max(s_val, 0.0), length)
-            rm.SetLanePosition(pos_handle, road_id, lane_id, 0.0, s_val, True)
-            res, data = rm.GetPositionData(pos_handle)
-            if res == 0:
-                path.append({"x": float(data.x), "y": float(data.y)})
+            # Nudge off the exact boundary. At s == 0 or s == length the position
+            # sits on the seam between two roads and lane identity is ambiguous --
+            # the sample can resolve onto a NEIGHBOURING connector, putting one
+            # point of the line off the lane at every junction.
+            s_val = min(max(s_val, _SEAM_EPS_M), max(length - _SEAM_EPS_M, 0.0))
+
+            lane_here = chain[0]
+            blend_to = None
+            frac = 0.0
+            for s_open, s_done, lane_a, lane_b in windows:
+                if (s_val - s_open) * travel < 0:
+                    break
+                if (s_val - s_done) * travel >= 0:
+                    lane_here = lane_b
+                    continue
+                lane_here = lane_a
+                blend_to = lane_b
+                frac = (s_val - s_open) / (s_done - s_open) if s_done != s_open else 1.0
+                break
+
+            point = _lane_centre_xy(rm, pos_handle, road_id, lane_here, s_val)
+            if point is None:
+                continue
+            if blend_to is not None:
+                target = _lane_centre_xy(rm, pos_handle, road_id, blend_to, s_val)
+                if target is not None:
+                    point = {
+                        "x": point["x"] + (target["x"] - point["x"]) * frac,
+                        "y": point["y"] + (target["y"] - point["y"]) * frac,
+                    }
+            path.append(point)
     return path
+
+
+def _lane_centre_xy(rm, pos_handle, road_id: int, lane_id: int, s: float):
+    rm.SetLanePosition(pos_handle, road_id, lane_id, 0.0, s, True)
+    res, data = rm.GetPositionData(pos_handle)
+    if res != 0:
+        return None
+    return {"x": float(data.x), "y": float(data.y)}
 
 
 def plan_route(xodr_path, points: list[dict], strategy: str = "shortest") -> dict:
@@ -402,11 +598,24 @@ def plan_route(xodr_path, points: list[dict], strategy: str = "shortest") -> dic
 
         waypoints: list[dict] = []
         lane_changes: list[dict] = []
+        lane_adjustments: list[dict] = []
         total_length = 0.0
         for leg_index in range(len(snapped) - 1):
-            leg_wps, leg_lcs, leg_len = _plan_leg(
-                lib, snapped[leg_index], snapped[leg_index + 1], strategy_id
+            leg_goal = snapped[leg_index + 1]
+            leg_wps, leg_lcs, leg_len, arrived_lane = _plan_leg(
+                rm, lib, snapped[leg_index], leg_goal, strategy_id
             )
+            if arrived_lane != leg_goal["lane_id"]:
+                # Report, never hide: the route is shorter but it does not end in
+                # the lane that was clicked.
+                lane_adjustments.append(
+                    {
+                        "index": leg_index + 1,
+                        "road_id": leg_goal["road_id"],
+                        "clicked_lane": leg_goal["lane_id"],
+                        "arrived_lane": arrived_lane,
+                    }
+                )
             if waypoints and leg_wps:
                 # Seam: each leg reports its own start road, so leg N's last waypoint
                 # and leg N+1's first describe the same place. Drop the duplicate,
@@ -429,7 +638,7 @@ def plan_route(xodr_path, points: list[dict], strategy: str = "shortest") -> dic
         # process-global OpenDrive.
         path_handle = rm.CreatePosition()
         try:
-            path = _sample_route_path(rm, lib, path_handle, waypoints)
+            path = _sample_route_path(rm, lib, path_handle, waypoints, lane_changes)
         finally:
             rm.DeletePosition(path_handle)
 
@@ -437,6 +646,7 @@ def plan_route(xodr_path, points: list[dict], strategy: str = "shortest") -> dic
         "waypoints": waypoints,
         "path": path,
         "lane_changes": lane_changes,
+        "lane_adjustments": lane_adjustments,
         "length": total_length,
         "diagnostic": "ok",
         "snapped": snapped,

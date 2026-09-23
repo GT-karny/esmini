@@ -33,6 +33,7 @@ from GT_esmini.web.backend.services.route_planner_service import (
 
 FABRIKSGATAN = RESOURCES_DIR / "xodr" / "fabriksgatan.xodr"
 HIGHWAY = RESOURCES_DIR / "xodr" / "highway_example_with_merge_and_split.xodr"
+MULTI_INTERSECTIONS = RESOURCES_DIR / "xodr" / "multi_intersections.xodr"
 
 _libs_present = Path(ESMINI_RM_LIB).is_file() and Path(GT_ESMINI_LIB).is_file()
 requires_libs = pytest.mark.skipif(
@@ -348,3 +349,208 @@ def test_snap_reports_a_missed_point_instead_of_raising():
     assert results[0]["on_road"] is True
     assert results[1]["on_road"] is False
     assert results[1]["reason"] in {"off_road", "not_routable"}
+
+
+# ---------------------------------------------------------------------------
+# Drawn path: the line must follow the lane the route is IN, not only the lane
+# it leaves each road on
+# ---------------------------------------------------------------------------
+
+
+def _centre_line_hits(xodr: Path, path: list[dict]) -> list[tuple[int, int, float]]:
+    """Path points sitting on a two-way road's reference line == its centre line.
+
+    A zero-width lane's centre IS the reference line, so a path drawn on a turn
+    pocket upstream of its taper lands exactly on the centre line. This is the
+    measurement that names that failure; the two-way test is road-level on
+    purpose, so the very stretch where the pocket has collapsed to nothing --
+    where a per-s test would see no opposing lane and stay quiet -- still counts.
+    """
+    import sys
+
+    from GT_esmini.web.backend.config import GT_SCRIPTS_DIR
+
+    if str(GT_SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(GT_SCRIPTS_DIR))
+    from rm_lib import EsminiRMLib  # type: ignore[attr-defined]
+
+    from GT_esmini.web.backend.services.road_geometry_service import ESMINI_RM_LOCK
+
+    hits: list[tuple[int, int, float]] = []
+    twoway: dict[int, bool] = {}
+    with ESMINI_RM_LOCK:
+        rm = EsminiRMLib(str(ESMINI_RM_LIB))
+        assert rm.Init(str(xodr)) >= 0
+        handle = rm.CreatePosition()
+        try:
+            for index, point in enumerate(path):
+                px, py = float(point["x"]), float(point["y"])
+                rm.SetWorldXYHPosition(handle, px, py, 0.0)
+                _, data = rm.GetPositionData(handle)
+                road, s = int(data.roadId), float(data.s)
+                if road not in twoway:
+                    length = rm.GetRoadLength(road) or 0.0
+
+                    def widest(lane_id: int, road: int = road, length: float = length):
+                        return max(
+                            rm.GetLaneWidthByRoadId(road, lane_id, length * f)[1]
+                            for f in (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.999)
+                        )
+
+                    twoway[road] = widest(1) > 0.1 and widest(-1) > 0.1
+                if not twoway[road]:
+                    continue
+                rm.SetLanePosition(handle, road, 0, 0.0, s, True)
+                _, ref = rm.GetPositionData(handle)
+                distance = math.hypot(px - float(ref.x), py - float(ref.y))
+                if distance < 1.0:
+                    hits.append((index, road, round(distance, 3)))
+        finally:
+            rm.DeletePosition(handle)
+    return hits
+
+
+@requires_libs
+def test_drawn_path_avoids_the_centre_line_where_a_turn_pocket_has_not_opened():
+    """road 222 -> road 196 through road 202, whose lane +1 is a turn pocket.
+
+    multi_intersections road 202 declares lane +1 with three width records: full
+    3.75 m up to s=33.5, a taper to s=59, then flat ZERO. The route arrives on
+    road 202 at s=109 and must leave on lane +1, so for the first ~50 m the lane
+    it leaves on does not physically exist. Drawing the whole road on that lane
+    put 32 of 130 points exactly on the road's reference line -- the centre line.
+    """
+    start = _world_point(MULTI_INTERSECTIONS, 222, -1, 10.0)
+    goal = _world_point(MULTI_INTERSECTIONS, 196, -1, 31.0)
+    plan = plan_route(MULTI_INTERSECTIONS, [start, goal])
+
+    # Preconditions: this is the case with the pocket, and a change into it.
+    assert (202, 1) in _chain(plan)
+    assert [
+        (lc["road_id"], lc["from_lane_id"], lc["to_lane_id"])
+        for lc in plan["lane_changes"]
+    ] == [(202, 2, 1)]
+
+    assert _centre_line_hits(MULTI_INTERSECTIONS, plan["path"]) == []
+
+
+@requires_libs
+def test_centre_line_check_fires_when_the_lane_chain_is_ignored(monkeypatch):
+    """Negative control for the test above.
+
+    Without it, `== []` would also pass if `_centre_line_hits` never measured
+    anything. Restoring the old rule -- draw every road on the waypoint's exit
+    lane -- must put points back on the centre line.
+    """
+    from GT_esmini.web.backend.services import route_planner_service
+
+    monkeypatch.setattr(
+        route_planner_service,
+        "_lane_chain",
+        lambda road_id, exit_lane_id, lane_changes: [exit_lane_id],
+    )
+    start = _world_point(MULTI_INTERSECTIONS, 222, -1, 10.0)
+    goal = _world_point(MULTI_INTERSECTIONS, 196, -1, 31.0)
+    plan = route_planner_service.plan_route(MULTI_INTERSECTIONS, [start, goal])
+
+    hits = _centre_line_hits(MULTI_INTERSECTIONS, plan["path"])
+    assert len(hits) > 10, f"expected the old rule to hit the centre line, got {hits}"
+    assert all(road == 202 for _, road, _ in hits)
+
+
+@requires_libs
+def test_lane_change_is_drawn_where_the_pocket_opens_not_at_the_road_entry():
+    """The change into road 202's lane +1 belongs at the taper, not at s=109.
+
+    Placing it at the road entry would be the other way to keep the line off the
+    centre line, and it would be wrong: it draws the car sitting in a lane that
+    has not started yet.
+    """
+    import sys
+
+    from GT_esmini.web.backend.config import GT_SCRIPTS_DIR
+
+    start = _world_point(MULTI_INTERSECTIONS, 222, -1, 10.0)
+    goal = _world_point(MULTI_INTERSECTIONS, 196, -1, 31.0)
+    plan = plan_route(MULTI_INTERSECTIONS, [start, goal])
+
+    if str(GT_SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(GT_SCRIPTS_DIR))
+    from rm_lib import EsminiRMLib  # type: ignore[attr-defined]
+
+    from GT_esmini.web.backend.services.road_geometry_service import ESMINI_RM_LOCK
+
+    with ESMINI_RM_LOCK:
+        rm = EsminiRMLib(str(ESMINI_RM_LIB))
+        assert rm.Init(str(MULTI_INTERSECTIONS)) >= 0
+        handle = rm.CreatePosition()
+        try:
+            # Highest s at which the drawn line is still off lane +2's centre.
+            # Travel on road 202 is -s, so that is where the change STARTS.
+            departed_at = None
+            for point in plan["path"]:
+                px, py = float(point["x"]), float(point["y"])
+                rm.SetWorldXYHPosition(handle, px, py, 0.0)
+                _, data = rm.GetPositionData(handle)
+                if int(data.roadId) != 202:
+                    continue
+                s = float(data.s)
+                rm.SetLanePosition(handle, 202, 2, 0.0, s, True)
+                _, lane2 = rm.GetPositionData(handle)
+                if math.hypot(px - float(lane2.x), py - float(lane2.y)) > 0.2:
+                    departed_at = s if departed_at is None else max(departed_at, s)
+        finally:
+            rm.DeletePosition(handle)
+
+    assert departed_at is not None, "the line never left lane +2"
+    # The pocket is zero-width above s=59, so the change must start below it --
+    # and not be deferred until after the taper has fully opened (s=33.5).
+    assert 30.0 < departed_at < 59.0, f"lane change started at s={departed_at}"
+
+
+# ---------------------------------------------------------------------------
+# Goal lane: the router matches the target lane exactly on the final hop, so a
+# click on a lane the connector does not feed must not cost the whole turn
+# ---------------------------------------------------------------------------
+
+
+@requires_libs
+def test_turn_is_not_routed_the_long_way_when_the_clicked_goal_lane_is_unreachable():
+    """road 197 -> road 209 on multi_intersections: a turn, ~168 m.
+
+    Connector 206 delivers road 197/+1 into road 209 on lane -2 only. The router
+    matches the target lane EXACTLY on the final hop, so a click on lane -1 --
+    the outer lane, 3.75 m from the one the connector feeds, and the one a user
+    naturally aims at -- made the turn unroutable and sent the route round the
+    block instead. The arrival lane is relaxed to the shortest reachable lane on
+    the goal road, and the substitution is reported rather than hidden.
+    """
+    start = _world_point(MULTI_INTERSECTIONS, 197, 1, 69.0)
+    goal = _world_point(MULTI_INTERSECTIONS, 209, -1, 83.0)
+    plan = plan_route(MULTI_INTERSECTIONS, [start, goal])
+
+    assert plan["length"] < 300.0, f"route is a detour: {plan['length']:.1f} m"
+    assert _chain(plan) == [(197, 1), (206, -1), (209, -2)]
+    assert plan["lane_adjustments"] == [
+        {"index": 1, "road_id": 209, "clicked_lane": -1, "arrived_lane": -2}
+    ]
+
+
+@requires_libs
+def test_detour_check_fires_without_goal_lane_relaxation(monkeypatch):
+    """Negative control: with only the clicked lane tried, the detour comes back.
+
+    `_drivable_lanes` supplies the alternative arrival lanes, so emptying it
+    leaves `_plan_leg` with the clicked lane alone -- the pre-fix behaviour.
+    """
+    from GT_esmini.web.backend.services import route_planner_service
+
+    start = _world_point(MULTI_INTERSECTIONS, 197, 1, 69.0)
+    goal = _world_point(MULTI_INTERSECTIONS, 209, -1, 83.0)
+    monkeypatch.setattr(
+        route_planner_service, "_drivable_lanes", lambda rm, road_id, s: []
+    )
+    plan = route_planner_service.plan_route(MULTI_INTERSECTIONS, [start, goal])
+
+    assert plan["length"] > 900.0, f"expected the detour back, got {plan['length']:.1f}"
+    assert plan["lane_adjustments"] == []
