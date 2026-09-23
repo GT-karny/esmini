@@ -234,6 +234,22 @@ export function RouteMapView({
     }
   };
 
+  /** Terminate whatever gesture is running without losing a drag.
+   *
+   *  Releasing outside the map (or a cancelled pointer) does not fire the svg's
+   *  pointerup. If a point drag ended that way and its commit were skipped, the
+   *  page would stay in "dragging" forever and never snap or re-plan again --
+   *  the exact symptom this whole change set out to fix. Pointer capture usually
+   *  prevents it, but capture is best-effort here (it can throw), so this path
+   *  has to be correct on its own.
+   */
+  const endGesture = () => {
+    const g = gesture.current;
+    gesture.current = { kind: 'idle' };
+    setPanning(false);
+    if (g.kind === 'point' && g.moved) onCommitPoint(g.index);
+  };
+
   const routeLine = useMemo(() => {
     if (!plan) return '';
     const pts = plan.path?.length ? plan.path : plan.waypoints;
@@ -252,10 +268,8 @@ export function RouteMapView({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerLeave={() => {
-          gesture.current = { kind: 'idle' };
-          setPanning(false);
-        }}
+        onPointerLeave={endGesture}
+        onPointerCancel={endGesture}
         onContextMenu={(e) => e.preventDefault()}
       >
         {boundaries.map((b, i) => {

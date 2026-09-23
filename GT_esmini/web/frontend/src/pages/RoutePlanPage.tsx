@@ -35,6 +35,9 @@ import type { RoadBoundary } from '../lib/sceneGeometry';
  */
 
 const MAX_UNDO = 50;
+// Long enough to collapse a drag into one request, short enough to feel immediate.
+const SNAP_DEBOUNCE_MS = 120;
+const PLAN_DEBOUNCE_MS = 260;
 
 export function RoutePlanPage() {
   const [roads, setRoads] = useState<RoadListItem[]>([]);
@@ -56,6 +59,11 @@ export function RoutePlanPage() {
   const [traffic, setTraffic] = useState(false);
 
   const undoStack = useRef<RoutePlanPoint[][]>([]);
+  // Sequence guards: a response that has been superseded must not overwrite newer
+  // state. Without this a late reply re-applies a stale position after the user
+  // has already moved on.
+  const snapSeq = useRef(0);
+  const planSeq = useRef(0);
 
   const selectedRoad = useMemo(
     () => roads.find((r) => r.road_id === roadId) ?? null,
@@ -127,30 +135,44 @@ export function RoutePlanPage() {
   const snapAll = useCallback(
     async (pts: RoutePlanPoint[]) => {
       if (!roadId || pts.length === 0) return;
+      const seq = ++snapSeq.current;
       try {
         const res = await api.snapPoints(
           roadId,
           pts.map((p) => ({ x: p.x, y: p.y })),
         );
+        if (seq !== snapSeq.current) return; // superseded by a newer request
+        // Keyed by point id, NOT by array index. Index matching breaks the moment
+        // a point is deleted or inserted between request and response: every
+        // surviving point shifts, the ids stop lining up, and each result is
+        // discarded -- which looks like "it never snaps again".
+        const byId = new Map(pts.map((p, i) => [p.id, res.snapped[i] as SnapResult]));
         setPoints((cur) =>
-          cur.map((p, i) => {
-            // Only attach results to the points this request was about; a point
-            // added while it was in flight keeps waiting for its own snap.
-            const match = pts[i];
-            if (!match || match.id !== p.id) return p;
-            return { ...p, snap: res.snapped[i] as SnapResult };
-          }),
+          cur.map((p) => (byId.has(p.id) ? { ...p, snap: byId.get(p.id) } : p)),
         );
       } catch (e) {
-        setError(describeError(e));
+        if (seq === snapSeq.current) setError(describeError(e));
       }
     },
     [roadId],
   );
 
   const positionsKey = points.map((p) => `${p.id}:${p.x.toFixed(2)},${p.y.toFixed(2)}`).join('|');
+
+  // DEBOUNCED, not gated on a "is dragging" flag.
+  //
+  // A drag changes positions every pointermove, and snap (~30 ms) and route
+  // (~35 ms) both serialise behind one process-global OpenDrive lock on the
+  // server: firing per frame queues ~120 requests per second and the map never
+  // catches up. The first fix gated both on a dragging flag, but any missed
+  // release path (pointer leaving the map, a cancelled pointer, a capture that
+  // failed) left the flag stuck true and NOTHING ever snapped again -- turning a
+  // slowness bug into a dead UI. A debounce has no such state: the timer resets
+  // while positions keep changing and fires once they stop, so there is nothing
+  // that can be left latched.
   useEffect(() => {
-    void snapAll(points);
+    const t = setTimeout(() => void snapAll(points), SNAP_DEBOUNCE_MS);
+    return () => clearTimeout(t);
     // positionsKey collapses the array into a value so this runs on real position
     // changes only -- not on every snap result landing (which would loop).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,27 +185,33 @@ export function RoutePlanPage() {
       return;
     }
     let cancelled = false;
-    setPlanning(true);
-    setError(null);
-    api
-      .planRoute(
-        roadId,
-        points.map((p) => ({ x: p.x, y: p.y })),
-      )
-      .then((p) => {
-        if (!cancelled) setPlan(p);
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          setPlan(null);
-          setError(describeError(e));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setPlanning(false);
-      });
+    // Longer than the snap debounce: routing is the heavier call and its result
+    // is less urgent than seeing where a point landed.
+    const timer = setTimeout(() => {
+      const seq = ++planSeq.current;
+      setPlanning(true);
+      setError(null);
+      api
+        .planRoute(
+          roadId,
+          points.map((p) => ({ x: p.x, y: p.y })),
+        )
+        .then((p) => {
+          if (!cancelled && seq === planSeq.current) setPlan(p);
+        })
+        .catch((e) => {
+          if (!cancelled && seq === planSeq.current) {
+            setPlan(null);
+            setError(describeError(e));
+          }
+        })
+        .finally(() => {
+          if (!cancelled && seq === planSeq.current) setPlanning(false);
+        });
+    }, PLAN_DEBOUNCE_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positionsKey, roadId]);
