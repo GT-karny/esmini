@@ -625,7 +625,8 @@ export interface ExecutionDefaults {
   record: boolean;
   no_realtime: boolean;
   timeout: number;
-  osi: { enabled: boolean; ip: string };
+  /** static_reporting: 0=first frame only, 1=API, 2=every frame (self-contained, large). */
+  osi: { enabled: boolean; ip: string; static_reporting?: number };
   autolight: boolean;
   vehicle_physics: boolean;
   kinematic_mode: boolean;
@@ -646,7 +647,8 @@ export interface SimulationRequest {
     hz: number;
     no_realtime: boolean;
     timeout: number;
-    osi: { enabled: boolean; ip: string };
+    /** static_reporting: 0=first frame only, 1=API, 2=every frame (self-contained, large). */
+    osi: { enabled: boolean; ip: string; static_reporting?: number };
     autolight: boolean;
     /** F6: pass --autolight-headlights (env-driven headlights, overrides config master switch). */
     autolight_headlights: boolean;
@@ -889,6 +891,120 @@ export interface VerdictResult {
   reason?: string;
   t?: number;
   idx?: number;
+}
+
+/** A point on a ReferenceLine: world position paired with its s, plus the t axis. */
+export interface LogicalReferenceLinePoint {
+  x: number;
+  y: number;
+  z: number;
+  s: number;
+  t_axis_yaw: number;
+}
+
+/** A point on a LogicalLaneBoundary: world position paired with BOTH s and t. */
+export interface LogicalBoundaryPoint {
+  x: number;
+  y: number;
+  z: number;
+  s: number;
+  t: number;
+}
+
+export interface LogicalLane {
+  id: number;
+  type: number;
+  reference_line: number;
+  start_s: number;
+  end_s: number;
+  move_direction: number;
+  left_boundary: number[];
+  right_boundary: number[];
+  /** `at_begin` says which END of the other lane this attaches to. */
+  predecessor: { lane: number; at_begin: boolean }[];
+  successor: { lane: number; at_begin: boolean }[];
+  left_adjacent: number[];
+  right_adjacent: number[];
+  /** OpenDRIVE provenance: road_id / road_s / lane_id. */
+  odr: Record<string, string>;
+}
+
+/**
+ * The static logical lane layer for a job.
+ *
+ * Carries geometry as well as topology, which is what makes it usable without
+ * the xodr: reference-line points pair world XYZ with s, boundary points pair
+ * world XYZ with (s, t). So a `logical_lanes` entry on a live ground-truth
+ * object can be turned into world coordinates from this payload alone.
+ */
+export interface LogicalLaneNetwork {
+  available: boolean;
+  error?: string;
+  note?: string;
+  job_id?: string;
+  lane_count?: number;
+  reference_line_count?: number;
+  boundary_count?: number;
+  lanes?: LogicalLane[];
+  reference_lines?: { id: number; points: LogicalReferenceLinePoint[] }[];
+  boundaries?: { id: number; passing_rule: number; points: LogicalBoundaryPoint[] }[];
+
+  // --- the rest of the static ground truth -------------------------------
+  // Physical lanes are a DIFFERENT model from logical lanes: they follow road
+  // markings, so an OSI intersection fuses every connecting path into one
+  // TYPE_INTERSECTION lane. Both are emitted and both are correct.
+  physical_lane_count?: number;
+  physical_lanes?: {
+    id: number;
+    type: number;
+    subtype: number;
+    centerline_is_driving_direction: boolean;
+    centerline: [number, number, number][];
+    left_adjacent: number[];
+    right_adjacent: number[];
+    lane_pairing: { antecessor: number | null; successor: number | null }[];
+    left_lane_boundary: number[];
+    right_lane_boundary: number[];
+    free_lane_boundary: number[];
+    source_reference: string[][];
+  }[];
+  physical_boundaries?: {
+    id: number;
+    type: number;
+    color: number;
+    points: [number, number, number][];
+  }[];
+  stationary_objects?: {
+    id: number;
+    type: number;
+    material: number;
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    length: number;
+    width: number;
+    height: number;
+    base_polygon: [number, number][];
+    source_reference: string[][];
+  }[];
+  traffic_signs?: {
+    id: number;
+    type: number;
+    value: number;
+    value_unit: number;
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    assigned_lane_id: number[];
+  }[];
+  host_vehicle_id?: number | null;
+  /** The OpenDRIVE <geoReference> verbatim (a PROJ string); empty when the asset has none. */
+  proj_string?: string;
+  map_reference?: string;
+  model_reference?: string;
+  osi_version?: string | null;
 }
 
 /** One recorded OSI scene frame (other traffic + signal phases) for replay. */
@@ -1267,6 +1383,16 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(config),
     }),
+
+  // OSI logical lane network (static -- served over REST, not the WebSocket).
+  //
+  // The layer is transmitted on the FIRST ground-truth frame only, so a client
+  // that connects mid-run has already missed it on the stream. The backend keeps
+  // that frame and serves it here. Check `available` before reading `lanes`:
+  // false means no bridge or no frame yet, while available + lane_count 0 means
+  // the frame arrived and simply carried no logical lanes.
+  getLogicalLaneNetwork: (jobId: string) =>
+    request<LogicalLaneNetwork>(`/api/osi/${jobId}/logical-lanes`),
 
   // Execution defaults
   getExecutionDefaults: () =>

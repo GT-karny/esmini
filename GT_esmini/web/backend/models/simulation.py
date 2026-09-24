@@ -272,8 +272,34 @@ class ControllerConfig(BaseModel):
 
 
 class OsiConfig(BaseModel):
-    enabled: bool = False
+    # True to match DEFAULT_EXECUTION_PARAMS (config.py) and the Run form, both of
+    # which have had OSI on for a long time. This fallback only applies when a
+    # request omits `osi` entirely, and it used to say False -- so the same field
+    # answered differently depending on which path built the request. Nothing
+    # visibly broke, but it makes "is OSI on by default?" unanswerable by reading
+    # one file, which is how it got misread during the v0.18.0 work.
+    enabled: bool = True
     ip: str = "127.0.0.1"
+
+    # How the STATIC ground truth (road network, signs, and since v0.18.0 the
+    # logical lane layer) is reported. Maps 1:1 onto esmini's
+    # --osi_static_reporting / SE_OSIStaticReportMode:
+    #
+    #   0 DEFAULT      first frame only. Smallest stream; a consumer that
+    #                  attaches late never sees the network.
+    #   1 API          every frame on the in-process API, first frame on the wire.
+    #   2 API_AND_LOG  every frame everywhere. Each frame is self-contained, so
+    #                  attach time stops mattering -- at a real cost. Measured on
+    #                  cut-in / e6mini (2026-09-25): mode 0 puts the static content
+    #                  on 1 frame of 40, mode 2 on 40 of 40, and every frame grows
+    #                  to ~283 KB. Larger networks scale with the road, not the
+    #                  scenario, so multi_intersections is several times that.
+    #
+    # Left at 0. The backend caches the first frame and serves the network over
+    # REST (/api/osi/{job}/logical-lanes), which solves late attachment without
+    # paying per-frame. Raise this when every frame must stand alone -- recording
+    # for an external consumer that cannot replay, mainly.
+    static_reporting: int = 0
 
 
 class WindowConfig(BaseModel):
