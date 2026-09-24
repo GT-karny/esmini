@@ -948,6 +948,63 @@ export interface LogicalLaneNetwork {
   lanes?: LogicalLane[];
   reference_lines?: { id: number; points: LogicalReferenceLinePoint[] }[];
   boundaries?: { id: number; passing_rule: number; points: LogicalBoundaryPoint[] }[];
+
+  // --- the rest of the static ground truth -------------------------------
+  // Physical lanes are a DIFFERENT model from logical lanes: they follow road
+  // markings, so an OSI intersection fuses every connecting path into one
+  // TYPE_INTERSECTION lane. Both are emitted and both are correct.
+  physical_lane_count?: number;
+  physical_lanes?: {
+    id: number;
+    type: number;
+    subtype: number;
+    centerline_is_driving_direction: boolean;
+    centerline: [number, number, number][];
+    left_adjacent: number[];
+    right_adjacent: number[];
+    lane_pairing: { antecessor: number | null; successor: number | null }[];
+    left_lane_boundary: number[];
+    right_lane_boundary: number[];
+    free_lane_boundary: number[];
+    source_reference: string[][];
+  }[];
+  physical_boundaries?: {
+    id: number;
+    type: number;
+    color: number;
+    points: [number, number, number][];
+  }[];
+  stationary_objects?: {
+    id: number;
+    type: number;
+    material: number;
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    length: number;
+    width: number;
+    height: number;
+    base_polygon: [number, number][];
+    source_reference: string[][];
+  }[];
+  traffic_signs?: {
+    id: number;
+    type: number;
+    value: number;
+    value_unit: number;
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    assigned_lane_id: number[];
+  }[];
+  host_vehicle_id?: number | null;
+  /** The OpenDRIVE <geoReference> verbatim (a PROJ string); empty when the asset has none. */
+  proj_string?: string;
+  map_reference?: string;
+  model_reference?: string;
+  osi_version?: string | null;
 }
 
 /** One recorded OSI scene frame (other traffic + signal phases) for replay. */
