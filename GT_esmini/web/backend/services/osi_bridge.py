@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 import struct
 import uuid
 from dataclasses import dataclass, field
@@ -21,6 +22,12 @@ logger = logging.getLogger(__name__)
 _HEADER_SIZE = 8  # 4 (counter) + 4 (size)
 _MAX_PACKET_SIZE = 8208  # 8192 data + 8 header (contract with esmini)
 
+# UDP receive buffer to ask the OS for. The static ground truth is one ~283 KB
+# message (e6mini) sent as ~35 unpaced 8 KB datagrams, so anything near the
+# ~64 KB default loses part of the burst and the frame never reassembles.
+# 4 MB holds a burst many times over and costs nothing when idle.
+_WANTED_RCVBUF = 4 * 1024 * 1024
+
 
 @dataclass
 class _StreamState:
@@ -28,6 +35,37 @@ class _StreamState:
 
     subscribers: dict[str, asyncio.Queue[bytes]] = field(default_factory=dict)
     transport: asyncio.DatagramTransport | None = None
+
+    # The message that actually CARRIES the static ground truth, kept verbatim.
+    #
+    # The static content -- lane / lane_boundary / traffic_sign /
+    # stationary_object and, since v0.18.0, reference_line / logical_lane /
+    # logical_lane_boundary -- is transmitted EXACTLY ONCE, on the first frame
+    # (OSIReporter::UpdateOSIGroundTruth's `!osi_initialized_` branch is the only
+    # one that calls SerializeDynamicAndStaticData; every later frame takes the
+    # DEFAULT static-report mode and serialises dynamic data only).
+    #
+    # The bridge starts before GT_Sim, so it is listening when that frame is
+    # sent -- but a WebSocket client that connects once the run is under way is
+    # not, and nothing replays it. Keeping the frame here is what lets a late
+    # subscriber still obtain the road network (see OSIBridge.static_frame).
+    #
+    # This deliberately is NOT "the first complete message". That was the first
+    # implementation and it did not work: the static frame is by far the largest
+    # (283 KB on e6mini = ~35 UDP packets) and therefore the likeliest to lose a
+    # packet, and a lost packet resets reassembly -- so the first message to
+    # COMPLETE is usually a later, dynamic-only one. Measured in the packaged
+    # build: available=true with lane_count 0, which reads as "the road has no
+    # lanes" rather than "the frame was dropped". Same failure shape as the UDP
+    # drop that silently substituted an empty scene in the verification harness.
+    static_frame: bytes | None = None
+
+    # How many more frames to inspect before giving up on finding static content.
+    # Bounded so a run whose static frame really was lost does not parse every
+    # frame forever; `static_missing` then says so, which is actionable (raise
+    # osi.static_reporting to 2 and every frame carries it).
+    static_scan_left: int = 200
+    static_missing: bool = False
 
 
 class _OSIProtocol(asyncio.DatagramProtocol):
@@ -79,6 +117,8 @@ class _OSIProtocol(asyncio.DatagramProtocol):
 
     def _dispatch(self, complete_msg: bytes) -> None:
         """Push raw protobuf bytes to all subscribers."""
+        self._capture_static(complete_msg)
+
         for sub_id, queue in list(self._stream.subscribers.items()):
             try:
                 queue.put_nowait(complete_msg)
@@ -89,6 +129,51 @@ class _OSIProtocol(asyncio.DatagramProtocol):
                     queue.put_nowait(complete_msg)
                 except (asyncio.QueueEmpty, asyncio.QueueFull):
                     pass
+
+    def _capture_static(self, complete_msg: bytes) -> None:
+        """Remember the frame that carries the static ground truth, if this is it.
+
+        Parses, because "is this the static frame" cannot be answered from the
+        byte length or the arrival order (see _StreamState.static_frame). Bounded
+        by `static_scan_left`, and it stops entirely once found -- so the cost is
+        a handful of small parses at the start of a run, not per frame forever.
+        """
+        st = self._stream
+        if self._label != "GroundTruth":
+            return  # HostVehicleData has no static content
+        if st.static_frame is not None or st.static_scan_left <= 0:
+            return
+
+        st.static_scan_left -= 1
+        if st.static_scan_left == 0:
+            st.static_missing = True
+            logger.warning(
+                "OSI bridge saw no static ground truth in the first frames; the "
+                "road network will be unavailable over REST. The static frame is "
+                "sent once and is large enough to lose a UDP packet -- raise "
+                "osi.static_reporting to 2 to have every frame carry it."
+            )
+
+        try:
+            gt = GroundTruth()
+            gt.ParseFromString(complete_msg)
+        except Exception:  # noqa: BLE001 - a truncated frame is not fatal here
+            return
+
+        # Any of these means the static block travelled with this frame. `lane`
+        # is the broadest test (every road network has lanes); the logical layer
+        # is checked too so a build with GT_OSI_LOGICAL_LANE=0 still yields a
+        # usable static payload.
+        if gt.lane or gt.logical_lane or gt.stationary_object or gt.traffic_sign:
+            st.static_frame = complete_msg
+            st.static_missing = False
+            logger.info(
+                "OSI bridge captured the static ground truth (%d bytes, "
+                "%d lanes, %d logical lanes)",
+                len(complete_msg),
+                len(gt.lane),
+                len(gt.logical_lane),
+            )
 
     def _reset(self) -> None:
         self._buffer = b""
@@ -120,6 +205,7 @@ class OSIBridge:
         self._gt = _StreamState()
         self._hvd = _StreamState()
         self._running = False
+        self._rcvbuf = -1  # granted receive buffer, filled in by _make_socket
 
     @property
     def running(self) -> bool:
@@ -134,21 +220,58 @@ class OSIBridge:
 
         _, gt_protocol = await loop.create_datagram_endpoint(
             lambda: _OSIProtocol(self._gt, "GroundTruth"),
-            local_addr=(self._bind_ip, self._gt_port),
+            sock=self._make_socket(self._gt_port),
         )
         _, hvd_protocol = await loop.create_datagram_endpoint(
             lambda: _OSIProtocol(self._hvd, "HostVehicleData"),
-            local_addr=(self._bind_ip, self._hvd_port),
+            sock=self._make_socket(self._hvd_port),
         )
 
         self._running = True
         logger.info(
-            "OSI Bridge started (GT=%s:%d, HVD=%s:%d)",
+            "OSI Bridge started (GT=%s:%d, HVD=%s:%d, rcvbuf=%d)",
             self._bind_ip,
             self._gt_port,
             self._bind_ip,
             self._hvd_port,
+            self._rcvbuf,
         )
+
+    def _make_socket(self, port: int) -> socket.socket:
+        """A bound UDP socket with a receive buffer big enough for the static frame.
+
+        The default receive buffer (~64 KB on Windows) cannot hold the static
+        ground truth: it is ~283 KB on e6mini, sent as ~35 back-to-back 8 KB
+        datagrams with no pacing. The buffer overflows mid-burst, a datagram is
+        dropped, reassembly resets, and the frame is lost -- every time, so the
+        road network simply never arrived over UDP. Measured in the packaged
+        v0.18.1 build before this change: 200 frames scanned, zero carrying
+        static content.
+
+        Sized to hold a whole burst several times over. The kernel may clamp the
+        request, which is why the granted size is logged rather than assumed.
+        """
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, _WANTED_RCVBUF)
+        except OSError as exc:  # pragma: no cover - platform dependent
+            logger.warning("could not raise SO_RCVBUF: %s", exc)
+        try:
+            self._rcvbuf = s.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+        except OSError:  # pragma: no cover
+            self._rcvbuf = -1
+        if 0 <= self._rcvbuf < _WANTED_RCVBUF // 2:
+            logger.warning(
+                "the OS granted only %d bytes of UDP receive buffer (asked for %d); "
+                "the static ground truth may still be lost -- raise "
+                "osi.static_reporting to 2 if the road network does not appear",
+                self._rcvbuf,
+                _WANTED_RCVBUF,
+            )
+        s.bind((self._bind_ip, port))
+        s.setblocking(False)
+        return s
 
     async def stop(self) -> None:
         """Stop listening and clean up."""
@@ -163,6 +286,27 @@ class OSIBridge:
 
         self._running = False
         logger.info("OSI Bridge stopped")
+
+    @property
+    def static_frame(self) -> bytes | None:
+        """The first GroundTruth frame, or None if nothing has arrived yet.
+
+        This is the only frame that carries the static ground truth (road
+        network, signs, and the logical lane layer). Consumers that need the
+        network but connected after the run started read it from here rather
+        than waiting for a replay that never comes.
+        """
+        return self._gt.static_frame
+
+    @property
+    def static_missing(self) -> bool:
+        """True once the scan gave up without finding a static-bearing frame.
+
+        Distinguishable from "not yet": this says the network is not coming, and
+        why (see _StreamState.static_frame), so the caller can say something
+        useful instead of leaving the user staring at an empty road.
+        """
+        return self._gt.static_missing
 
     def subscribe_gt(
         self, subscriber_id: str | None = None

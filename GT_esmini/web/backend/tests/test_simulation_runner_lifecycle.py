@@ -168,8 +168,28 @@ def test_build_cmd_osi_enabled_passes_ip(tmp_path):
 
 
 def test_build_cmd_osi_disabled_omits_flag(tmp_path):
-    cmd = runner._build_cmd(tmp_path / "scn.xosc", _exec_config(), tmp_path)
+    # Disabled is stated, not inherited. This used to call _exec_config() with no
+    # osi argument and lean on OsiConfig's default being False -- so the test
+    # silently asserted two things at once, and flipping the default (2026-09-25,
+    # to match DEFAULT_EXECUTION_PARAMS and the Run form) broke it even though
+    # nothing about flag omission had changed. The default now has its own test.
+    cmd = runner._build_cmd(
+        tmp_path / "scn.xosc",
+        _exec_config(osi=OsiConfig(enabled=False)),
+        tmp_path,
+    )
     assert "--osi" not in cmd
+
+
+def test_osi_is_enabled_by_default(tmp_path):
+    """Omitting `osi` gets OSI, matching DEFAULT_EXECUTION_PARAMS and the Run form.
+
+    The three fallbacks (this model, backend config, frontend request builder)
+    disagreed for a long time, which made "is OSI on by default?" depend on which
+    path built the request. Pin it here so they cannot drift apart again silently.
+    """
+    cmd = runner._build_cmd(tmp_path / "scn.xosc", _exec_config(), tmp_path)
+    assert "--osi" in cmd
 
 
 def test_build_cmd_autolight_flags_are_independent(tmp_path):

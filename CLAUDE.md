@@ -119,6 +119,7 @@ Use `/package --version <VERSION>` skill for automated build. See `.claude/skill
 - **Branches**: `master` (stable) → `dev_v0.<N>` (development integration) → `feature/*` (feature work)
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`)
 - **PR flow**: `feature/*` → `dev_v0.<N>` → `master`
+- **Branch number vs release version**: `dev_v0.<N>` の `<N>` は**そのサイクルが minor を 1 つ上げる前提の予約**であって確定値ではない。リリース番号は締めのときに中身で決まる（semver）ので、**フィックスだけのサイクルはパッチ止まり**になり、以後ブランチ番号が恒久的に先行する。実際 `dev_v0.17` が v0.16.1 として出た時点でずれ、v0.17.0 は `dev_v0.18` から出ている。**締めで決めたバージョンとブランチ番号が食い違ったら、PR を作る前にリモートのブランチ名を合わせること**（`/release` §4 に手順）。合わせずに出すとずれが次サイクルへ平行移動する。
 - **GitHub CLI**: `gh` can resolve the upstream parent (`esmini/esmini`). `gh repo set-default GT-karny/esmini` is set in this clone (re-run it in fresh clones); write operations must still pass `-R GT-karny/esmini` (enforced by the guard hook).
 
 ## 8. Claude Code Harness

@@ -19,7 +19,7 @@
                gate. Skip with -SkipOdr.
 
       Step 1.6 - OSI logical lane probes (HARD gate)
-               Runs the five in-process probes that cover the OSI logical lane
+               Runs the six in-process probes that cover the OSI logical lane
                layer (spine-work:osi-logical-lane): connectivity, boundary
                deviation, lane assignment, HostVehicleData.route and the payload
                size invariant. They exist because the behavioural batch (Step 2)
@@ -28,7 +28,11 @@
                conformance are not reachable from it. Left as manual probes they
                would rot exactly like the --profile full OSI goldens did (stale
                for three months, found 2026-09-24). Each probe exits nonzero on
-               failure; total runtime ~13 s. probe_hvd_route runs with
+               failure; total runtime ~20 s. The last one is broader than the
+               others: probe_osi_web_field_coverage asserts that every field the
+               engine populates reaches the web layer or is a stated omission,
+               which is how the logical lane layer being invisible in the GUI for
+               a whole release would have been caught. probe_hvd_route runs with
                --skip-udp: the socket path is environment-flaky and its
                in-process checks already cover the payload. Skip with
                -SkipOsiProbes.
@@ -719,7 +723,12 @@ if ($SkipOsiProbes) {
         @{ Name = "probe_osi_logical_lane_boundary";     Args = @() },
         @{ Name = "probe_osi_logical_lane_assignment";   Args = @() },
         @{ Name = "probe_hvd_route";                     Args = @("--skip-udp") },
-        @{ Name = "probe_osi_logical_lane_size";         Args = @() }
+        @{ Name = "probe_osi_logical_lane_size";         Args = @() },
+        # Not about the logical lane layer specifically: it asserts that EVERY
+        # field the engine populates reaches the web layer, or is listed as a
+        # deliberate omission. The whitelist projections silently dropped the
+        # whole logical lane layer for a release before anyone noticed.
+        @{ Name = "probe_osi_web_field_coverage";        Args = @() }
     )
 
     if ([string]::IsNullOrWhiteSpace($osiPy) -or -not (Test-Path $osiPy)) {
@@ -745,7 +754,7 @@ if ($SkipOsiProbes) {
             Write-Host "Step 1.6: FAIL -- $($osiFailed -join ', ')" -ForegroundColor Red
             $overallOk = $false
         } else {
-            Write-Host "Step 1.6: PASS (5 probes)" -ForegroundColor Green
+            Write-Host "Step 1.6: PASS ($($osiProbes.Count) probes)" -ForegroundColor Green
         }
     }
 }

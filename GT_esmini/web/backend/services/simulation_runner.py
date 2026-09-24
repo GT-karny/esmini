@@ -606,6 +606,10 @@ def _build_cmd(
         cmd.extend(["--hz", str(execution.hz)])
     if execution.osi.enabled:
         cmd.extend(["--osi", execution.osi.ip])
+        # Only worth passing when it differs from esmini's own default (0), so a
+        # normal run's command line stays as it was.
+        if execution.osi.static_reporting:
+            cmd.extend(["--osi_static_reporting", str(execution.osi.static_reporting)])
     if execution.autolight:
         cmd.append("--autolight")
     # F6: environment-driven headlights. --autolight-headlights is self-sufficient

@@ -25,7 +25,10 @@ const DEFAULT_EXECUTION: SimulationExecution = {
   hz: 100,
   no_realtime: false,
   timeout: 120,
-  osi: { enabled: false, ip: '127.0.0.1' },
+  // On, matching the backend's DEFAULT_EXECUTION_PARAMS and SimulationRunForm's
+  // own default. This fallback only applies when a caller omits `osi`; it used to
+  // be false, which made the effective default depend on the call site.
+  osi: { enabled: true, ip: '127.0.0.1' },
   autolight: false,
   autolight_headlights: false,
   vehicle_physics: false,

@@ -1,10 +1,8 @@
 # OSI 論理レーンと HostVehicleData.route — 規格モデルと GT の現状
 
-> ステータス: **T / S0 / S1 / S4 / S2.5 / S2.5b / S3 完了。S2 / S5 が未実装**（2026-09-24）。
-> したがって §3-1 の表はそれより前の姿である — `reference_line[]` / `logical_lane[]` /
-> `logical_lane_boundary[]` / `logical_lane_assignment[]` と `HostVehicleData.route`（§3-3）は
-> **既定で出る**（`GT_OSI_LOGICAL_LANE=0` で opt-out、設計書 §7-3）。
-> まだ出ていないのは連結性（`predecessor/successor/adjacent`、S2）だけ。
+> ステータス: **全段完了。`v3.4.1_GTv0.18.0`（2026-09-24）で公開済み。**
+> 論理レーン層は**既定で出る**（`GT_OSI_LOGICAL_LANE=0` で opt-out、設計書 §7-3）。
+> 未実装として残るのは `overlapping_lane` と L3 のみ（設計書 §10）。
 > 本書は「規格が何を要求しているか」と「GT が今どこまで
 > 出しているか」を突き合わせた現状記録であり、実装方針は
 > [`logical_lane_and_route_design.md`](logical_lane_and_route_design.md) にある。
@@ -32,11 +30,15 @@ Route
 `logical_lane_id` が実在しない id を指す。値は入っているのに参照が無言で壊れている状態になり、
 順序を入れ替えることはできない。
 
-**ブロッカーは 1 つだけで、logical lane を誰も出していないことである。**
+**着手時点のブロッカーは 1 つだけで、logical lane を誰も出していないことだった。**
 `GroundTruth.logical_lane` はフィールドとしては v10 / v11 いずれにも定義があるが、
-core esmini も GT_esmini も C++ では一切埋めていない（リポジトリ全体の grep で当たるのは
-`EnvironmentSimulator/code-examples/` の C# サンプルのみ）。GT が出しているのは `osi_lane` で、
+core esmini も GT_esmini も C++ では一切埋めていなかった（リポジトリ全体の grep で当たるのは
+`EnvironmentSimulator/code-examples/` の C# サンプルのみ）。GT が出していたのは `osi_lane` で、
 これは後述のとおり別モデルである。
+
+> **解消済み（2026-09-24、`v3.4.1_GTv0.18.0`）。** GT は論理レーン層を既定で出すようになった。
+> 現況は §3-1、規格モデルとの差は §2 のまま有効。**upstream の core esmini は依然として
+> 出していない**ので、この節の「誰も出していない」は upstream に対しては今も正しい。
 
 ---
 
@@ -204,11 +206,28 @@ using the LogicalLaneAssignment of the objects.` と、この合成を前提に�
 | :-- | :-- | :-- |
 | `lane[]` | 出している | `GT_OSIReporter_Geometry.cpp` `UpdateOSIRoadLane()` |
 | `lane_boundary[]` | 出している | 同 `UpdateOSILaneBoundary()` |
-| `reference_line[]` | **出していない** | — |
-| `logical_lane_boundary[]` | **出していない** | — |
-| `logical_lane[]` | **出していない** | — |
-| `moving_object[].moving_object_classification.assigned_lane_id[]` | 出している（物理レーンの global id、deprecated field4 との dual emit） | `GT_OSIReporter_Moving.cpp:977-979` |
-| `moving_object[].moving_object_classification.logical_lane_assignment[]` | **出していない** | — |
+| `reference_line[]` | 出している（道路 1 本につき 1 本） | `GT_OSIReporter_LogicalLane.cpp` `BuildOsiLogicalLanesInto()` — `CreateOSIStaticGroundTruthFromODR()` から 1 度だけ |
+| `logical_lane_boundary[]` | 出している（レーン端すべて、ST 座標付き） | 同上 |
+| `logical_lane[]` | 出している（OpenDRIVE レーンと 1:1、**交差点の接続路レーンも個別に**。前後・左右の連結あり） | 同上 |
+| `moving_object[].moving_object_classification.assigned_lane_id[]` | 出している（**物理**レーンの global id、deprecated field4 との dual emit） | `GT_OSIReporter_Moving.cpp:983-984` |
+| `moving_object[].moving_object_classification.logical_lane_assignment[]` | 出している（**論理**レーンの id + s/t/角度。車線跨ぎ中は 2 本） | `GT_OSIReporter_LogicalLane.cpp` `EmitLogicalLaneAssignment()` — `GT_OSIReporter_Moving.cpp:985` から毎フレーム |
+
+> 物理と論理は**両方出しており、どちらも正しい**。交差点では前者が junction の global id
+> （融合された `TYPE_INTERSECTION` レーン）を、後者が接続路レーンそのものを指す。
+> 片方だけ直すと既存の消費側が壊れるため、意図的に別の正しさを持たせている（§3-2）。
+
+**実測**（`scripts/probe_osi_logical_lane_size.py`、リリース版 `v0.18.0`）:
+
+| 資産 | `reference_line[]` | `logical_lane[]` | 論理境界の点数 | 割当/フレーム |
+| :-- | --: | --: | --: | --: |
+| e6mini | 1 | 14 | 1,084 | 4 |
+| fabriksgatan | 16 | 44 | 729 | 2 |
+| multi_intersections | 63 | 242 | 6,514 | 1 |
+| soderleden | 5 | 33 | 847 | 1 |
+| highway_merge_split | 9 | 53 | 633 | 2 |
+
+`GT_OSI_LOGICAL_LANE=0` にすると上記 3 フィールドと割当がすべて 0 になる（同プローブが
+両極性を常設ゲート Step 1.6 で検査している）。
 
 ### 3-2. 交差点の扱いが規格と逆向きになっている
 
@@ -221,21 +240,26 @@ using the LogicalLaneAssignment of the objects.` と、この合成を前提に�
 join が外れる。
 
 規格は交差点について逆を要求している（§2-1 の引用: each driving path is one LogicalLane）。
-つまり **交差点の中は「既存の osi_lane を作り直す」のではなく、今まったく出していないものを
-新規に出す**ことになる。ここが実装量の主な塊であると同時に、`signal:ego_lane` の join 欠けを
-論理レーン面で解消できる余地でもある。
+つまり **交差点の中は「既存の osi_lane を作り直す」のではなく、当時まったく出していなかったものを
+新規に出す**ことになった。実装量の主な塊はここで、あわせて `signal:ego_lane` の join 欠けが
+論理レーン面で解消されている（実測: multi_intersections で接続路レーン **76/76** に前後接続、
+物理側が融合 junction レーンを指す 23 オブジェクトフレームで論理側が junction id を指した回数 **0/23**）。
 
 ### 3-3. HostVehicleData 側
 
 `GT_HostVehicleReporter` は `UpdateFromObjectState(const scenarioengine::Object* egoObj)` で
-ego の `Object` を受けており、`egoObj->pos_.GetRoute()` に届く。したがって経路そのものへの
-アクセス経路は既にある。`route` を埋めていないのは配線の不在であって、材料の不在ではない。
+ego の `Object` を受けており、`egoObj->pos_.GetRoute()` に届く。
 
-`capability_model.md` §2.2a の **W4** 行がこれを既に記録している。
+**`route` は S4 で埋まった**（`FillRoute()` + 経路キャッシュ + `route_id` カウンタ）。VD を
+経由しないので、手動運転や DefaultController の ego でも経路があれば出る。`capability_model.md`
+§2.2a の **W4** 行の `route` は S5 で解消済み。残っているのは `custom_state` /
+`DriverOverride` / `vehicle_motion.current_curvature`。
 
-> `custom_detail` / `custom_state` / `DriverOverride` / 実 `Name` 列挙 / **`route`** /
-> `vehicle_motion.current_curvature` が populate されていない（`GT_HostVehicleReporter.cpp:343-350`）
-> — 状態: 一部（`custom_state`/`DriverOverride`/**`route`**/`current_curvature` は未着手）
+> **索引が空だと `route` も空になる。** 論理レーンの索引を埋める後段パスは
+> `UpdateOSIGroundTruth()` の初回にしか走らないため、**HVD だけを有効にして OSI GroundTruth を
+> 一度も出していないセッションでは全ルックアップが外れる**（実測: OSI 出力なしで HVD 384 B /
+> セグメント 0、`GT_OpenOSISocket` を足すと 11,212 B）。空の `route` は「経路が尽きた」と
+> 区別できないので、`GT_HostVehicleReporter` に一度だけの `LOG_WARN` を入れてある。
 
 ---
 
