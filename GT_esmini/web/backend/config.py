@@ -160,7 +160,9 @@ DEFAULT_EXECUTION_PARAMS: dict[str, Any] = {
     "record": False,
     "no_realtime": False,
     "timeout": 60,
-    "osi": {"enabled": True, "ip": "127.0.0.1"},
+    # static_reporting: 0=first frame only, 1=API, 2=every frame everywhere.
+    # See OsiConfig (models/simulation.py) for the cost of raising it.
+    "osi": {"enabled": True, "ip": "127.0.0.1", "static_reporting": 0},
     "autolight": True,
     "vehicle_physics": True,
     "kinematic_mode": False,

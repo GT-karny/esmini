@@ -29,6 +29,21 @@ class _StreamState:
     subscribers: dict[str, asyncio.Queue[bytes]] = field(default_factory=dict)
     transport: asyncio.DatagramTransport | None = None
 
+    # First complete message on this stream, kept verbatim.
+    #
+    # The static GroundTruth -- lane / lane_boundary / traffic_sign /
+    # stationary_object and, since v0.18.0, reference_line / logical_lane /
+    # logical_lane_boundary -- is transmitted EXACTLY ONCE, on the first frame
+    # (OSIReporter::UpdateOSIGroundTruth's `!osi_initialized_` branch is the only
+    # one that calls SerializeDynamicAndStaticData; every later frame takes the
+    # DEFAULT static-report mode and serialises dynamic data only).
+    #
+    # The bridge starts before GT_Sim, so IT always sees that frame -- but a
+    # WebSocket client that connects once the run is under way does not, and
+    # nothing replays it. Keeping the frame here is what lets a late subscriber
+    # still obtain the road network (see OSIBridge.static_frame).
+    first_frame: bytes | None = None
+
 
 class _OSIProtocol(asyncio.DatagramProtocol):
     """asyncio DatagramProtocol that reassembles multi-packet OSI messages."""
@@ -79,6 +94,12 @@ class _OSIProtocol(asyncio.DatagramProtocol):
 
     def _dispatch(self, complete_msg: bytes) -> None:
         """Push raw protobuf bytes to all subscribers."""
+        # Keep the first frame verbatim: it is the only one carrying the static
+        # ground truth (see _StreamState.first_frame). Cheap -- one assignment,
+        # no parsing, and only on the very first message of the stream.
+        if self._stream.first_frame is None:
+            self._stream.first_frame = complete_msg
+
         for sub_id, queue in list(self._stream.subscribers.items()):
             try:
                 queue.put_nowait(complete_msg)
@@ -163,6 +184,17 @@ class OSIBridge:
 
         self._running = False
         logger.info("OSI Bridge stopped")
+
+    @property
+    def static_frame(self) -> bytes | None:
+        """The first GroundTruth frame, or None if nothing has arrived yet.
+
+        This is the only frame that carries the static ground truth (road
+        network, signs, and the logical lane layer). Consumers that need the
+        network but connected after the run started read it from here rather
+        than waiting for a replay that never comes.
+        """
+        return self._gt.first_frame
 
     def subscribe_gt(
         self, subscriber_id: str | None = None

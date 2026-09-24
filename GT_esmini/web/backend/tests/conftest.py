@@ -17,3 +17,15 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+# The osi3 protobuf bindings are vendored under scripts/, not installed into the
+# venv (root CLAUDE.md section 5: "osi3 bindings are vendored under scripts/").
+#
+# Until 2026-09-25 no conftest said so, and the OSI test modules imported osi3 at
+# module scope anyway -- they passed only because some EARLIER test in the same
+# process had already put scripts/ on sys.path as a side effect. Running one of
+# them on its own failed with ModuleNotFoundError. Make it explicit so the suite
+# does not depend on collection order.
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))

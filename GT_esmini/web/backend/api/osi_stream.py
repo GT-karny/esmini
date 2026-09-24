@@ -179,6 +179,24 @@ def _gt_to_json(raw: bytes) -> dict | None:
             "width": width,
         }
         entry.update(_extract_lights(obj))
+
+        # Logical lane assignment (v0.18.0). Per-frame and small: one entry per
+        # lane the body overlaps by more than 5 cm, so normally one and two while
+        # the object straddles a lane boundary. The lane NETWORK those ids point
+        # into is static and comes from the REST endpoint below, not from here --
+        # re-sending it every frame would be megabytes.
+        assignments = [
+            {
+                "lane": a.assigned_lane_id.value,
+                "s": round(a.s_position, 3),
+                "t": round(a.t_position, 3),
+                "angle": round(a.angle_to_lane, 4),
+            }
+            for a in obj.moving_object_classification.logical_lane_assignment
+        ]
+        if assignments:
+            entry["logical_lanes"] = assignments
+
         objects.append(entry)
 
     # Traffic lights: each lamp (red/yellow/green) is a separate osi3.TrafficLight.
@@ -324,6 +342,143 @@ def _hvd_to_json(raw: bytes) -> dict | None:
         "speed": round(speed, 3),
         "adas_functions": _adas_functions_to_json(hvd),
     }
+
+
+def _logical_lane_network_to_json(raw: bytes) -> dict | None:
+    """Project the STATIC logical lane layer out of a GroundTruth frame.
+
+    Only the first frame of a run carries this (see osi_bridge._StreamState),
+    which is why it is served over REST instead of the WebSocket: a client that
+    connects mid-run has already missed it on the stream.
+
+    Geometry is included because it is what makes the layer usable without the
+    xodr -- ReferenceLine points carry (world XYZ, s) and boundary points carry
+    (world XYZ, s, t), so a consumer can turn a (lane, s, t) assignment from the
+    WebSocket into world coordinates with nothing but this payload. Measured
+    round-trip on v0.18.0: 24.9 mm lateral worst case, inside the 5 cm the
+    standard allows for the polyline approximation.
+    """
+    gt = GroundTruth()
+    try:
+        gt.ParseFromString(raw)
+    except DecodeError:
+        return None
+
+    reference_lines = [
+        {
+            "id": rl.id.value,
+            "points": [
+                {
+                    "x": round(p.world_position.x, 3),
+                    "y": round(p.world_position.y, 3),
+                    "z": round(p.world_position.z, 3),
+                    "s": round(p.s_position, 3),
+                    "t_axis_yaw": round(p.t_axis_yaw, 5),
+                }
+                for p in rl.poly_line
+            ],
+        }
+        for rl in gt.reference_line
+    ]
+
+    boundaries = [
+        {
+            "id": lb.id.value,
+            "passing_rule": lb.passing_rule,
+            "points": [
+                {
+                    "x": round(p.position.x, 3),
+                    "y": round(p.position.y, 3),
+                    "z": round(p.position.z, 3),
+                    "s": round(p.s_position, 3),
+                    "t": round(p.t_position, 3),
+                }
+                for p in lb.boundary_line
+            ],
+        }
+        for lb in gt.logical_lane_boundary
+    ]
+
+    lanes = []
+    for ll in gt.logical_lane:
+        # source_reference carries the OpenDRIVE provenance as prefixed strings
+        # ("road_id:3" / "road_s:0" / "lane_id:-1"), the same convention the
+        # physical Lane uses, so one parser serves both.
+        odr = {}
+        for sr in ll.source_reference:
+            for ident in sr.identifier:
+                key, _, val = ident.partition(":")
+                if key and val:
+                    odr[key] = val
+        lanes.append(
+            {
+                "id": ll.id.value,
+                "type": ll.type,
+                "reference_line": ll.reference_line_id.value,
+                "start_s": round(ll.start_s, 3),
+                "end_s": round(ll.end_s, 3),
+                "move_direction": ll.move_direction,
+                "left_boundary": [i.value for i in ll.left_boundary_id],
+                "right_boundary": [i.value for i in ll.right_boundary_id],
+                "predecessor": [
+                    {
+                        "lane": c.other_lane_id.value,
+                        "at_begin": c.at_begin_of_other_lane,
+                    }
+                    for c in ll.predecessor_lane
+                ],
+                "successor": [
+                    {
+                        "lane": c.other_lane_id.value,
+                        "at_begin": c.at_begin_of_other_lane,
+                    }
+                    for c in ll.successor_lane
+                ],
+                "left_adjacent": [r.other_lane_id.value for r in ll.left_adjacent_lane],
+                "right_adjacent": [
+                    r.other_lane_id.value for r in ll.right_adjacent_lane
+                ],
+                "odr": odr,
+            }
+        )
+
+    return {
+        "lane_count": len(lanes),
+        "reference_line_count": len(reference_lines),
+        "boundary_count": len(boundaries),
+        "lanes": lanes,
+        "reference_lines": reference_lines,
+        "boundaries": boundaries,
+    }
+
+
+@router.get("/api/osi/{job_id}/logical-lanes")
+async def get_logical_lane_network(job_id: str):
+    """The static logical lane network for a running job.
+
+    Returns 404 while no frame has arrived yet (the run has not started, or OSI
+    is disabled for it), and an empty network when the engine emitted none --
+    those are different situations and the payload says which.
+    """
+    bridge = get_bridge(job_id)
+    if bridge is None:
+        return {"error": "no OSI bridge for this job", "available": False}
+
+    raw = bridge.static_frame
+    if raw is None:
+        return {"error": "no ground truth received yet", "available": False}
+
+    network = _logical_lane_network_to_json(raw)
+    if network is None:
+        return {"error": "could not decode the ground truth frame", "available": False}
+
+    if network["lane_count"] == 0:
+        # Distinguishable from "not available": the frame arrived and simply had
+        # no logical lanes (GT_OSI_LOGICAL_LANE=0, or a build without the layer).
+        network["note"] = "the ground truth carried no logical lanes"
+    network["available"] = True
+    network["job_id"] = job_id
+    return network
 
 
 @router.websocket("/ws/osi/{job_id}")
