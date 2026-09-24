@@ -742,7 +742,25 @@ async def get_logical_lane_network(job_id: str):
 
     raw = bridge.static_frame
     if raw is None:
-        return {"error": "no ground truth received yet", "available": False}
+        # "not yet" and "not coming" are different answers and the caller acts on
+        # them differently -- keep polling, versus tell the user to raise
+        # osi.static_reporting. Collapsing both into "unavailable" is what made
+        # the first version of this endpoint report an empty road network.
+        if bridge.static_missing:
+            return {
+                "available": False,
+                "static_missing": True,
+                "error": (
+                    "the static ground truth never arrived. It is sent once and is "
+                    "large enough to lose a UDP packet; set osi.static_reporting=2 "
+                    "to have every frame carry it."
+                ),
+            }
+        return {
+            "available": False,
+            "static_missing": False,
+            "error": "no static ground truth received yet",
+        }
 
     network = _logical_lane_network_to_json(raw)
     if network is None:

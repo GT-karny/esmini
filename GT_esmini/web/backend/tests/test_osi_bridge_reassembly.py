@@ -22,6 +22,7 @@ bitten by before).
 from __future__ import annotations
 
 import asyncio
+import socket
 import struct
 
 import pytest
@@ -244,7 +245,25 @@ def _patch_datagram_endpoint(monkeypatch):
     by MRO and never actually intercepts the real call)."""
     created = []
 
-    async def _fake_create_datagram_endpoint(protocol_factory, local_addr=None):
+    async def _fake_create_datagram_endpoint(
+        protocol_factory, local_addr=None, sock=None
+    ):
+        # The bridge hands over a socket it configured itself rather than a
+        # local_addr, so that it can raise SO_RCVBUF first: the static ground
+        # truth is one ~283 KB message sent as ~35 unpaced datagrams, and the
+        # default receive buffer loses part of the burst every time (measured in
+        # the packaged v0.18.1 build). Assert the socket is actually set up --
+        # accepting **kwargs here would let a regression through unnoticed.
+        if sock is not None:
+            assert sock.family == socket.AF_INET
+            assert sock.type == socket.SOCK_DGRAM
+            assert sock.getblocking() is False
+            assert sock.getsockname()[1] in (48198, 48199), "must be bound"
+            assert (
+                sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF) > 64 * 1024
+            ), "the receive buffer was not raised"
+            local_addr = sock.getsockname()
+            sock.close()  # the fake transport does not own it
         protocol = protocol_factory()
         transport = _FakeTransport()
         protocol.connection_made(transport)

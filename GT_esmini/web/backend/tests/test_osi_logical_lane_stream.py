@@ -4,13 +4,16 @@ Three things stood between the engine emitting logical lanes (v0.18.0) and the
 Electron GUI showing them, and each is pinned here:
 
 1. the static ground truth is transmitted on the FIRST frame only, so a client
-   that subscribes mid-run never sees it -> the bridge keeps that frame
+   that subscribes mid-run never sees it -> the bridge keeps the frame that
+   actually carries it (NOT simply the first frame -- see the test below)
 2. nothing projected the layer into JSON -> the REST endpoint does
 3. per-object assignments were dropped by _gt_to_json -> they are carried now
 
 The negative controls matter as much as the positive ones: a frame with no
 logical lanes must come back distinguishable from "no frame arrived", or the GUI
-cannot tell a disabled layer from a run that has not started.
+cannot tell a disabled layer from a run that has not started. Both of the bugs
+that survived into the packaged build were of that shape -- they reported an
+empty road rather than a missing one.
 """
 
 from __future__ import annotations
@@ -71,20 +74,42 @@ def _gt_with_logical_lanes() -> GroundTruth:
     return gt
 
 
-# --- 1. the bridge keeps the first frame -----------------------------------
+# --- 1. the bridge keeps the frame carrying static content -------------------
 
 
-def test_bridge_keeps_the_first_frame_for_late_subscribers():
+def _dynamic_only_frame() -> bytes:
+    """A frame with objects but no static content -- what a later frame looks like."""
+    gt = GroundTruth()
+    mo = gt.moving_object.add()
+    mo.id.value = 1
+    mo.base.position.x = 1.0
+    return gt.SerializeToString()
+
+
+def test_bridge_keeps_the_frame_that_actually_carries_static_content():
+    """NOT the first frame. The first implementation kept that and it failed.
+
+    The static frame is the largest (283 KB on e6mini = ~35 UDP packets) so it is
+    the likeliest to lose a packet, and a lost packet resets reassembly -- which
+    means the first message to COMPLETE is usually a later, dynamic-only one.
+    Measured in the packaged build: available=true with lane_count 0.
+    """
     stream = osi_bridge._StreamState()
     proto = osi_bridge._OSIProtocol(stream, "GroundTruth")
+    assert stream.static_frame is None
 
-    assert stream.first_frame is None, "nothing received yet"
+    dyn = _dynamic_only_frame()
+    static = _gt_with_logical_lanes().SerializeToString()
 
-    proto._dispatch(b"static-frame")
-    proto._dispatch(b"later-frame")
+    proto._dispatch(dyn)  # arrives first; carries nothing static
+    assert stream.static_frame is None, "a dynamic-only frame must not be kept"
 
-    # The FIRST frame is the one kept -- that is where the static ground truth is.
-    assert stream.first_frame == b"static-frame"
+    proto._dispatch(static)
+    assert stream.static_frame == static
+
+    # ... and it is not replaced by whatever comes next.
+    proto._dispatch(dyn)
+    assert stream.static_frame == static
 
 
 def test_bridge_caches_even_with_no_subscribers():
@@ -93,17 +118,42 @@ def test_bridge_caches_even_with_no_subscribers():
     proto = osi_bridge._OSIProtocol(stream, "GroundTruth")
     assert not stream.subscribers
 
-    proto._dispatch(b"static-frame")
+    proto._dispatch(_gt_with_logical_lanes().SerializeToString())
 
-    assert stream.first_frame == b"static-frame"
+    assert stream.static_frame is not None
+
+
+def test_bridge_gives_up_and_says_so_when_static_never_arrives():
+    """The lost-packet case. Silence here reads as "the road has no lanes"."""
+    stream = osi_bridge._StreamState(static_scan_left=3)
+    proto = osi_bridge._OSIProtocol(stream, "GroundTruth")
+    dyn = _dynamic_only_frame()
+
+    for _ in range(3):
+        proto._dispatch(dyn)
+
+    assert stream.static_frame is None
+    assert stream.static_missing is True, "must be reported, not merely absent"
+
+
+def test_bridge_scan_is_bounded():
+    """A run whose static frame was lost must not parse every frame forever."""
+    stream = osi_bridge._StreamState(static_scan_left=2)
+    proto = osi_bridge._OSIProtocol(stream, "GroundTruth")
+    for _ in range(50):
+        proto._dispatch(_dynamic_only_frame())
+    assert stream.static_scan_left == 0
 
 
 def test_static_frame_property_reads_the_gt_stream():
     bridge = osi_bridge.OSIBridge()
     assert bridge.static_frame is None
-    osi_bridge._OSIProtocol(bridge._gt, "GroundTruth")._dispatch(b"gt")
-    osi_bridge._OSIProtocol(bridge._hvd, "HostVehicleData")._dispatch(b"hvd")
-    assert bridge.static_frame == b"gt", "must not pick up the HVD stream"
+    static = _gt_with_logical_lanes().SerializeToString()
+    osi_bridge._OSIProtocol(bridge._gt, "GroundTruth")._dispatch(static)
+    # The HVD stream carries no static content and must never be scanned for it.
+    osi_bridge._OSIProtocol(bridge._hvd, "HostVehicleData")._dispatch(static)
+    assert bridge.static_frame == static
+    assert bridge._hvd.static_frame is None
 
 
 # --- 2. the REST projection -------------------------------------------------
@@ -203,8 +253,16 @@ def test_endpoint_serves_the_cached_static_frame(monkeypatch):
 
 
 def test_endpoint_distinguishes_empty_network_from_unavailable(monkeypatch):
+    """GT_OSI_LOGICAL_LANE=0: static content arrives, the logical layer is empty.
+
+    The frame still carries PHYSICAL lanes -- disabling the logical layer does
+    not disable the road network -- so it qualifies as the static frame and the
+    endpoint must say "available, but no logical lanes", not "unavailable".
+    """
     gt = GroundTruth()
     gt.moving_object.add().id.value = 1
+    ln = gt.lane.add()
+    ln.id.value = 7
     bridge = osi_bridge.OSIBridge()
     osi_bridge._OSIProtocol(bridge._gt, "GroundTruth")._dispatch(gt.SerializeToString())
     monkeypatch.setattr(osi_stream, "get_bridge", lambda job_id: bridge)
@@ -212,8 +270,22 @@ def test_endpoint_distinguishes_empty_network_from_unavailable(monkeypatch):
     out = _run(osi_stream.get_logical_lane_network("job-1"))
 
     assert out["available"] is True, "a frame DID arrive"
-    assert out["lane_count"] == 0
-    assert "note" in out, "and the payload says the layer was empty"
+    assert out["lane_count"] == 0, "no LOGICAL lanes"
+    assert out["physical_lane_count"] == 1, "but the road network is there"
+    assert "note" in out, "and the payload says the logical layer was empty"
+
+
+def test_endpoint_reports_static_missing_separately(monkeypatch):
+    """ "not yet" and "not coming" must not collapse into one answer."""
+    bridge = osi_bridge.OSIBridge()
+    bridge._gt.static_missing = True
+    monkeypatch.setattr(osi_stream, "get_bridge", lambda job_id: bridge)
+
+    out = _run(osi_stream.get_logical_lane_network("job-1"))
+
+    assert out["available"] is False
+    assert out["static_missing"] is True
+    assert "static_reporting" in out["error"], "the answer must be actionable"
 
 
 # --- the "always emit static" mode ------------------------------------------
